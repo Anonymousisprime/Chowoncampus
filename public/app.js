@@ -7,7 +7,8 @@ const state = {
   cart: [],
   account: null,
   lastOrderId: null,
-  agents: []
+  agents: [],
+  availableAgents: []
 };
 
 const money = amount => new Intl.NumberFormat("en-NG", {
@@ -390,6 +391,7 @@ function availableStatuses(order) {
 function renderOrderCard(order) {
   const statuses = availableStatuses(order);
   const canAssign = state.account.role === "admin" && order.status !== "Completed";
+  const canShowAvailableAgents = state.account.role === "restaurant" && order.status === "Ready for pickup" && !order.assignedAgentId;
   const canChangeStatus = statuses.length > 0 && !(order.status === "Completed");
   const canContactAgent = state.account.role === "restaurant" && order.assignedAgentId && ["Ready for pickup", "Out for delivery"].includes(order.status);
   const canDeliveryChat = ["Ready for pickup", "Out for delivery"].includes(order.status) && ((state.account.role === "restaurant" && order.assignedAgentId) || (state.account.role === "agent" && state.account.agentId === order.assignedAgentId));
@@ -406,7 +408,13 @@ function renderOrderCard(order) {
       ${order.restaurantLocation ? `<p>Restaurant pickup: ${escapeHtml(order.restaurantLocation)} <a target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.restaurantLocation)}">Open map</a></p>` : ""}
       <p class="order-items">${order.items.map(item => `${item.qty} × ${escapeHtml(item.name)}`).join(", ")}</p>
       <p>Total: <strong>${money(order.total)}</strong> · Payment: ${escapeHtml(order.paymentStatus)}</p>
-      ${order.assignedAgentId ? `<p>Assigned agent: <strong>${escapeHtml(order.assignedAgentId)}</strong></p>` : ""}
+      ${order.assignedAgentId ? `<p>Assigned agent: <strong>${escapeHtml(state.agents.find(agent => agent.id === order.assignedAgentId)?.name || order.assignedAgentId)}</strong></p>` : ""}
+      ${canShowAvailableAgents ? `
+        <section class="agent-contact" aria-live="polite">
+          <strong>Available delivery agents</strong>
+          ${state.availableAgents.length ? `<ul>${state.availableAgents.map(agent => `<li>${escapeHtml(agent.name)} — online and available</li>`).join("")}</ul><p class="tiny muted">The system assigns an available agent automatically. Refresh orders after an agent comes online.</p>` : '<p class="tiny muted">No agents are online and available right now. This order will wait until an agent comes online.</p>'}
+        </section>
+      ` : ""}
       ${canAssign ? `
         <div class="order-actions">
           <label>Assign agent
@@ -515,8 +523,14 @@ async function loadDashboard() {
     if (account.role === "admin") {
       const result = await api("/api/agents");
       state.agents = result.agents;
+      state.availableAgents = result.agents.filter(agent => agent.online && !agent.activeOrderId);
+    } else if (account.role === "restaurant") {
+      const result = await api("/api/agents/available");
+      state.availableAgents = result.agents;
+      state.agents = [];
     } else {
       state.agents = [];
+      state.availableAgents = [];
     }
 
     const { orders } = await api("/api/orders");

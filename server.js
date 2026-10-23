@@ -238,91 +238,28 @@ function setSessionCookie(res, token) {
   );
 }
 
-// Start sign-up by sending a real SMS verification code.
-// Phone numbers must use international format, e.g. +2348012345678.
-app.post("/api/student/register", async (req, res) => {
+// Student sign-up: no SMS verification yet. Phone numbers are collected but NOT marked verified.
+app.post("/api/student/register", (req, res) => {
   const name = String(req.body.name || "").trim();
   const phone = String(req.body.phone || "").trim();
   const password = String(req.body.password || "");
-
-  if (name.length < 2 || name.length > 100) {
-    return res.status(400).json({ error: "Enter your name (2–100 characters)." });
-  }
-  if (!/^\+[1-9]\d{7,14}$/.test(phone)) {
-    return res.status(400).json({ error: "Enter your phone in international format, e.g. +2348012345678." });
-  }
-  if (password.length < 10 || password.length > 128) {
-    return res.status(400).json({ error: "Use a password between 10 and 128 characters." });
-  }
-  if (!twilioVerifyConfigured()) {
-    return res.status(503).json({ error: "Phone verification is not configured yet. Please try again later." });
-  }
-
+  if (name.length < 2 || name.length > 100) return res.status(400).json({ error: "Enter your name (2–100 characters)." });
+  if (!/^\+[1-9]\d{7,14}$/.test(phone)) return res.status(400).json({ error: "Enter your phone in international format, e.g. +2348012345678." });
+  if (password.length < 10 || password.length > 128) return res.status(400).json({ error: "Use a password between 10 and 128 characters." });
   try {
-    const existing = readStudents().some(student => student.phone === phone);
-    if (existing) return res.status(409).json({ error: "An account already exists for this phone number. Please log in." });
-
-    await twilioVerifyRequest("/Verifications", { To: phone, Channel: "sms" });
-    const passwordData = hashPassword(password);
-    pendingStudentRegistrations.set(phone, {
-      name,
-      phone,
-      passwordSalt: passwordData.salt,
-      passwordHash: passwordData.hash,
-      expiresAt: Date.now() + 10 * 60 * 1000
-    });
-    res.status(202).json({ message: "Verification code sent by SMS. It expires in 10 minutes." });
-  } catch (error) {
-    res.status(502).json({ error: error.message || "Could not send a verification code." });
-  }
-});
-
-// Verify the SMS code before activating the account.
-app.post("/api/student/verify", async (req, res) => {
-  const phone = String(req.body.phone || "").trim();
-  const code = String(req.body.code || "").trim();
-  const pending = pendingStudentRegistrations.get(phone);
-
-  if (!pending || pending.expiresAt < Date.now()) {
-    pendingStudentRegistrations.delete(phone);
-    return res.status(400).json({ error: "Sign-up session expired. Please register again." });
-  }
-  if (!/^\d{4,10}$/.test(code)) {
-    return res.status(400).json({ error: "Enter the verification code from your SMS." });
-  }
-
-  try {
-    const verification = await twilioVerifyRequest("/VerificationCheck", { To: phone, Code: code });
-    if (verification.status !== "approved") {
-      return res.status(400).json({ error: "That code is not valid. Please try again." });
-    }
-
     const students = readStudents();
-    if (students.some(student => student.phone === phone)) {
-      pendingStudentRegistrations.delete(phone);
-      return res.status(409).json({ error: "An account already exists for this phone number." });
-    }
-    const student = {
-      id: crypto.randomUUID(),
-      name: pending.name,
-      phone: pending.phone,
-      passwordSalt: pending.passwordSalt,
-      passwordHash: pending.passwordHash,
-      role: "student",
-      verifiedPhone: true,
-      createdAt: new Date().toISOString()
-    };
+    if (students.some(student => student.phone === phone)) return res.status(409).json({ error: "An account already exists for this phone number. Please log in." });
+    const passwordData = hashPassword(password);
+    const student = { id: crypto.randomUUID(), name, phone, passwordSalt: passwordData.salt, passwordHash: passwordData.hash, role: "student", verifiedPhone: false, createdAt: new Date().toISOString() };
     students.push(student);
     saveStudents(students);
-    pendingStudentRegistrations.delete(phone);
-
     const account = { username: student.phone, role: "student", name: student.name };
     const token = crypto.randomBytes(32).toString("hex");
     sessions.set(token, account);
     setSessionCookie(res, token);
-    res.status(201).json({ account, message: "Phone verified. Your student account is ready." });
+    res.status(201).json({ account, message: "Account created. Your phone number has not been verified." });
   } catch (error) {
-    res.status(502).json({ error: error.message || "Verification could not be completed." });
+    res.status(500).json({ error: error.message || "Could not create your account." });
   }
 });
 
@@ -333,7 +270,7 @@ app.post("/api/student/login", (req, res) => {
   if (!phone || !password) return res.status(400).json({ error: "Enter your phone number and password." });
 
   try {
-    const student = readStudents().find(item => item.phone === phone && item.verifiedPhone);
+    const student = readStudents().find(item => item.phone === phone);
     if (!student || !passwordMatches(password, student)) {
       return res.status(401).json({ error: "Incorrect phone number or password." });
     }

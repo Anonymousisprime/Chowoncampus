@@ -95,6 +95,28 @@ function renderRestaurants() {
   `).join("");
 }
 
+async function refreshPublicMenu() {
+  try {
+    const result = await api("/api/menu");
+    state.restaurants = result.restaurants;
+    // Keep an existing bag in sync with current item prices and availability.
+    state.cart = state.cart.map(cartItem => {
+      const restaurant = state.restaurants.find(r => r.id === cartItem.restaurantId);
+      const current = restaurant?.items.find(item => item.id === cartItem.id);
+      return current ? { ...cartItem, name: current.name, price: current.price, emoji: current.emoji } : cartItem;
+    }).filter(cartItem => {
+      const restaurant = state.restaurants.find(r => r.id === cartItem.restaurantId);
+      const current = restaurant?.items.find(item => item.id === cartItem.id);
+      return current && current.available !== false;
+    });
+    renderRestaurants();
+    renderCart();
+    if (state.selectedRestaurantId) renderMenu();
+  } catch (error) {
+    console.warn("Could not refresh menu:", error.message);
+  }
+}
+
 function renderMenu() {
   const restaurant = state.restaurants.find(r => r.id === state.selectedRestaurantId);
   if (!restaurant) {
@@ -766,6 +788,14 @@ async function initialize() {
     }
   } catch {}
   startTrackingRefresh();
+  // Keep student prices and sold-out status current even when the portal stays open.
+  window.addEventListener("focus", refreshPublicMenu);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") refreshPublicMenu();
+  });
+  window.setInterval(() => {
+    if (document.visibilityState === "visible") refreshPublicMenu();
+  }, 20000);
 }
 
 initialize();

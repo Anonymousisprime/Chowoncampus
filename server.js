@@ -681,9 +681,87 @@ app.get("/api/admin/students", requireRole("admin"), (req, res) => {
   }
 });
 
-// Admin-only agent list
+// Admin-only agent list and agent-account creation.
 app.get("/api/agents", requireRole("admin"), (req, res) => {
-  res.json({ agents });
+  res.json({ agents: agents.map(agent => ({
+    id: agent.id, name: agent.name, username: agent.username,
+    online: Boolean(agent.online), activeOrderId: agent.activeOrderId || null,
+    createdAt: agent.createdAt || null
+  })) });
+});
+
+app.post("/api/admin/agents", requireRole("admin"), (req, res) => {
+  const name = String(req.body.name || "").trim();
+  const username = String(req.body.username || "").trim().toLowerCase();
+  const password = String(req.body.password || "");
+  if (name.length < 2 || name.length > 100) return res.status(400).json({ error: "Agent name must be 2–100 characters." });
+  if (!/^[a-z0-9._-]{3,30}$/.test(username)) return res.status(400).json({ error: "Username must be 3–30 characters: letters, numbers, dots, underscores or hyphens." });
+  if (password.length < 10 || password.length > 128) return res.status(400).json({ error: "Password must be 10–128 characters." });
+  if (accounts.some(account => account.username === username)) return res.status(409).json({ error: "That username is already in use." });
+  try {
+    const records = readAgentRecords();
+    const passwordData = hashPassword(password);
+    const agent = {
+      id: "AG-" + crypto.randomBytes(4).toString("hex").toUpperCase(),
+      name, username, online: false, activeOrderId: null,
+      createdAt: new Date().toISOString(),
+      passwordSalt: passwordData.salt, passwordHash: passwordData.hash
+    };
+    records.push(agent);
+    saveAgentRecords(records);
+    agents.push({ id: agent.id, name, username, online: false, activeOrderId: null, createdAt: agent.createdAt });
+    accounts.push({ username, role: "agent", agentId: agent.id, name, passwordSalt: passwordData.salt, passwordHash: passwordData.hash });
+    res.status(201).json({ agent: { id: agent.id, name, username, online: false, activeOrderId: null, createdAt: agent.createdAt }, message: "Delivery-agent account created. Share the login details securely." });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Could not create delivery-agent account." });
+  }
+});
+
+function assignReadyOrders() {
+  const records = readAgentRecords();
+  const orders = readOrders();
+  const busyAgentIds = new Set(orders.filter(order => order.assignedAgentId && !["Completed", "Cancelled"].includes(order.status)).map(order => order.assignedAgentId));
+  const waiting = orders.filter(order => order.status === "Ready for pickup" && !order.assignedAgentId);
+  let changed = false;
+  for (const order of waiting) {
+    const eligible = records.filter(agent => agent.online && !busyAgentIds.has(agent.id) && !agent.activeOrderId);
+    if (!eligible.length) break;
+    eligible.sort((a, b) => new Date(a.lastAssignedAt || 0) - new Date(b.lastAssignedAt || 0));
+    const agent = eligible[0];
+    order.assignedAgentId = agent.id;
+    order.assignedAt = new Date().toISOString();
+    order.updatedAt = order.assignedAt;
+    order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+    order.statusHistory.push({ status: "Delivery agent assigned", at: order.assignedAt, by: "system" });
+    agent.activeOrderId = order.id;
+    agent.lastAssignedAt = order.assignedAt;
+    busyAgentIds.add(agent.id);
+    changed = true;
+  }
+  if (changed) {
+    saveAgentRecords(records);
+    saveOrders(orders);
+    agents = records.map(record => ({ id: record.id, name: record.name, username: record.username, online: Boolean(record.online), activeOrderId: record.activeOrderId || null, createdAt: record.createdAt || null }));
+  }
+  return changed;
+}
+
+// An agent can change only their own availability. Going online triggers assignment.
+app.patch("/api/agent/availability", requireRole("agent"), (req, res) => {
+  if (typeof req.body.online !== "boolean") return res.status(400).json({ error: "Choose online or offline." });
+  try {
+    const records = readAgentRecords();
+    const agent = records.find(item => item.id === req.account.agentId);
+    if (!agent) return res.status(404).json({ error: "Agent account not found." });
+    agent.online = req.body.online;
+    agent.availabilityUpdatedAt = new Date().toISOString();
+    saveAgentRecords(records);
+    agents = records.map(record => ({ id: record.id, name: record.name, username: record.username, online: Boolean(record.online), activeOrderId: record.activeOrderId || null, createdAt: record.createdAt || null }));
+    if (agent.online) assignReadyOrders();
+    res.json({ online: agent.online, activeOrderId: agent.activeOrderId || null });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Could not update availability." });
+  }
 });
 
 // Admin assigns delivery agent
@@ -809,6 +887,17 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
     }
 
     saveOrders(orders);
+    if (newStatus === "Ready for pickup") assignReadyOrders();
+    if (newStatus === "Completed" || newStatus === "Cancelled") {
+      const records = readAgentRecords();
+      const assigned = records.find(agent => agent.id === order.assignedAgentId);
+      if (assigned) {
+        assigned.activeOrderId = null;
+        saveAgentRecords(records);
+        agents = records.map(record => ({ id: record.id, name: record.name, username: record.username, online: Boolean(record.online), activeOrderId: record.activeOrderId || null, createdAt: record.createdAt || null }));
+      }
+      assignReadyOrders();
+    }
     res.json({ order: publicOrder(order) });
   } catch (error) {
     res.status(500).json({ error: error.message });

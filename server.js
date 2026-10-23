@@ -6,12 +6,134 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 
+const { Pool } = require("pg");
+const storagePool = process.env.DATABASE_URL
+  ? new Pool({ connectionString: process.env.DATABASE_URL, max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 })
+  : null;
+const storageCache = new Map();
+let storageWriteQueue = Promise.resolve();
+const storageFiles = {
+  "orders.json": "orders",
+  "students.json": "students",
+  "restaurant-menus.json": "restaurantMenus",
+  "added-restaurants.json": "addedRestaurants",
+  "delivery-agents.json": "deliveryAgents"
+};
+
+function readLocalJson(filename, fallback) {
+  try {
+    const file = path.join(__dirname, filename);
+    if (!fs.existsSync(file)) return fallback;
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (error) {
+    console.error("Could not read legacy data file:", filename, error.message);
+    return fallback;
+  }
+}
+
+async function initializePersistentStorage() {
+  const definitions = [
+    ["orders.json", []],
+    ["students.json", []],
+    ["restaurant-menus.json", {}],
+    ["added-restaurants.json", []],
+    ["delivery-agents.json", []]
+  ];
+  if (!storagePool) {
+    for (const [filename, fallback] of definitions) {
+      storageCache.set(storageFiles[filename], readLocalJson(filename, fallback));
+    }
+    console.warn("DATABASE_URL is not set; using local JSON storage.");
+    return;
+  }
+  await storagePool.query(`
+    CREATE TABLE IF NOT EXISTS coc_app_store (
+      store_key TEXT PRIMARY KEY,
+      data JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  for (const [filename, fallback] of definitions) {
+    const key = storageFiles[filename];
+    const existing = await storagePool.query(
+      "SELECT data FROM coc_app_store WHERE store_key = $1", [key]
+    );
+    if (existing.rows.length) {
+      storageCache.set(key, existing.rows[0].data);
+      continue;
+    }
+    const legacyData = readLocalJson(filename, fallback);
+    await storagePool.query(
+      "INSERT INTO coc_app_store (store_key, data) VALUES ($1, $2::jsonb) ON CONFLICT (store_key) DO NOTHING",
+      [key, JSON.stringify(legacyData)]
+    );
+    const seeded = await storagePool.query(
+      "SELECT data FROM coc_app_store WHERE store_key = $1", [key]
+    );
+    storageCache.set(key, seeded.rows[0]?.data ?? legacyData);
+  }
+  console.log("Persistent PostgreSQL storage initialized.");
+}
+
+function readStoredJson(filePath, fallback) {
+  const filename = path.basename(filePath);
+  const key = storageFiles[filename];
+  if (!key) throw new Error("Unknown persistent storage file: " + filename);
+  if (storageCache.has(key)) return storageCache.get(key);
+  const data = readLocalJson(filename, fallback);
+  storageCache.set(key, data);
+  return data;
+}
+
+function saveStoredJson(filePath, data) {
+  const filename = path.basename(filePath);
+  const key = storageFiles[filename];
+  if (!key) throw new Error("Unknown persistent storage file: " + filename);
+  storageCache.set(key, data);
+  if (storagePool) {
+    const serialized = JSON.stringify(data);
+    storageWriteQueue = storageWriteQueue.catch(() => {}).then(() =>
+      storagePool.query(
+        `INSERT INTO coc_app_store (store_key, data, updated_at)
+         VALUES ($1, $2::jsonb, NOW())
+         ON CONFLICT (store_key) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`,
+        [key, serialized]
+      )
+    );
+    storageWriteQueue.catch(error => {
+      console.error("PostgreSQL persistence write failed for " + key + ":", error.message);
+    });
+  } else {
+    const temp = filePath + ".tmp";
+    fs.writeFileSync(temp, JSON.stringify(data, null, 2), "utf8");
+    fs.renameSync(temp, filePath);
+  }
+}
+
+
+async function start() {
+  await initializePersistentStorage();
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 app.use(express.json({ limit: "50kb" }));
 app.use(express.static(path.join(__dirname, "public")));
+app.use((req, res, next) => {
+  const sendJson = res.json.bind(res);
+  res.json = function (body) {
+    storageWriteQueue.then(() => sendJson(body)).catch(error => {
+      console.error("Unable to persist request data:", error.message);
+      if (!res.headersSent) {
+        res.statusCode = 500;
+        sendJson({ error: "Could not save data. Please try again." });
+      }
+    });
+    return res;
+  };
+  next();
+});
 
 // Demo storage only. Use a persistent database before public launch.
 const DATA_FILE = path.join(__dirname, "orders.json");
@@ -80,20 +202,10 @@ if (accounts.some(account => !account.password)) {
 // Dynamically created restaurant partners and their hashed login credentials.
 const RESTAURANTS_FILE = path.join(__dirname, "added-restaurants.json");
 function readAddedRestaurants() {
-  try {
-    if (!fs.existsSync(RESTAURANTS_FILE)) return [];
-    const records = JSON.parse(fs.readFileSync(RESTAURANTS_FILE, "utf8"));
-    if (!Array.isArray(records)) throw new Error("Invalid restaurant data.");
-    return records;
-  } catch (error) {
-    console.error("Could not read added restaurants:", error.message);
-    throw new Error("Restaurant storage is unavailable.");
-  }
+  return readStoredJson(RESTAURANTS_FILE, []);
 }
 function saveAddedRestaurants(records) {
-  const temp = RESTAURANTS_FILE + ".tmp";
-  fs.writeFileSync(temp, JSON.stringify(records, null, 2), "utf8");
-  fs.renameSync(temp, RESTAURANTS_FILE);
+  saveStoredJson(RESTAURANTS_FILE, records);
 }
 const addedRestaurantRecords = readAddedRestaurants();
 for (const record of addedRestaurantRecords) {
@@ -114,20 +226,10 @@ for (const record of addedRestaurantRecords) {
 // when the deployment has persistent storage configured.
 const MENUS_FILE = path.join(__dirname, "restaurant-menus.json");
 function readMenuOverrides() {
-  try {
-    if (!fs.existsSync(MENUS_FILE)) return {};
-    const data = JSON.parse(fs.readFileSync(MENUS_FILE, "utf8"));
-    if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid menu data.");
-    return data;
-  } catch (error) {
-    console.error("Could not read restaurant menus:", error.message);
-    throw new Error("Restaurant menu storage is unavailable.");
-  }
+  return readStoredJson(MENUS_FILE, {});
 }
 function saveMenuOverrides(data) {
-  const temporaryFile = MENUS_FILE + ".tmp";
-  fs.writeFileSync(temporaryFile, JSON.stringify(data, null, 2), "utf8");
-  fs.renameSync(temporaryFile, MENUS_FILE);
+  saveStoredJson(MENUS_FILE, data);
 }
 const menuOverrides = readMenuOverrides();
 for (const restaurant of restaurants) {
@@ -139,20 +241,10 @@ for (const restaurant of restaurants) {
    use a persistent database before relying on this for live operations. */
 const AGENTS_FILE = path.join(__dirname, "delivery-agents.json");
 function readAgentRecords() {
-  try {
-    if (!fs.existsSync(AGENTS_FILE)) return [];
-    const records = JSON.parse(fs.readFileSync(AGENTS_FILE, "utf8"));
-    if (!Array.isArray(records)) throw new Error("Invalid agent data.");
-    return records;
-  } catch (error) {
-    console.error("Could not read delivery agents:", error.message);
-    throw new Error("Delivery-agent storage is unavailable.");
-  }
+  return readStoredJson(AGENTS_FILE, []);
 }
 function saveAgentRecords(records) {
-  const temporaryFile = AGENTS_FILE + ".tmp";
-  fs.writeFileSync(temporaryFile, JSON.stringify(records, null, 2), "utf8");
-  fs.renameSync(temporaryFile, AGENTS_FILE);
+  saveStoredJson(AGENTS_FILE, records);
 }
 const agentRecords = readAgentRecords();
 agents = agentRecords.map(record => ({
@@ -177,23 +269,11 @@ for (const record of agentRecords) {
 }
 
 function readOrders() {
-  try {
-    if (!fs.existsSync(DATA_FILE)) return [];
-
-    const data = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-    if (!Array.isArray(data)) throw new Error("Invalid order data.");
-    return data;
-  } catch (error) {
-    console.error("Could not read orders:", error.message);
-    throw new Error("Order storage is unavailable.");
-  }
+  return readStoredJson(DATA_FILE, []);
 }
 
 function saveOrders(orders) {
-  const temporaryFile = `${DATA_FILE}.tmp`;
-
-  fs.writeFileSync(temporaryFile, JSON.stringify(orders, null, 2), "utf8");
-  fs.renameSync(temporaryFile, DATA_FILE);
+  saveStoredJson(DATA_FILE, orders);
 }
 
 function safeAccount(account) {
@@ -261,21 +341,11 @@ function publicOrder(order) {
 const STUDENTS_FILE = path.join(__dirname, "students.json");
 
 function readStudents() {
-  try {
-    if (!fs.existsSync(STUDENTS_FILE)) return [];
-    const data = JSON.parse(fs.readFileSync(STUDENTS_FILE, "utf8"));
-    if (!Array.isArray(data)) throw new Error("Invalid student data.");
-    return data;
-  } catch (error) {
-    console.error("Could not read student data:", error.message);
-    throw new Error("Student storage is unavailable.");
-  }
+  return readStoredJson(STUDENTS_FILE, []);
 }
 
 function saveStudents(students) {
-  const temp = STUDENTS_FILE + ".tmp";
-  fs.writeFileSync(temp, JSON.stringify(students, null, 2), "utf8");
-  fs.renameSync(temp, STUDENTS_FILE);
+  saveStoredJson(STUDENTS_FILE, students);
 }
 
 function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
@@ -1102,4 +1172,10 @@ app.use("/api", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Chowoncampus running at http://localhost:${PORT}`);
+});
+}
+
+start().catch(error => {
+  console.error("Chowoncampus failed to start:", error);
+  process.exit(1);
 });

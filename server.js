@@ -223,6 +223,12 @@ for (const record of addedRestaurantRecords) {
     });
   }
 }
+// Tombstones keep deleted seeded and partner restaurants deleted across restarts.
+const deletedRestaurantIds = new Set(addedRestaurantRecords
+  .map(record => record.deletedRestaurantId)
+  .filter(Boolean));
+restaurants = restaurants.filter(restaurant => !deletedRestaurantIds.has(restaurant.id));
+accounts = accounts.filter(account => account.role !== "restaurant" || !deletedRestaurantIds.has(account.restaurantId));
 
 // Restaurant menu overrides are kept separately so menu edits survive app restarts
 // when the deployment has persistent storage configured.
@@ -870,9 +876,44 @@ app.get("/api/admin/restaurants", requireRole("admin"), (req, res) => {
       name: restaurant.name,
       description: restaurant.description,
       username: accounts.find(a => a.role === "restaurant" && a.restaurantId === restaurant.id)?.username || "",
-      itemCount: restaurant.items.length
+      itemCount: restaurant.items.length,
+      location: restaurant.location || ""
     }))
   });
+});
+
+// Admin-only restaurant deletion. Completed order history is preserved.
+app.delete("/api/admin/restaurants/:id", requireRole("admin"), (req, res) => {
+  const restaurantId = String(req.params.id || "");
+  const restaurant = restaurants.find(item => item.id === restaurantId);
+  if (!restaurant) return res.status(404).json({ error: "Restaurant not found." });
+
+  const activeOrders = readOrders().filter(order =>
+    order.restaurantId === restaurantId && !["Completed", "Cancelled"].includes(order.status)
+  );
+  if (activeOrders.length) {
+    return res.status(409).json({
+      error: "This restaurant has active orders. Complete or cancel them before deleting the restaurant.",
+      activeOrders: activeOrders.length
+    });
+  }
+
+  try {
+    const records = readAddedRestaurants().filter(record =>
+      !record.restaurant || record.restaurant.id !== restaurantId
+    );
+    records.push({ deletedRestaurantId: restaurantId, deletedAt: new Date().toISOString() });
+    saveAddedRestaurants(records);
+
+    restaurants = restaurants.filter(item => item.id !== restaurantId);
+    accounts = accounts.filter(account => !(account.role === "restaurant" && account.restaurantId === restaurantId));
+    delete menuOverrides[restaurantId];
+    saveMenuOverrides(menuOverrides);
+
+    res.json({ ok: true, message: restaurant.name + " was deleted. Previous order records have been preserved." });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Could not delete restaurant." });
+  }
 });
 
 app.post("/api/admin/restaurants", requireRole("admin"), (req, res) => {

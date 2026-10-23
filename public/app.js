@@ -546,7 +546,7 @@ async function loadDashboard() {
         </section>`;
       const totalSales = orders.filter(order => order.status === "Completed").reduce((sum, order) => sum + Number(order.total || 0), 0);
       $("#dashboardContent").innerHTML = `
-        <div class="restaurant-welcome"><div><span class="eyebrow">RESTAURANT WORKSPACE</span><h2>Let's get orders moving.</h2><p>Review incoming orders, prepare meals and coordinate pickup with your delivery agent.</p></div><button class="secondary-button" id="refreshRestaurantOrders" type="button">↻ Refresh orders</button></div>
+        <div class="restaurant-welcome"><div><span class="eyebrow">RESTAURANT WORKSPACE</span><h2>Welcome, ${escapeHtml(account.name)}!</h2><p>Let's get orders moving. Review incoming orders, prepare meals and coordinate pickup with your delivery agent.</p></div><button class="secondary-button" id="refreshRestaurantOrders" type="button">↻ Refresh orders</button></div>
         <div class="restaurant-metrics">
           <article><span>Incoming</span><strong>${incoming.length}</strong><small>Awaiting action</small></article>
           <article><span>Preparing</span><strong>${preparing.length}</strong><small>In the kitchen</small></article>
@@ -754,6 +754,11 @@ async function initialize() {
     const result = await api("/api/me");
     state.account = result.account;
     updateNavigation();
+    const params = new URLSearchParams(location.search);
+    if (state.account && (state.account.role === "restaurant" || state.account.role === "agent") && params.get("dashboard") === "1") {
+      setView("dashboard");
+      history.replaceState({}, "", location.pathname);
+    }
   } catch (error) {
     console.error(error);
   }

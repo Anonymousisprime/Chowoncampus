@@ -53,7 +53,7 @@ const agents = [
 // Never put actual passwords in this file or commit them to GitHub.
 const accounts = [
   {
-    username: (process.env.ADMIN_USERNAME || "admin").trim().toLowerCase(),
+    username: (process.env.ADMIN_USERNAME || "coc_owner_2026").trim().toLowerCase(),
     password: process.env.ADMIN_PASSWORD || "",
     role: "admin",
     name: "Chowoncampus Admin"

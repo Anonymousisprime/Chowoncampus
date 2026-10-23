@@ -87,6 +87,7 @@ function renderRestaurants() {
       <div class="restaurant-info">
         <h3>${escapeHtml(restaurant.name)}</h3>
         <p>${escapeHtml(restaurant.description)}</p>
+        ${restaurant.location ? `<p class="restaurant-location">📍 ${escapeHtml(restaurant.location)}</p>` : `<p class="restaurant-location muted">📍 Campus location not added yet</p>`}
         <button class="secondary-button" data-open-menu="${escapeHtml(restaurant.id)}">
           Explore menu →
         </button>
@@ -247,6 +248,11 @@ async function placeOrder(event) {
       method: "POST",
       body: JSON.stringify({
         hostel: $("#hostel").value,
+        block: $("#deliveryBlock").value,
+        room: $("#deliveryRoom").value,
+        landmark: $("#deliveryLandmark").value,
+        latitude: $("#deliveryLatitude").value === "" ? undefined : Number($("#deliveryLatitude").value),
+        longitude: $("#deliveryLongitude").value === "" ? undefined : Number($("#deliveryLongitude").value),
         restaurantId: state.cart[0].restaurantId,
         items: state.cart.map(item => ({ id: item.id, qty: item.qty }))
       })
@@ -394,6 +400,8 @@ function renderOrderCard(order) {
       </div>
       <p><strong>${escapeHtml(order.customerName)}</strong> · ${escapeHtml(order.customerPhone)}</p>
       <p>Delivery location: ${escapeHtml(order.hostel)}</p>
+      ${order.deliveryLocation?.latitude != null && order.deliveryLocation?.longitude != null ? `<p><a class="secondary-button map-link" target="_blank" rel="noopener" href="https://www.google.com/maps?q=${encodeURIComponent(`${order.deliveryLocation.latitude},${order.deliveryLocation.longitude}`)}">📍 Open student pin in Maps</a></p>` : `<p><a class="secondary-button map-link" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.hostel)}">📍 Search delivery location in Maps</a></p>`}
+      ${order.restaurantLocation ? `<p>Restaurant pickup: ${escapeHtml(order.restaurantLocation)} <a target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.restaurantLocation)}">Open map</a></p>` : ""}
       <p class="order-items">${order.items.map(item => `${item.qty} × ${escapeHtml(item.name)}`).join(", ")}</p>
       <p>Total: <strong>${money(order.total)}</strong> · Payment: ${escapeHtml(order.paymentStatus)}</p>
       ${order.assignedAgentId ? `<p>Assigned agent: <strong>${escapeHtml(order.assignedAgentId)}</strong></p>` : ""}
@@ -535,6 +543,7 @@ async function loadDashboard() {
         <article class="order-card">
           <div class="order-top"><div><span class="eyebrow">RESTAURANT PARTNER</span><h3>${escapeHtml(restaurant.name)}</h3></div><span class="status">${restaurant.itemCount} items</span></div>
           <p>${escapeHtml(restaurant.description || "No description")}</p>
+          <p>📍 Location: ${escapeHtml(restaurant.location || "Not added yet")}</p>
           <p>Login username: <strong>${escapeHtml(restaurant.username)}</strong></p>
         </article>
       `).join("");
@@ -544,6 +553,7 @@ async function loadDashboard() {
           <form id="adminAddRestaurantForm" class="order-card">
             <label>Restaurant name<input name="name" required minlength="2" maxlength="100" placeholder="e.g. Chow House"></label>
             <label>Description<input name="description" maxlength="240" placeholder="Fresh meals for campus students"></label>
+            <label>Restaurant location / pickup point<input name="location" maxlength="180" placeholder="e.g. Student Centre, Block B"></label>
             <label>Login username<input name="username" required minlength="3" maxlength="30" pattern="[a-zA-Z0-9._-]+" placeholder="chowhouse"></label>
             <label>Temporary password<input name="password" type="password" required minlength="10" maxlength="128" autocomplete="new-password" placeholder="At least 10 characters"></label>
             <h3>First menu item</h3>

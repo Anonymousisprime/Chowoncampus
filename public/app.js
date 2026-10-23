@@ -591,6 +591,11 @@ async function initialize() {
 
     if (event.target.closest("#logoutButton")) await logout();
 
+    if (event.target.closest("#refreshRestaurantOrders")) {
+      await loadDashboard();
+      return;
+    }
+
     const statusButton = event.target.closest("[data-save-status]");
     if (statusButton) await saveStatus(statusButton.dataset.saveStatus);
 

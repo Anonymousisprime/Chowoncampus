@@ -18,7 +18,8 @@ const storageFiles = {
   "restaurant-menus.json": "restaurantMenus",
   "added-restaurants.json": "addedRestaurants",
   "delivery-agents.json": "deliveryAgents",
-  "notifications.json": "notifications"
+  "notifications.json": "notifications",
+  "account-passwords.json": "accountPasswords"
 };
 
 function readLocalJson(filename, fallback) {
@@ -39,7 +40,8 @@ async function initializePersistentStorage() {
     ["restaurant-menus.json", {}],
     ["added-restaurants.json", []],
     ["delivery-agents.json", []],
-    ["notifications.json", []]
+    ["notifications.json", []],
+    ["account-passwords.json", {}]
   ];
   if (!storagePool) {
     for (const [filename, fallback] of definitions) {
@@ -140,6 +142,9 @@ app.use((req, res, next) => {
 // Demo storage only. Use a persistent database before public launch.
 const DATA_FILE = path.join(__dirname, "orders.json");
 const sessions = new Map();
+const ACCOUNT_PASSWORDS_FILE = path.join(__dirname, "account-passwords.json");
+function readAccountPasswords() { return readStoredJson(ACCOUNT_PASSWORDS_FILE, {}); }
+function saveAccountPasswords(records) { saveStoredJson(ACCOUNT_PASSWORDS_FILE, records); }
 
 let restaurants = [
   {
@@ -549,12 +554,13 @@ app.post("/api/login", (req, res) => {
     });
   }
 
-  const account = accounts.find(a =>
-    a.username === username &&
-    (a.passwordHash
-      ? passwordMatches(password, a)
-      : a.password === password)
-  );
+  const passwordOverrides = readAccountPasswords();
+  const account = accounts.find(a => {
+    if (a.username !== username) return false;
+    const override = passwordOverrides[`${a.role}:${a.username}`];
+    if (override?.passwordSalt && override?.passwordHash) return passwordMatches(password, override);
+    return a.passwordHash ? passwordMatches(password, a) : a.password === password;
+  });
 
   if (!account) {
     return res.status(401).json({
@@ -571,6 +577,53 @@ app.post("/api/login", (req, res) => {
   );
 
   res.json({ account: safeAccount(account) });
+});
+
+// All signed-in account types can change their own password after verifying the current one.
+app.post("/api/account/change-password", requireLogin, (req, res) => {
+  const currentPassword = String(req.body.currentPassword || "");
+  const newPassword = String(req.body.newPassword || "");
+  const confirmPassword = String(req.body.confirmPassword || "");
+  if (!currentPassword || !newPassword || !confirmPassword) return res.status(400).json({ error: "Complete all password fields." });
+  if (newPassword.length < 10 || newPassword.length > 128) return res.status(400).json({ error: "New password must be 10–128 characters." });
+  if (newPassword !== confirmPassword) return res.status(400).json({ error: "New password and confirmation do not match." });
+  if (currentPassword === newPassword) return res.status(400).json({ error: "Choose a new password different from your current password." });
+  try {
+    const account = req.account;
+    if (account.role === "student") {
+      const students = readStudents();
+      const student = students.find(item => item.phone === account.username);
+      if (!student || !passwordMatches(currentPassword, student)) return res.status(401).json({ error: "Your current password is incorrect." });
+      const hashed = hashPassword(newPassword);
+      student.passwordSalt = hashed.salt;
+      student.passwordHash = hashed.hash;
+      saveStudents(students);
+    } else {
+      const staffAccount = accounts.find(item => item.username === account.username && item.role === account.role);
+      if (!staffAccount) return res.status(404).json({ error: "Account not found." });
+      const overrides = readAccountPasswords();
+      const key = `${staffAccount.role}:${staffAccount.username}`;
+      const existing = overrides[key] || staffAccount;
+      const matches = existing.passwordSalt && existing.passwordHash
+        ? passwordMatches(currentPassword, existing)
+        : existing.password === currentPassword;
+      if (!matches) return res.status(401).json({ error: "Your current password is incorrect." });
+      const hashed = hashPassword(newPassword);
+      overrides[key] = { passwordSalt: hashed.salt, passwordHash: hashed.hash, changedAt: new Date().toISOString() };
+      saveAccountPasswords(overrides);
+      staffAccount.password = "";
+      staffAccount.passwordSalt = hashed.salt;
+      staffAccount.passwordHash = hashed.hash;
+    }
+    for (const [token, session] of sessions.entries()) {
+      if (session.role === account.role && session.username === account.username) sessions.delete(token);
+    }
+    res.setHeader("Set-Cookie", `coc_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${IS_PRODUCTION ? "; Secure" : ""}`);
+    return res.json({ ok: true, message: "Password changed. Please log in again with your new password." });
+  } catch (error) {
+    console.error("Password change failed:", error.message);
+    return res.status(500).json({ error: "Could not change password. Please try again." });
+  }
 });
 
 // Logout

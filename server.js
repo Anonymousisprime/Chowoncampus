@@ -17,7 +17,8 @@ const storageFiles = {
   "students.json": "students",
   "restaurant-menus.json": "restaurantMenus",
   "added-restaurants.json": "addedRestaurants",
-  "delivery-agents.json": "deliveryAgents"
+  "delivery-agents.json": "deliveryAgents",
+  "notifications.json": "notifications"
 };
 
 function readLocalJson(filename, fallback) {
@@ -37,7 +38,8 @@ async function initializePersistentStorage() {
     ["students.json", []],
     ["restaurant-menus.json", {}],
     ["added-restaurants.json", []],
-    ["delivery-agents.json", []]
+    ["delivery-agents.json", []],
+    ["notifications.json", []]
   ];
   if (!storagePool) {
     for (const [filename, fallback] of definitions) {
@@ -276,6 +278,21 @@ function saveOrders(orders) {
   saveStoredJson(DATA_FILE, orders);
 }
 
+const NOTIFICATIONS_FILE = path.join(__dirname, "notifications.json");
+function readNotifications() { return readStoredJson(NOTIFICATIONS_FILE, []); }
+function saveNotifications(items) { saveStoredJson(NOTIFICATIONS_FILE, items.slice(0, 2000)); }
+function createNotification(target, title, message, orderId = null) {
+  const items = readNotifications();
+  items.unshift({ id: crypto.randomUUID(), ...target, title, message, orderId, createdAt: new Date().toISOString(), read: false });
+  saveNotifications(items);
+}
+function notifyOrderParties(order, title, message) {
+  createNotification({ role: "student", username: order.customerPhone }, title, message, order.id);
+  createNotification({ role: "restaurant", restaurantId: order.restaurantId }, title, `${order.id}: ${message}`, order.id);
+  createNotification({ role: "admin" }, title, `${order.id}: ${message}`, order.id);
+  if (order.assignedAgentId) createNotification({ role: "agent", agentId: order.assignedAgentId }, title, `${order.id}: ${message}`, order.id);
+}
+
 function safeAccount(account) {
   return {
     username: account.username,
@@ -411,6 +428,32 @@ app.post("/api/student/login", (req, res) => {
   } catch (error) {
     res.status(500).json({ error: "Could not sign in. Please try again." });
   }
+});
+
+// Authenticated in-app notifications. Each account only sees notifications addressed to it.
+app.get("/api/notifications", requireLogin, (req, res) => {
+  const account = req.account;
+  const notifications = readNotifications().filter(item => item.role === account.role && (
+    item.role === "admin" ||
+    (item.role === "student" && item.username === account.username) ||
+    (item.role === "restaurant" && item.restaurantId === account.restaurantId) ||
+    (item.role === "agent" && item.agentId === account.agentId)
+  )).slice(0, 100);
+  res.json({ notifications, unreadCount: notifications.filter(item => !item.read).length });
+});
+app.patch("/api/notifications/:id/read", requireLogin, (req, res) => {
+  const account = req.account;
+  const items = readNotifications();
+  const item = items.find(n => n.id === req.params.id && n.role === account.role && (
+    n.role === "admin" ||
+    (n.role === "student" && n.username === account.username) ||
+    (n.role === "restaurant" && n.restaurantId === account.restaurantId) ||
+    (n.role === "agent" && n.agentId === account.agentId)
+  ));
+  if (!item) return res.status(404).json({ error: "Notification not found." });
+  item.read = true;
+  saveNotifications(items);
+  res.json({ ok: true });
 });
 
 // Health check
@@ -622,6 +665,7 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     const orders = readOrders();
     orders.unshift(order);
     saveOrders(orders);
+    notifyOrderParties(order, "New order placed", `${order.customerName} placed an order at ${order.restaurantName}.`);
 
     res.status(201).json({
       order: publicOrder(order),
@@ -1004,6 +1048,10 @@ app.patch("/api/orders/:id/assign", requireRole("admin"), (req, res) => {
 
     order.assignedAgentId = agentId;
     saveOrders(orders);
+    const assignedAgent = agents.find(agent => agent.id === agentId);
+    createNotification({ role: "agent", agentId }, "Delivery assigned", `You have been assigned order ${order.id}.`, order.id);
+    createNotification({ role: "student", username: order.customerPhone }, "Delivery agent assigned", `${assignedAgent?.name || "A delivery agent"} has been assigned to your order.`, order.id);
+    createNotification({ role: "admin" }, "Delivery agent assigned", `${assignedAgent?.name || agentId} was assigned to ${order.id}.`, order.id);
 
     res.json({ order: publicOrder(order) });
   } catch (error) {
@@ -1085,6 +1133,7 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
       });
     }
 
+    const previousStatus = order.status;
     if (order.status !== newStatus) {
       const changedAt = new Date().toISOString();
       order.status = newStatus;
@@ -1106,6 +1155,7 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
     }
 
     saveOrders(orders);
+    if (previousStatus !== newStatus) notifyOrderParties(order, "Order status updated", `Status changed from ${previousStatus} to ${newStatus}.`);
     if (newStatus === "Ready for pickup") assignReadyOrders();
     if (newStatus === "Completed" || newStatus === "Cancelled") {
       const records = readAgentRecords();

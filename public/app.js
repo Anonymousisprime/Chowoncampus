@@ -519,7 +519,18 @@ async function loadDashboard() {
       renderRestaurantMenuManager();
       document.querySelectorAll("[data-restaurant-chat-order]").forEach(form => loadRestaurantChat(form.dataset.restaurantChatOrder));
     } else if (account.role === "admin") {
-      const restaurantResult = await api("/api/admin/restaurants");
+      const [restaurantResult, studentResult] = await Promise.all([
+        api("/api/admin/restaurants"),
+        api("/api/admin/students")
+      ]);
+      const studentRows = studentResult.students.map(student => `
+        <tr>
+          <td>${escapeHtml(student.name)}</td>
+          <td>${escapeHtml(student.phone)}</td>
+          <td><span class="status">${student.verifiedPhone ? "Verified" : "Not verified"}</span></td>
+          <td>${student.createdAt ? escapeHtml(new Date(student.createdAt).toLocaleString()) : "—"}</td>
+        </tr>
+      `).join("");
       const restaurantRows = restaurantResult.restaurants.map(restaurant => `
         <article class="order-card">
           <div class="order-top"><div><span class="eyebrow">RESTAURANT PARTNER</span><h3>${escapeHtml(restaurant.name)}</h3></div><span class="status">${restaurant.itemCount} items</span></div>
@@ -551,6 +562,17 @@ async function loadDashboard() {
             <button class="primary-button" type="submit">＋ Add delivery agent</button>
             <p id="adminAddAgentMessage" class="muted" role="status"></p>
           </form>
+        </section>
+        <section class="dashboard-order-section">
+          <div class="dashboard-section-heading"><div><h2>Student accounts</h2><p>${studentResult.students.length} registered student account(s). Passwords are never displayed.</p></div><button class="secondary-button" id="refreshAdminStudents" type="button">↻ Refresh students</button></div>
+          ${studentResult.students.length ? `
+            <div style="overflow-x:auto">
+              <table class="admin-student-table" style="width:100%;border-collapse:collapse;text-align:left">
+                <thead><tr><th style="padding:10px">Student name</th><th style="padding:10px">Phone / username</th><th style="padding:10px">Phone status</th><th style="padding:10px">Created</th></tr></thead>
+                <tbody>${studentRows}</tbody>
+              </table>
+            </div>
+          ` : '<div class="empty-state">No student accounts registered yet.</div>'}
         </section>
         <section class="dashboard-order-section">
           <div class="dashboard-section-heading"><div><h2>Restaurant partners</h2><p>Current restaurants registered in ChowOnCampus.</p></div></div>
@@ -711,6 +733,11 @@ async function initialize() {
     }
 
     if (event.target.closest("#logoutButton")) await logout();
+
+    if (event.target.closest("#refreshAdminStudents")) {
+      await loadDashboard();
+      return;
+    }
 
     if (event.target.closest("#refreshRestaurantOrders")) {
       await loadDashboard();

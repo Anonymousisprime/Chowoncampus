@@ -469,6 +469,14 @@ function renderRestaurantMenuManager() {
   const container = document.createElement("section");
   container.className = "restaurant-menu-manager";
   container.innerHTML = `
+    <section class="restaurant-location-manager">
+      <div class="dashboard-section-heading"><div><span class="eyebrow">PICKUP POINT</span><h2>Edit restaurant location</h2><p>Tell students and delivery agents where to find your restaurant.</p></div></div>
+      <form id="restaurantLocationForm">
+        <label for="restaurantLocationInput">Restaurant location / pickup instructions</label>
+        <input id="restaurantLocationInput" name="location" maxlength="180" value="${escapeHtml(restaurant.location || "")}" placeholder="e.g. Student Centre, Block B, beside the library">
+        <div class="menu-editor-actions"><button type="submit" class="primary-button" id="saveRestaurantLocation">Save location</button><span id="restaurantLocationMessage" class="muted" role="status"></span></div>
+      </form>
+    </section>
     <div class="dashboard-section-heading"><div><span class="eyebrow">YOUR MENU</span><h2>Manage food and prices</h2><p>Add up to 70 items and mark anything unavailable as sold out.</p></div><span class="count-pill" id="menuItemCount">${restaurant.items.length}/70 items</span></div>
     <form id="restaurantMenuForm">
       <div id="restaurantMenuRows">${restaurant.items.map(item => renderMenuRow(item)).join("")}</div>
@@ -808,6 +816,27 @@ async function initialize() {
     trackOrder($("#trackId").value);
   });
   document.addEventListener("submit", async event => {
+    const locationForm = event.target.closest("#restaurantLocationForm");
+    if (locationForm) {
+      event.preventDefault();
+      const button = $("#saveRestaurantLocation");
+      const message = $("#restaurantLocationMessage");
+      button.disabled = true;
+      message.textContent = "Saving location…";
+      try {
+        const result = await api("/api/restaurant/location", { method: "PUT", body: JSON.stringify({ location: $("#restaurantLocationInput").value.trim() }) });
+        const restaurant = state.restaurants.find(item => item.id === state.account.restaurantId);
+        if (restaurant) restaurant.location = result.location;
+        message.textContent = "Location saved successfully.";
+        message.classList.add("success");
+        await loadMenu();
+        showToast("Restaurant location updated.");
+      } catch (error) {
+        message.textContent = error.message;
+        message.classList.remove("success");
+      } finally { button.disabled = false; }
+      return;
+    }
     const menuForm = event.target.closest("#restaurantMenuForm");
     if (menuForm) {
       event.preventDefault();

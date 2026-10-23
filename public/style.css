@@ -506,3 +506,7 @@ button,a{ -webkit-tap-highlight-color:transparent; }
   .nav-link,.nav-actions a{padding:9px 10px;font-size:.78rem;}
   .notification-panel{right:6px;bottom:6px;width:calc(100vw - 12px);}
 }
+
+
+/* Structured campus location and maps actions */
+.delivery-location-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.restaurant-location{font-size:.88rem;overflow-wrap:anywhere}.map-link{display:inline-flex;align-items:center;min-height:42px;margin:4px 0}@media(max-width:420px){.delivery-location-grid{grid-template-columns:1fr}}

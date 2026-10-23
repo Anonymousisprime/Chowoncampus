@@ -263,7 +263,8 @@ async function placeOrder(event) {
     try { localStorage.setItem("coc_last_order_id", order.id); } catch {}
     state.cart = [];
     renderCart();
-    $("#checkoutForm").reset();
+    const checkoutForm = $("#checkoutForm");
+    if (checkoutForm) checkoutForm.reset();
 
     $("#trackId").value = order.id;
     showMessage("#checkoutMessage", `Order ${order.id} created. No payment has been made.`, true);
@@ -1007,7 +1008,7 @@ async function initialize() {
         const result = await api("/api/admin/restaurants", { method: "POST", body: JSON.stringify(values) });
         message.textContent = result.message + " Restaurant ID: " + result.restaurant.id;
         message.classList.add("success");
-        addRestaurantForm.reset();
+        if (addRestaurantForm) addRestaurantForm.reset();
         await loadDashboard();
         showToast("Restaurant added successfully.");
       } catch (error) {
@@ -1028,7 +1029,7 @@ async function initialize() {
         const result = await api("/api/admin/agents", { method: "POST", body: JSON.stringify(values) });
         message.textContent = result.message + " Agent ID: " + result.agent.id;
         message.classList.add("success");
-        addAgentForm.reset();
+        if (addAgentForm) addAgentForm.reset();
         await loadDashboard();
         showToast("Delivery agent added successfully.");
       } catch (error) {

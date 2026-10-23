@@ -573,23 +573,28 @@ app.get("/api/orders", requireLogin, (req, res) => {
 function canUseDeliveryChat(account, order) {
   return Boolean(account && order && (
     (account.role === "student" && account.username === order.customerPhone) ||
-    (account.role === "agent" && account.agentId && account.agentId === order.assignedAgentId)
+    (account.role === "agent" && account.agentId && account.agentId === order.assignedAgentId) ||
+    (account.role === "restaurant" && account.restaurantId === order.restaurantId && order.assignedAgentId)
   ));
 }
 
-app.get("/api/orders/:id/chat", requireRole("student", "agent"), (req, res) => {
+function deliveryChatIsOpen(order) {
+  return ["Ready for pickup", "Out for delivery"].includes(order.status);
+}
+
+app.get("/api/orders/:id/chat", requireRole("student", "agent", "restaurant"), (req, res) => {
   try {
     const order = readOrders().find(item => item.id === req.params.id);
     if (!order) return res.status(404).json({ error: "Order not found." });
     if (!canUseDeliveryChat(req.account, order)) return res.status(403).json({ error: "Only the ordering student and assigned delivery agent can access this chat." });
-    if (order.status !== "Out for delivery") return res.status(410).json({ active: false, messages: [], error: "Chat is available only while the order is out for delivery." });
+    if (!deliveryChatIsOpen(order)) return res.status(410).json({ active: false, messages: [], error: "Chat is available only while the order is ready for pickup or out for delivery." });
     res.json({ active: true, messages: Array.isArray(order.chatMessages) ? order.chatMessages : [] });
   } catch (error) {
     res.status(500).json({ error: "Could not load delivery chat." });
   }
 });
 
-app.post("/api/orders/:id/chat", requireRole("student", "agent"), (req, res) => {
+app.post("/api/orders/:id/chat", requireRole("student", "agent", "restaurant"), (req, res) => {
   const message = String(req.body.message || "").trim();
   if (!message || message.length > 500) return res.status(400).json({ error: "Message must be between 1 and 500 characters." });
   try {
@@ -597,7 +602,7 @@ app.post("/api/orders/:id/chat", requireRole("student", "agent"), (req, res) => 
     const order = orders.find(item => item.id === req.params.id);
     if (!order) return res.status(404).json({ error: "Order not found." });
     if (!canUseDeliveryChat(req.account, order)) return res.status(403).json({ error: "Only the ordering student and assigned delivery agent can send messages here." });
-    if (order.status !== "Out for delivery") return res.status(410).json({ error: "This temporary chat has closed." });
+    if (!deliveryChatIsOpen(order)) return res.status(410).json({ error: "This temporary chat has closed." });
     order.chatMessages = Array.isArray(order.chatMessages) ? order.chatMessages : [];
     if (order.chatMessages.length >= 100) order.chatMessages.shift();
     order.chatMessages.push({

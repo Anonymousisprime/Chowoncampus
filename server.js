@@ -387,6 +387,15 @@ function passwordMatches(password, student) {
   return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
 }
 
+function normalizeNigerianPhone(value) {
+  const compact = String(value || "").trim().replace(/[\\s()\\-]/g, "");
+  if (/^0[789][01]\\d{8}$/.test(compact)) return "+234" + compact.slice(1);
+  if (/^[789][01]\\d{8}$/.test(compact)) return "+234" + compact;
+  if (/^234[789][01]\\d{8}$/.test(compact)) return "+" + compact;
+  if (/^\\+[1-9]\\d{7,14}$/.test(compact)) return compact;
+  return null;
+}
+
 function setSessionCookie(res, token) {
   res.setHeader(
     "Set-Cookie",
@@ -398,10 +407,10 @@ function setSessionCookie(res, token) {
 // Student sign-up: no SMS verification yet. Phone numbers are collected but NOT marked verified.
 app.post("/api/student/register", (req, res) => {
   const name = String(req.body.name || "").trim();
-  const phone = String(req.body.phone || "").trim();
+  const phone = normalizeNigerianPhone(req.body.phone);
   const password = String(req.body.password || "");
   if (name.length < 2 || name.length > 100) return res.status(400).json({ error: "Enter your name (2–100 characters)." });
-  if (!/^\+[1-9]\d{7,14}$/.test(phone)) return res.status(400).json({ error: "Enter your phone in international format, e.g. +2348012345678." });
+  if (!phone) return res.status(400).json({ error: "Enter a valid phone number, e.g. 08012345678." });
   if (password.length < 10 || password.length > 128) return res.status(400).json({ error: "Use a password between 10 and 128 characters." });
   try {
     const students = readStudents();
@@ -422,9 +431,9 @@ app.post("/api/student/register", (req, res) => {
 
 // Student login is separate from staff/admin login.
 app.post("/api/student/login", (req, res) => {
-  const phone = String(req.body.phone || "").trim();
+  const phone = normalizeNigerianPhone(req.body.phone);
   const password = String(req.body.password || "");
-  if (!phone || !password) return res.status(400).json({ error: "Enter your phone number and password." });
+  if (!phone || !password) return res.status(400).json({ error: "Enter a valid phone number and your password." });
 
   try {
     const student = readStudents().find(item => item.phone === phone);

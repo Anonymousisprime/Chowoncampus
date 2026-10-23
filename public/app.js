@@ -230,6 +230,7 @@ async function placeOrder(event) {
 
     const order = result.order;
     state.lastOrderId = order.id;
+    try { localStorage.setItem("coc_last_order_id", order.id); } catch {}
     state.cart = [];
     renderCart();
     $("#checkoutForm").reset();
@@ -238,7 +239,7 @@ async function placeOrder(event) {
     showMessage("#checkoutMessage", `Order ${order.id} created. No payment has been made.`, true);
     showToast("Demo order created!");
     await trackOrder(order.id);
-    setView("track");
+    $("#trackingSection").scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
     showMessage("#checkoutMessage", error.message);
   } finally {
@@ -248,45 +249,52 @@ async function placeOrder(event) {
 }
 
 function renderTrackedOrder(order) {
-  const items = order.items.map(item =>
-    `${item.qty} × ${escapeHtml(item.name)}`
-  ).join(", ");
-
+  const items = order.items.map(item => `${item.qty} × ${escapeHtml(item.name)}`).join(", ");
+  const steps = ["Awaiting payment", "Confirmed", "Preparing", "Ready for pickup", "Out for delivery", "Completed"];
+  const cancelled = order.status === "Cancelled";
+  const currentIndex = steps.indexOf(order.status);
+  const history = Array.isArray(order.statusHistory) && order.statusHistory.length
+    ? order.statusHistory
+    : [{ status: order.status, at: order.updatedAt || order.createdAt, by: "system" }];
+  const timeline = history.map(event => `
+    <li class="tracking-event"><span class="tracking-dot"></span><div><strong>${escapeHtml(event.status)}</strong><small>${escapeHtml(new Date(event.at).toLocaleString())}</small></div></li>
+  `).join("");
   $("#trackResult").innerHTML = `
-    <article class="order-card">
-      <div class="order-top">
-        <div><span class="eyebrow">ORDER REFERENCE</span><h3>${escapeHtml(order.id)}</h3></div>
-        <span class="status">${escapeHtml(order.status)}</span>
+    <article class="order-card tracking-card">
+      <div class="order-top"><div><span class="eyebrow">ORDER REFERENCE</span><h3>${escapeHtml(order.id)}</h3></div><span class="status">${escapeHtml(order.status)}</span></div>
+      <p>${escapeHtml(order.restaurantName || "Your restaurant")}</p><p class="order-items">${items}</p>
+      <div class="tracking-progress" aria-label="Order progress">
+        ${steps.map((step,index)=>`<div class="tracking-step ${!cancelled && currentIndex>=index ? "done" : ""} ${order.status===step ? "current" : ""}"><span>${!cancelled && currentIndex>index ? "✓" : index+1}</span><small>${escapeHtml(step)}</small></div>`).join("")}
       </div>
-      <p>${escapeHtml(order.restaurantName || "Your restaurant")}</p>
-      <p class="order-items">${items}</p>
-      <p>Food subtotal: <strong>${money(order.subtotal)}</strong></p>
-      <p>Delivery fee: <strong>${money(order.deliveryFee)}</strong></p>
-      <p>Total: <strong>${money(order.total)}</strong></p>
+      ${cancelled ? '<p class="tracking-alert">This order has been cancelled. Contact the restaurant if you need help.</p>' : ""}
+      <h4>Order updates</h4><ol class="tracking-timeline">${timeline}</ol>
+      <p>Food subtotal: <strong>${money(order.subtotal)}</strong></p><p>Delivery fee: <strong>${money(order.deliveryFee)}</strong></p><p>Total: <strong>${money(order.total)}</strong></p>
       <p>Payment: <strong>${escapeHtml(order.paymentStatus || "Check with the restaurant")}</strong></p>
-      <p class="tiny muted">Created: ${escapeHtml(new Date(order.createdAt).toLocaleString())}</p>
-      ${isLocalDemo && order.paymentStatus === "Unpaid — demo only" ? `
-        <button class="primary-button" data-demo-pay="${escapeHtml(order.id)}">
-          Simulate demo payment (no money charged)
-        </button>
-      ` : ""}
-      <p class="tiny muted">Keep your order ID to check updates later.</p>
-    </article>
-  `;
+      <p class="tiny muted">Last updated: ${escapeHtml(new Date(order.updatedAt || order.createdAt).toLocaleString())}</p>
+      ${isLocalDemo && order.paymentStatus === "Unpaid — demo only" ? `<button class="primary-button" data-demo-pay="${escapeHtml(order.id)}">Simulate demo payment (no money charged)</button>` : ""}
+      <p class="tiny muted">Tracking refreshes automatically every 15 seconds while this page is open.</p>
+    </article>`;
 }
 
-async function trackOrder(orderId) {
+let activeTrackedOrderId = null;
+let trackingRefreshTimer = null;
+async function trackOrder(orderId, quiet = false) {
   const id = String(orderId || "").trim();
   if (!id) return showMessage("#trackResult", "Enter your order ID.");
-
-  $("#trackResult").innerHTML = `<p class="loading">Looking up your order…</p>`;
-
+  activeTrackedOrderId = id;
+  if (!quiet) $("#trackResult").innerHTML = `<p class="loading">Looking up your order…</p>`;
   try {
     const result = await api(`/api/orders/${encodeURIComponent(id)}`);
     renderTrackedOrder(result.order);
   } catch (error) {
-    $("#trackResult").innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+    if (!quiet) $("#trackResult").innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
   }
+}
+function startTrackingRefresh() {
+  if (trackingRefreshTimer) clearInterval(trackingRefreshTimer);
+  trackingRefreshTimer = setInterval(() => {
+    if (activeTrackedOrderId && document.visibilityState === "visible") trackOrder(activeTrackedOrderId, true);
+  }, 15000);
 }
 
 async function simulatePayment(orderId) {
@@ -551,10 +559,14 @@ async function initialize() {
     event.preventDefault();
     trackOrder($("#trackId").value);
   });
-
-  // If the customer returns after placing an order, the reference
-  // is kept only in the page. Enter it again to track after refresh.
-  if (state.lastOrderId) $("#trackId").value = state.lastOrderId;
+  try {
+    const savedOrderId = localStorage.getItem("coc_last_order_id");
+    if (savedOrderId) {
+      $("#trackId").value = savedOrderId;
+      trackOrder(savedOrderId, true);
+    }
+  } catch {}
+  startTrackingRefresh();
 }
 
 initialize();

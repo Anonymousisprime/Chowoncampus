@@ -417,3 +417,30 @@ footer {
 
 /* Live order tracking */
 .tracking-card{margin-top:18px}.tracking-progress{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin:22px 0;overflow-x:auto}.tracking-step{text-align:center;min-width:64px;color:#7b8b80;font-size:11px}.tracking-step span{display:grid;place-items:center;width:28px;height:28px;margin:0 auto 7px;border-radius:50%;border:2px solid #cbd8ce;background:#fff;font-weight:800}.tracking-step.done{color:#176b45}.tracking-step.done span{border-color:#176b45;background:#e7f5ec}.tracking-step.current span{box-shadow:0 0 0 4px #d6eddf}.tracking-step small{display:block;line-height:1.25}.tracking-timeline{list-style:none;padding:0;margin:12px 0 20px;border-left:2px solid #dce9df}.tracking-event{display:flex;gap:12px;position:relative;padding:0 0 16px 16px}.tracking-dot{position:absolute;left:-7px;top:4px;width:12px;height:12px;border-radius:50%;background:#176b45;border:2px solid white}.tracking-event small{display:block;color:#687a6e;margin-top:3px}.tracking-alert{background:#fff0f0;color:#963434;padding:12px;border-radius:10px}
+
+/* Restaurant dashboard refresh */
+.restaurant-welcome{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:24px;margin:0 0 18px;background:linear-gradient(130deg,#102d24,#24543d);color:#fff;border-radius:22px;box-shadow:var(--shadow)}
+.restaurant-welcome h2{margin:5px 0 7px;font:800 clamp(1.35rem,3vw,2rem)/1.2 Manrope,sans-serif;letter-spacing:-.6px}
+.restaurant-welcome p{margin:0;max-width:650px;color:#d8e8dc}
+.restaurant-welcome .eyebrow{color:#ffd29b}
+.restaurant-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:0 0 26px}
+.restaurant-metrics article{background:#fff;border:1px solid var(--line);border-radius:16px;padding:17px;box-shadow:0 8px 24px rgba(16,45,36,.04);min-width:0}
+.restaurant-metrics span,.restaurant-metrics small{display:block;color:var(--muted);font-size:.8rem}
+.restaurant-metrics strong{display:block;color:var(--green);font:800 clamp(1.25rem,2.5vw,1.8rem) Manrope,sans-serif;margin:8px 0}
+.dashboard-order-section{margin:26px 0}
+.dashboard-section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.dashboard-section-heading h2{margin:0;font:800 1.25rem Manrope,sans-serif;color:var(--green)}
+.dashboard-section-heading p{margin:4px 0 0;color:var(--muted);font-size:.88rem}
+.count-pill{display:grid;place-items:center;min-width:34px;height:34px;padding:0 10px;border-radius:99px;background:#e7f3e9;color:#176b45;font-weight:800}
+.compact-empty{padding:18px}
+.agent-contact{display:grid;gap:10px;margin-top:16px;padding:15px;border:1px solid #cfe3d4;background:#f4faf5;border-radius:14px}
+.agent-contact>div:first-child strong{display:block;margin-top:5px}
+.dashboard-chat-messages{display:grid;gap:8px;max-height:180px;overflow:auto}
+.dashboard-chat-message{background:white;border:1px solid #e0eae2;border-radius:10px;padding:9px 11px;overflow-wrap:anywhere}
+.dashboard-chat-message p{margin:5px 0}
+.dashboard-chat-message small{color:var(--muted)}
+.dashboard-chat-form{display:flex;gap:8px;flex-wrap:wrap}
+.dashboard-chat-form input{flex:1;min-width:160px;border:1px solid #cbd9cf;border-radius:10px;padding:11px;font:inherit}
+.dashboard-chat-form button{white-space:nowrap}
+@media(max-width:760px){.restaurant-welcome{align-items:stretch;flex-direction:column;padding:20px}.restaurant-welcome button{width:100%}.restaurant-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.restaurant-metrics article{padding:13px}.restaurant-metrics small{line-height:1.4}.dashboard-section-heading h2{font-size:1.1rem}}
+@media(max-width:380px){.restaurant-metrics{grid-template-columns:1fr 1fr}.dashboard-chat-form{flex-direction:column}.dashboard-chat-form input,.dashboard-chat-form button{width:100%}}

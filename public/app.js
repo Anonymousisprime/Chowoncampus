@@ -675,6 +675,23 @@ async function initialize() {
   }
 
   document.addEventListener("click", async event => {
+    const gpsButton = event.target.closest("#useMyLocation");
+    if (gpsButton) {
+      const message = $("#locationMessage");
+      if (!navigator.geolocation) { message.textContent = "GPS is not supported by this browser. Please enter your location manually."; return; }
+      gpsButton.disabled = true;
+      message.textContent = "Requesting your location permission…";
+      navigator.geolocation.getCurrentPosition(position => {
+        $("#deliveryLatitude").value = position.coords.latitude;
+        $("#deliveryLongitude").value = position.coords.longitude;
+        message.textContent = "GPS pin added. Your delivery agent can open it in Maps.";
+        gpsButton.disabled = false;
+      }, error => {
+        message.textContent = error.code === 1 ? "Location permission was denied. Enter your hostel and landmark manually, or allow location in browser settings." : "Could not get GPS location. Check device location settings or enter your address manually.";
+        gpsButton.disabled = false;
+      }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 });
+      return;
+    }
     const viewButton = event.target.closest("[data-view]");
     if (viewButton && viewButton.dataset.view !== "login") setView(viewButton.dataset.view);
 

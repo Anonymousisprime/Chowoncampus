@@ -73,7 +73,7 @@ function setView(name) {
 }
 
 function updateNavigation() {
-  $("#dashboardNav").classList.toggle("hidden", !state.account || !["admin", "restaurant", "agent"].includes(state.account.role));
+  $("#dashboardNav").classList.toggle("hidden", !state.account);
 }
 
 function cartSubtotal() {
@@ -493,7 +493,8 @@ async function loadDashboard() {
   $("#dashboardTitle").textContent = ({
     admin: "Admin dashboard",
     restaurant: "Restaurant orders",
-    agent: "Delivery dashboard"
+    agent: "Delivery dashboard",
+    student: "Student account"
   })[account.role] || "Dashboard";
   $("#accountLabel").textContent = `Signed in as ${account.name} · ${account.role}`;
 
@@ -608,6 +609,19 @@ async function loadDashboard() {
         ? `<div class="order-list">${orders.map(renderOrderCard).join("")}</div>`
         : `<div class="empty-state">No orders here yet. New orders will appear when customers place them.</div>`;
     }
+
+    const securityPanel = document.createElement("section");
+    securityPanel.className = "dashboard-order-section";
+    securityPanel.innerHTML = `
+      <div class="dashboard-section-heading"><div><span class="eyebrow">ACCOUNT SECURITY</span><h2>Change password</h2><p>Use your current password to set a new one (10–128 characters). You will need to log in again after changing it.</p></div></div>
+      <form id="changePasswordForm" class="order-card">
+        <label>Current password<input name="currentPassword" type="password" required autocomplete="current-password"></label>
+        <label>New password<input name="newPassword" type="password" required minlength="10" maxlength="128" autocomplete="new-password"></label>
+        <label>Confirm new password<input name="confirmPassword" type="password" required minlength="10" maxlength="128" autocomplete="new-password"></label>
+        <button class="primary-button" type="submit" id="changePasswordButton">Change password</button>
+        <p id="changePasswordMessage" class="muted" role="status"></p>
+      </form>`;
+    $("#dashboardContent").appendChild(securityPanel);
 
     if (account.role === "admin" || account.role === "agent") {
       const result = await api("/api/earnings");
@@ -864,6 +878,30 @@ async function initialize() {
     trackOrder($("#trackId").value);
   });
   document.addEventListener("submit", async event => {
+    const passwordForm = event.target.closest("#changePasswordForm");
+    if (passwordForm) {
+      event.preventDefault();
+      const message = $("#changePasswordMessage");
+      const button = $("#changePasswordButton");
+      const values = Object.fromEntries(new FormData(passwordForm).entries());
+      if (values.newPassword !== values.confirmPassword) { message.textContent = "New password and confirmation do not match."; return; }
+      button.disabled = true;
+      message.textContent = "Changing password…";
+      try {
+        const result = await api("/api/account/change-password", { method: "POST", body: JSON.stringify(values) });
+        message.textContent = result.message;
+        message.classList.add("success");
+        const role = state.account?.role;
+        state.account = null;
+        updateNavigation();
+        setTimeout(() => { location.href = role === "student" ? "/student-login.html" : role === "restaurant" ? "/restaurant-login.html" : role === "agent" ? "/agent-login.html" : "/admin-login.html"; }, 700);
+      } catch (error) {
+        message.textContent = error.message;
+        message.classList.remove("success");
+        button.disabled = false;
+      }
+      return;
+    }
     const locationForm = event.target.closest("#restaurantLocationForm");
     if (locationForm) {
       event.preventDefault();

@@ -468,3 +468,41 @@ footer {
 .notification-item{padding:12px 10px;border-bottom:1px solid #edf1ed;border-radius:8px;cursor:pointer}
 .notification-item:last-child{border-bottom:0}.notification-item.unread{background:#f0f8f2}
 .notification-item strong{display:block;margin-bottom:4px}.notification-item p{margin:0 0 6px;font-size:14px;line-height:1.4}.notification-item small{color:#68776d}.notification-empty{padding:18px 8px;text-align:center;color:#68776d}
+
+
+/* Mobile-first fit and touch targets */
+html{width:100%;overflow-x:hidden; -webkit-text-size-adjust:100%;}
+body{width:100%;min-width:0;overflow-x:hidden;}
+img,svg,video,canvas{max-width:100%;}
+button,a,input,select,textarea{touch-action:manipulation;}
+button,a{ -webkit-tap-highlight-color:transparent; }
+@media(max-width:600px){
+  .navbar{align-items:flex-start;gap:12px;flex-wrap:wrap;padding:12px 4%;}
+  .brand{font-size:1.2rem;}
+  .nav-actions{width:100%;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;padding:2px 0 7px;scrollbar-width:thin;-webkit-overflow-scrolling:touch;}
+  .nav-actions>*{flex:0 0 auto;min-height:42px;}
+  .nav-link,.nav-actions a{font-size:.82rem;padding:10px 12px;white-space:nowrap;}
+  .nav-actions .primary-button{padding:10px 13px;white-space:nowrap;}
+  .hero{gap:20px;padding:24px 18px;border-radius:18px;}
+  .hero h1{font-size:clamp(2rem,9vw,3rem);overflow-wrap:anywhere;}
+  .content-section{padding-left:4%;padding-right:4%;}
+  .section-heading{gap:10px;flex-wrap:wrap;}
+  .food-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+  .food-card,.restaurant-card,.panel,.form-card{min-width:0;}
+  input,select,textarea{max-width:100%;font-size:16px!important;}
+  .notification-panel{top:auto;right:8px;bottom:12px;width:calc(100vw - 16px);max-height:min(76dvh,620px);padding:14px;border-radius:16px;}
+  .notification-item{padding:14px 10px;overflow-wrap:anywhere;}
+  .notification-panel-heading{position:sticky;top:-14px;background:#fff;padding:8px 0 12px;z-index:1;}
+  .dashboard-header,.dashboard-section-heading{align-items:stretch;flex-wrap:wrap;}
+  .dashboard-header button{min-height:44px;}
+  .order-actions{align-items:stretch;}
+  .order-actions button,.order-actions select{min-height:42px;max-width:100%;}
+  .tracking-progress{padding-bottom:6px;}
+  footer,.site-footer{overflow-wrap:anywhere;}
+}
+@media(max-width:360px){
+  .food-grid{grid-template-columns:minmax(0,1fr);}
+  .hero{padding:20px 15px;}
+  .nav-link,.nav-actions a{padding:9px 10px;font-size:.78rem;}
+  .notification-panel{right:6px;bottom:6px;width:calc(100vw - 12px);}
+}

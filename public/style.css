@@ -249,6 +249,19 @@ a { color: inherit; text-decoration: none; }
 }
 
 .secondary-button:hover { background: #edf2eb; }
+
+.danger-button {
+  background: #fff1f0;
+  color: #a51d16;
+  border: 1px solid #e9b5b1;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.danger-button:hover { background: #ffe3e0; }
+.danger-button:disabled { opacity: .65; cursor: wait; }
 .text-button { color: #b35e29; }
 
 .menu-title { margin: 30px 0 14px; font: 800 1.5rem Manrope, sans-serif; }

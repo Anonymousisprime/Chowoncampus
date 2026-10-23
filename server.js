@@ -746,6 +746,24 @@ function assignReadyOrders() {
   return changed;
 }
 
+// Admin can override an agent's availability and trigger assignment when enabling them.
+app.patch("/api/admin/agents/:id/availability", requireRole("admin"), (req, res) => {
+  if (typeof req.body.online !== "boolean") return res.status(400).json({ error: "Choose online or offline." });
+  try {
+    const records = readAgentRecords();
+    const agent = records.find(item => item.id === req.params.id);
+    if (!agent) return res.status(404).json({ error: "Delivery agent not found." });
+    agent.online = req.body.online;
+    agent.availabilityUpdatedAt = new Date().toISOString();
+    saveAgentRecords(records);
+    agents = records.map(record => ({ id: record.id, name: record.name, username: record.username, online: Boolean(record.online), activeOrderId: record.activeOrderId || null, createdAt: record.createdAt || null }));
+    if (agent.online) assignReadyOrders();
+    res.json({ id: agent.id, online: agent.online, activeOrderId: agent.activeOrderId || null });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Could not update agent availability." });
+  }
+});
+
 // An agent can view only their own availability and active assignment metadata.
 app.get("/api/agents/me", requireRole("agent"), (req, res) => {
   try {

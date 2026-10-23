@@ -560,6 +560,13 @@ async function loadDashboard() {
         </article>
       `).join("");
       $("#dashboardContent").innerHTML = `
+        <section class="dashboard-order-section" aria-label="Admin management shortcuts">
+          <div class="dashboard-section-heading"><div><h2>Quick management</h2><p>Jump straight to account controls and restaurant management.</p></div></div>
+          <div class="order-actions" style="display:flex;gap:10px;flex-wrap:wrap">
+            <button type="button" class="secondary-button" data-admin-jump="adminStudentAccounts">Manage students · Ban / Unban</button>
+            <button type="button" class="secondary-button" data-admin-jump="adminRestaurantPartners">Manage restaurants · Delete</button>
+          </div>
+        </section>
         <section class="dashboard-order-section">
           <div class="dashboard-section-heading"><div><h2>Add restaurant</h2><p>Create a partner login and add the first menu item.</p></div></div>
           <form id="adminAddRestaurantForm" class="order-card">
@@ -585,7 +592,7 @@ async function loadDashboard() {
             <p id="adminAddAgentMessage" class="muted" role="status"></p>
           </form>
         </section>
-        <section class="dashboard-order-section">
+        <section class="dashboard-order-section" id="adminStudentAccounts">
           <div class="dashboard-section-heading"><div><h2>Student accounts</h2><p>${studentResult.students.length} registered student account(s). Passwords are never displayed.</p></div><button class="secondary-button" id="refreshAdminStudents" type="button">↻ Refresh students</button></div>
           ${studentResult.students.length ? `
             <div style="overflow-x:auto">
@@ -596,7 +603,7 @@ async function loadDashboard() {
             </div>
           ` : '<div class="empty-state">No student accounts registered yet.</div>'}
         </section>
-        <section class="dashboard-order-section">
+        <section class="dashboard-order-section" id="adminRestaurantPartners">
           <div class="dashboard-section-heading"><div><h2>Restaurant partners</h2><p>Current restaurants registered in ChowOnCampus.</p></div></div>
           ${restaurantRows || '<div class="empty-state">No restaurant partners found.</div>'}
         </section>
@@ -793,6 +800,12 @@ async function initialize() {
 
     if (event.target.closest("#refreshRestaurantOrders")) {
       await loadDashboard();
+      return;
+    }
+
+    const adminJumpButton = event.target.closest("[data-admin-jump]");
+    if (adminJumpButton) {
+      document.getElementById(adminJumpButton.dataset.adminJump)?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
 

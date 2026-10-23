@@ -380,7 +380,7 @@ function renderOrderCard(order) {
 }
 
 async function loadDashboard() {
-  if (!state.account) return setView("login");
+  if (!state.account) { location.href = "/student-login.html"; return; }
 
   const account = state.account;
   $("#dashboardTitle").textContent = ({

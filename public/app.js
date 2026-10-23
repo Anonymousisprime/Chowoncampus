@@ -109,15 +109,16 @@ function renderMenu() {
     </div>
     <div class="food-grid">
       ${restaurant.items.map(item => `
-        <article class="food-card">
+        <article class="food-card ${item.available === false ? "food-sold-out" : ""}">
           <div class="food-emoji">${escapeHtml(item.emoji)}</div>
           <div class="food-info">
             <h3>${escapeHtml(item.name)}</h3>
             <span class="muted">${escapeHtml(item.category)}</span>
             <div class="food-bottom">
               <span class="price">${money(item.price)}</span>
-              <button class="add-button" aria-label="Add ${escapeHtml(item.name)}"
-                data-add="${escapeHtml(item.id)}">+</button>
+              ${item.available === false
+                ? '<span class="sold-out-label">Sold out</span>'
+                : `<button class="add-button" aria-label="Add ${escapeHtml(item.name)}" data-add="${escapeHtml(item.id)}">+</button>`}
             </div>
           </div>
         </article>
@@ -130,6 +131,7 @@ function addToCart(itemId) {
   const restaurant = state.restaurants.find(r => r.id === state.selectedRestaurantId);
   const item = restaurant?.items.find(i => i.id === itemId);
   if (!item) return;
+  if (item.available === false) return showToast("This item is currently sold out.");
 
   if (state.cart.length && state.cart[0].restaurantId !== restaurant.id) {
     if (!confirm("Your bag contains food from another restaurant. Clear it and start a new order?")) {
@@ -413,6 +415,39 @@ function renderOrderCard(order) {
   `;
 }
 
+function renderMenuRow(item = {}) {
+  return `<div class="menu-editor-row" data-menu-row>
+    <input type="hidden" name="id" value="${escapeHtml(item.id || "")}">
+    <label>Item name<input name="name" required minlength="2" maxlength="80" value="${escapeHtml(item.name || "")}" placeholder="e.g. Jollof rice"></label>
+    <label>Price (₦)<input name="price" required type="number" min="1" max="1000000" step="1" value="${Number(item.price) || ""}" placeholder="2500"></label>
+    <label>Category<input name="category" maxlength="40" value="${escapeHtml(item.category || "Meals")}" placeholder="Meals, Drinks…"></label>
+    <label class="menu-available"><input name="available" type="checkbox" ${item.available === false ? "" : "checked"}> Available</label>
+    <button class="menu-remove" type="button" data-remove-menu-item aria-label="Remove item">Remove</button>
+  </div>`;
+}
+
+function renderMenuManagerAfterSave() {
+  const old = document.querySelector(".restaurant-menu-manager");
+  if (old) old.remove();
+  renderRestaurantMenuManager();
+}
+
+function renderRestaurantMenuManager() {
+  if (!state.account || state.account.role !== "restaurant") return;
+  const restaurant = state.restaurants.find(item => item.id === state.account.restaurantId);
+  if (!restaurant) return;
+  const container = document.createElement("section");
+  container.className = "restaurant-menu-manager";
+  container.innerHTML = `
+    <div class="dashboard-section-heading"><div><span class="eyebrow">YOUR MENU</span><h2>Manage food and prices</h2><p>Add up to 70 items and mark anything unavailable as sold out.</p></div><span class="count-pill" id="menuItemCount">${restaurant.items.length}/70 items</span></div>
+    <form id="restaurantMenuForm">
+      <div id="restaurantMenuRows">${restaurant.items.map(item => renderMenuRow(item)).join("")}</div>
+      <div class="menu-editor-actions"><button type="button" class="secondary-button" id="addMenuItem" ${restaurant.items.length >= 70 ? "disabled" : ""}>＋ Add item</button><button type="submit" class="primary-button" id="saveRestaurantMenu">Save menu</button></div>
+      <p id="restaurantMenuMessage" class="muted" role="status"></p>
+    </form>`;
+  $("#dashboardContent").prepend(container);
+}
+
 async function loadDashboard() {
   if (!state.account) { location.href = "/student-login.html"; return; }
 
@@ -459,6 +494,7 @@ async function loadDashboard() {
         ${section("In the kitchen", "Orders currently being prepared", preparing, "preparing")}
         ${section("Ready for pickup & delivery", "Contact your assigned agent and coordinate handoff", pickup, "pickup")}
         ${section("Order history", "Completed and cancelled orders", completed, "completed")}`;
+      renderRestaurantMenuManager();
       document.querySelectorAll("[data-restaurant-chat-order]").forEach(form => loadRestaurantChat(form.dataset.restaurantChatOrder));
     } else {
       $("#dashboardContent").innerHTML = orders.length
@@ -566,6 +602,25 @@ async function initialize() {
     const addButton = event.target.closest("[data-add]");
     if (addButton) addToCart(addButton.dataset.add);
 
+    if (event.target.closest("#addMenuItem")) {
+      const rows = $("#restaurantMenuRows");
+      if (rows && rows.querySelectorAll("[data-menu-row]").length < 70) {
+        rows.insertAdjacentHTML("beforeend", renderMenuRow());
+        $("#menuItemCount").textContent = rows.querySelectorAll("[data-menu-row]").length + "/70 items";
+      }
+    }
+    const removeMenuItem = event.target.closest("[data-remove-menu-item]");
+    if (removeMenuItem) {
+      const rows = $("#restaurantMenuRows");
+      if (rows && rows.querySelectorAll("[data-menu-row]").length > 1) {
+        removeMenuItem.closest("[data-menu-row]").remove();
+        $("#menuItemCount").textContent = rows.querySelectorAll("[data-menu-row]").length + "/70 items";
+        $("#addMenuItem").disabled = false;
+      } else {
+        showToast("Keep at least one menu item.");
+      }
+    }
+
     const quantityButton = event.target.closest("[data-qty]");
     if (quantityButton) {
       changeQuantity(quantityButton.dataset.qty, Number(quantityButton.dataset.delta));
@@ -633,6 +688,32 @@ async function initialize() {
     trackOrder($("#trackId").value);
   });
   document.addEventListener("submit", async event => {
+    const menuForm = event.target.closest("#restaurantMenuForm");
+    if (menuForm) {
+      event.preventDefault();
+      const message = $("#restaurantMenuMessage");
+      const saveButton = $("#saveRestaurantMenu");
+      const rows = [...menuForm.querySelectorAll("[data-menu-row]")];
+      if (rows.length < 1 || rows.length > 70) return showToast("Your menu must have 1–70 items.");
+      const items = rows.map(row => ({
+        id: row.querySelector('[name="id"]').value,
+        name: row.querySelector('[name="name"]').value.trim(),
+        price: Number(row.querySelector('[name="price"]').value),
+        category: row.querySelector('[name="category"]').value.trim() || "Meals",
+        available: row.querySelector('[name="available"]').checked
+      }));
+      saveButton.disabled = true;
+      message.textContent = "Saving menu…";
+      try {
+        const result = await api("/api/restaurant/menu", { method: "PUT", body: JSON.stringify({ items }) });
+        const restaurant = state.restaurants.find(item => item.id === state.account.restaurantId);
+        if (restaurant) restaurant.items = result.items;
+        message.textContent = "Menu saved. Customers will now see the updated prices and availability.";
+        renderMenuManagerAfterSave();
+      } catch (error) { message.textContent = error.message; }
+      finally { saveButton.disabled = false; }
+      return;
+    }
     const restaurantForm = event.target.closest("[data-restaurant-chat-order]");
     if (restaurantForm) {
       event.preventDefault();

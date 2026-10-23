@@ -44,11 +44,7 @@ let restaurants = [
   }
 ];
 
-const agents = [
-  { id: "A1", name: "Delivery Agent 1" },
-  { id: "A2", name: "Delivery Agent 2" },
-  { id: "A3", name: "Delivery Agent 3" }
-];
+let agents = [];
 
 // Never put actual passwords in this file or commit them to GitHub.
 let accounts = [
@@ -71,20 +67,13 @@ let accounts = [
     role: "restaurant",
     restaurantId: "MK",
     name: "Mama's Kitchen"
-  },
-  ...agents.map(agent => ({
-    username: agent.id.toLowerCase(),
-    password: process.env[`${agent.id}_PASSWORD`] || "",
-    role: "agent",
-    agentId: agent.id,
-    name: agent.name
-  }))
+  }
 ];
 
 if (accounts.some(account => !account.password)) {
   throw new Error(
     "Missing login passwords. Set ADMIN_PASSWORD, CAMPUSBITES_PASSWORD, " +
-    "MAMASKITCHEN_PASSWORD, A1_PASSWORD, A2_PASSWORD and A3_PASSWORD in .env."
+    "and MAMASKITCHEN_PASSWORD in .env."
   );
 }
 
@@ -115,6 +104,47 @@ for (const record of addedRestaurantRecords) {
       role: "restaurant",
       restaurantId: record.restaurant.id,
       name: record.restaurant.name,
+      passwordSalt: record.passwordSalt,
+      passwordHash: record.passwordHash
+    });
+  }
+}
+
+/* Delivery agents are created by an administrator. JSON storage is demo storage;
+   use a persistent database before relying on this for live operations. */
+const AGENTS_FILE = path.join(__dirname, "delivery-agents.json");
+function readAgentRecords() {
+  try {
+    if (!fs.existsSync(AGENTS_FILE)) return [];
+    const records = JSON.parse(fs.readFileSync(AGENTS_FILE, "utf8"));
+    if (!Array.isArray(records)) throw new Error("Invalid agent data.");
+    return records;
+  } catch (error) {
+    console.error("Could not read delivery agents:", error.message);
+    throw new Error("Delivery-agent storage is unavailable.");
+  }
+}
+function saveAgentRecords(records) {
+  const temporaryFile = AGENTS_FILE + ".tmp";
+  fs.writeFileSync(temporaryFile, JSON.stringify(records, null, 2), "utf8");
+  fs.renameSync(temporaryFile, AGENTS_FILE);
+}
+const agentRecords = readAgentRecords();
+agents = agentRecords.map(record => ({
+  id: record.id,
+  name: record.name,
+  username: record.username,
+  online: Boolean(record.online),
+  activeOrderId: record.activeOrderId || null,
+  createdAt: record.createdAt || null
+}));
+for (const record of agentRecords) {
+  if (record.id && record.username && record.passwordSalt && record.passwordHash) {
+    accounts.push({
+      username: record.username,
+      role: "agent",
+      agentId: record.id,
+      name: record.name,
       passwordSalt: record.passwordSalt,
       passwordHash: record.passwordHash
     });

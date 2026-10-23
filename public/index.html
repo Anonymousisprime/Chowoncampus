@@ -1,0 +1,149 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#176b45">
+  <meta name="description" content="Chowoncampus — order your favourite campus meals with ease.">
+  <title>Chowoncampus | Campus Food Made Easy</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <nav class="navbar">
+      <a href="#" id="brandHome" class="brand">Chow<span>oncampus</span></a>
+      <div class="nav-actions">
+        <button type="button" class="nav-link" data-view="home">Home</button>
+        <button type="button" class="nav-link" id="loginNav" data-view="login">Login</button>
+        <button type="button" class="nav-link hidden" id="dashboardNav" data-view="dashboard">Dashboard</button>
+        <button type="button" class="primary-button" id="cartJump">
+          Cart (<span id="cartCount">0</span>)
+        </button>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <section id="homeView" class="view">
+      <section class="hero">
+        <div class="hero-content">
+          <span class="eyebrow">YOUR CAMPUS. YOUR CRAVINGS.</span>
+          <h1>Good food.<br>Right on campus.</h1>
+          <p>Your favourite meals, from campus kitchens to your doorstep. Easy ordering, simple tracking, less stress.</p>
+          <button type="button" class="primary-button" id="exploreButton">Explore restaurants ↓</button>
+        </div>
+        <div class="hero-art" aria-hidden="true">🍛 🍗 🍚</div>
+      </section>
+
+      <section class="content-section" id="restaurantsSection">
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">MADE FOR YOUR HUNGER</span>
+            <h2>What's cooking?</h2>
+          </div>
+          <p>Find your next favourite meal.</p>
+        </div>
+        <div id="restaurantList" class="restaurant-grid">
+          <p>Loading restaurants...</p>
+        </div>
+      </section>
+
+      <section id="menuSection" class="content-section">
+        <div id="menuArea"></div>
+      </section>
+
+      <section id="cartSection" class="content-section">
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">YOUR SELECTION</span>
+            <h2 id="cartHeadingCount">Your cart</h2>
+          </div>
+          <button type="button" id="clearCart" class="text-button">Clear cart</button>
+        </div>
+        <div id="cartItems">
+          <p>Your cart is empty. Explore the restaurants to get started!</p>
+        </div>
+
+        <div class="cart-summary">
+          <div><span>Subtotal</span><strong id="subtotal">₦0</strong></div>
+          <div><span>Delivery fee</span><strong id="deliveryFee">₦300</strong></div>
+          <div class="grand-total"><span>Total</span><strong id="grandTotal">₦300</strong></div>
+        </div>
+
+        <form id="checkoutForm" class="form-card">
+          <h3>Delivery details</h3>
+          <label for="customerName">Full name</label>
+          <input id="customerName" name="customerName" type="text" autocomplete="name" required>
+
+          <label for="customerPhone">Phone number</label>
+          <input id="customerPhone" name="customerPhone" type="tel" autocomplete="tel" required>
+
+          <label for="hostel">Hostel / delivery location</label>
+          <input id="hostel" name="hostel" type="text" placeholder="Enter your hostel or location" required>
+
+          <p id="checkoutMessage" class="form-message" aria-live="polite"></p>
+          <button type="submit" id="placeOrderButton" class="primary-button full-width">Place order</button>
+          <p class="small-note">Demo checkout only. No real payment is collected by this form.</p>
+        </form>
+      </section>
+
+      <section id="trackingSection" class="content-section">
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">ORDER UPDATES</span>
+            <h2>Track your order</h2>
+          </div>
+        </div>
+        <form id="trackForm" class="form-card">
+          <label for="trackId">Order ID</label>
+          <input id="trackId" name="trackId" type="text" placeholder="Enter your order ID" required>
+          <button type="submit" class="secondary-button">Track order</button>
+          <div id="trackResult" aria-live="polite"></div>
+        </form>
+      </section>
+    </section>
+
+    <section id="loginView" class="view hidden content-section">
+      <div class="form-card login-card">
+        <span class="eyebrow">WELCOME BACK</span>
+        <h1>Account login</h1>
+        <p>Sign in to access your authorised dashboard.</p>
+        <form id="loginForm">
+          <label for="username">Username</label>
+          <input id="username" name="username" type="text" autocomplete="username" required>
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+          <p id="loginMessage" class="form-message" aria-live="polite"></p>
+          <button type="submit" class="primary-button full-width">Log in</button>
+        </form>
+        <button type="button" class="text-button" data-view="home">Back to home</button>
+      </div>
+    </section>
+
+    <section id="dashboardView" class="view hidden content-section">
+      <div class="dashboard-header">
+        <div>
+          <span class="eyebrow">CHOWONCAMPUS MANAGEMENT</span>
+          <h1 id="dashboardTitle">Dashboard</h1>
+          <p id="accountLabel"></p>
+        </div>
+        <button type="button" id="logoutButton" class="secondary-button">Log out</button>
+      </div>
+      <div id="earningsPanel"></div>
+      <div id="dashboardContent">
+        <p>Loading dashboard...</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <a href="#" class="brand">Chow<span>oncampus</span></a>
+    <p>Good food, closer to you.</p>
+    <p>© <span id="year"></span> Chowoncampus. Made for campus life.</p>
+  </footer>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

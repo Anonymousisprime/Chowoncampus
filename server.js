@@ -567,6 +567,11 @@ app.get("/api/orders", requireLogin, (req, res) => {
       orders = orders.filter(
         order => order.assignedAgentId === req.account.agentId
       );
+    } else if (req.account.role === "student") {
+      // Students may only view orders placed using their verified phone number.
+      orders = orders.filter(order => order.customerPhone === req.account.username);
+    } else if (req.account.role !== "admin") {
+      return res.status(403).json({ error: "You don't have permission to view orders." });
     }
 
     res.json({ orders: orders.map(publicOrder) });

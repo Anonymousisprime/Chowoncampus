@@ -7,8 +7,8 @@
   <meta name="theme-color" content="#176b45">
   <meta name="description" content="Chowoncampus — order your favourite campus meals with ease.">
   <title>Chowoncampus | Campus Food Made Easy</title>
-  <link rel="stylesheet" href="/style.css?v=mobile-notifications-fit-1">
-  <script src="/app.js?v=admin-student-directory" defer></script>
+  <link rel="stylesheet" href="/style.css?v=campus-location-1">
+  <script src="/app.js?v=campus-location-1" defer></script>
 </head>
 <body>
   <header class="site-header">
@@ -80,8 +80,17 @@
         <form id="checkoutForm" class="form-card">
           <h3>Delivery details</h3>
           <p class="small-note">You must be signed in with a student account to place an order. Your account details will be used automatically.</p>
-          <label for="hostel">Hostel / delivery location</label>
-          <input id="hostel" name="hostel" type="text" placeholder="Enter your hostel or location" required>
+          <label for="hostel">Hostel / residence <span class="muted">(required)</span></label>
+          <input id="hostel" name="hostel" type="text" placeholder="e.g. Hall 2, campus" maxlength="150" required>
+          <div class="delivery-location-grid">
+            <label for="deliveryBlock">Block / building<input id="deliveryBlock" name="block" type="text" maxlength="100" placeholder="e.g. Block C"></label>
+            <label for="deliveryRoom">Room number<input id="deliveryRoom" name="room" type="text" maxlength="40" placeholder="e.g. Room 12"></label>
+          </div>
+          <label for="deliveryLandmark">Nearby landmark / gate<input id="deliveryLandmark" name="landmark" type="text" maxlength="150" placeholder="e.g. near the main gate"></label>
+          <input id="deliveryLatitude" type="hidden" name="latitude">
+          <input id="deliveryLongitude" type="hidden" name="longitude">
+          <button type="button" id="useMyLocation" class="secondary-button full-width">📍 Use my current GPS location (optional)</button>
+          <p id="locationMessage" class="small-note" aria-live="polite">Enter your location manually or share a GPS pin. Your browser will ask permission.</p>
 
           <p id="checkoutMessage" class="form-message" aria-live="polite"></p>
           <button type="submit" id="placeOrderButton" class="primary-button full-width">Place order</button>

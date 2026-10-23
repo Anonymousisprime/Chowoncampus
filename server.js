@@ -465,6 +465,7 @@ app.get("/api/health", (req, res) => {
 app.get("/api/menu", (req, res) => {
   res.json({ restaurants: restaurants.map(restaurant => ({
     ...restaurant,
+    location: restaurant.location || "",
     items: restaurant.items.map(item => ({ ...item, available: item.available !== false }))
   })) });
 });
@@ -566,7 +567,7 @@ app.post("/api/logout", (req, res) => {
 
 // Create an order. All prices are calculated on the server.
 app.post("/api/orders", requireRole("student"), (req, res) => {
-  const { hostel, restaurantId, items } = req.body;
+  const { hostel, block, room, landmark, latitude, longitude, restaurantId, items } = req.body;
   let student;
   try {
     student = readStudents().find(item => item.phone === req.account.username);
@@ -602,6 +603,8 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     });
   }
 
+  const hasCoordinates = latitude !== undefined && longitude !== undefined && Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude)) && Math.abs(Number(latitude)) <= 90 && Math.abs(Number(longitude)) <= 180;
+  const deliveryLocation = { hostel: hostel.trim(), block: typeof block === "string" ? block.trim().slice(0, 100) : "", room: typeof room === "string" ? room.trim().slice(0, 40) : "", landmark: typeof landmark === "string" ? landmark.trim().slice(0, 150) : "", latitude: hasCoordinates ? Number(latitude) : null, longitude: hasCoordinates ? Number(longitude) : null };
   const restaurant = restaurants.find(r => r.id === restaurantId);
 
   if (
@@ -644,7 +647,9 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     id: `COC-${Date.now()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`,
     customerName: customerName.trim(),
     customerPhone: customerPhone.trim(),
-    hostel: hostel.trim(),
+    hostel: [deliveryLocation.hostel, deliveryLocation.block && `Block ${deliveryLocation.block}`, deliveryLocation.room && `Room ${deliveryLocation.room}`, deliveryLocation.landmark && `Near ${deliveryLocation.landmark}`].filter(Boolean).join(", "),
+    deliveryLocation,
+    restaurantLocation: restaurant.location || "",
     restaurantId: restaurant.id,
     restaurantName: restaurant.name,
     items: cleanItems,
@@ -857,11 +862,13 @@ app.post("/api/admin/restaurants", requireRole("admin"), (req, res) => {
   const description = String(req.body.description || "").trim();
   const username = String(req.body.username || "").trim().toLowerCase();
   const password = String(req.body.password || "");
+  const location = String(req.body.location || "").trim();
   const firstItemName = String(req.body.firstItemName || "").trim();
   const firstItemPrice = Number(req.body.firstItemPrice);
 
   if (name.length < 2 || name.length > 100) return res.status(400).json({ error: "Restaurant name must be 2–100 characters." });
   if (description.length > 240) return res.status(400).json({ error: "Description must be 240 characters or fewer." });
+  if (location.length > 180) return res.status(400).json({ error: "Restaurant location must be 180 characters or fewer." });
   if (!/^[a-z0-9._-]{3,30}$/.test(username)) return res.status(400).json({ error: "Username must be 3–30 characters: letters, numbers, dots, underscores or hyphens." });
   if (password.length < 10 || password.length > 128) return res.status(400).json({ error: "Restaurant password must be 10–128 characters." });
   if (accounts.some(account => account.username === username)) return res.status(409).json({ error: "That username is already in use." });
@@ -875,6 +882,7 @@ app.post("/api/admin/restaurants", requireRole("admin"), (req, res) => {
       id,
       name,
       description: description || "Fresh meals for campus students.",
+      location,
       items: [{ id: itemId, name: firstItemName, price: Math.round(firstItemPrice), category: "Meals", emoji: "🍽️" }]
     };
     const passwordData = hashPassword(password);
@@ -885,7 +893,7 @@ app.post("/api/admin/restaurants", requireRole("admin"), (req, res) => {
     restaurants.push(restaurant);
     accounts.push({ username, role: "restaurant", restaurantId: id, name, passwordSalt: passwordData.salt, passwordHash: passwordData.hash });
     res.status(201).json({
-      restaurant: { id, name, description: restaurant.description, username, itemCount: restaurant.items.length },
+      restaurant: { id, name, description: restaurant.description, location: restaurant.location, username, itemCount: restaurant.items.length },
       message: "Restaurant created. Save the login details securely and share the password with the partner."
     });
   } catch (error) {

@@ -273,7 +273,24 @@ function renderTrackedOrder(order) {
       <p class="tiny muted">Last updated: ${escapeHtml(new Date(order.updatedAt || order.createdAt).toLocaleString())}</p>
       ${isLocalDemo && order.paymentStatus === "Unpaid — demo only" ? `<button class="primary-button" data-demo-pay="${escapeHtml(order.id)}">Simulate demo payment (no money charged)</button>` : ""}
       <p class="tiny muted">Tracking refreshes automatically every 15 seconds while this page is open.</p>
+      ${state.account?.role === "student" && order.status === "Out for delivery" ? '<section style="margin-top:18px;padding:16px;border:1px solid #dce9df;border-radius:14px;background:#f8fbf8"><h4>Temporary delivery chat</h4><p class="tiny muted">Chat with your assigned delivery agent. Messages are automatically deleted when delivery is completed or cancelled.</p><div id="customerChatMessages" aria-live="polite" style="max-height:240px;overflow:auto;display:grid;gap:8px;margin:12px 0"><p class="tiny muted">Loading chat…</p></div><form id="customerChatForm" data-chat-order="${escapeHtml(order.id)}" style="display:flex;gap:8px;flex-wrap:wrap"><input name="message" maxlength="500" required placeholder="Message your delivery agent…" style="flex:1;min-width:180px;padding:12px;border:1px solid #cbd9cf;border-radius:10px;font:inherit"><button class="primary-button" type="submit">Send</button></form><p id="customerChatStatus" class="tiny muted" role="status"></p></section>' : ""}
     </article>`;
+  if (state.account?.role === "student" && order.status === "Out for delivery") loadCustomerChat(order.id);
+}
+
+async function loadCustomerChat(orderId) {
+  const box = $("#customerChatMessages");
+  if (!box) return;
+  try {
+    const result = await api("/api/orders/" + encodeURIComponent(orderId) + "/chat");
+    const current = $("#customerChatMessages");
+    if (!current) return;
+    current.innerHTML = result.messages.length ? result.messages.map(m =>
+      '<div style="padding:9px 11px;border-radius:10px;background:' + (m.senderRole === "student" ? "#e5f3e9" : "#fff") + ';border:1px solid #e1eae3"><strong>' + escapeHtml(m.senderName) + '</strong><p style="margin:5px 0;white-space:pre-wrap;overflow-wrap:anywhere">' + escapeHtml(m.message) + '</p><small class="muted">' + escapeHtml(new Date(m.sentAt).toLocaleTimeString()) + '</small></div>').join("") : '<p class="tiny muted">No messages yet. Say hello to your delivery agent.</p>';
+    current.scrollTop = current.scrollHeight;
+  } catch (error) {
+    if ($("#customerChatMessages")) $("#customerChatMessages").textContent = error.message;
+  }
 }
 
 let activeTrackedOrderId = null;
@@ -558,6 +575,23 @@ async function initialize() {
   $("#trackForm").addEventListener("submit", event => {
     event.preventDefault();
     trackOrder($("#trackId").value);
+  });
+  document.addEventListener("submit", async event => {
+    const form = event.target.closest("#customerChatForm");
+    if (!form) return;
+    event.preventDefault();
+    const input = form.elements.message;
+    const message = input.value.trim();
+    if (!message) return;
+    const button = form.querySelector("button[type=submit]");
+    button.disabled = true;
+    try {
+      await api("/api/orders/" + encodeURIComponent(form.dataset.chatOrder) + "/chat", { method: "POST", body: JSON.stringify({ message }) });
+      input.value = "";
+      $("#customerChatStatus").textContent = "Message sent.";
+      await loadCustomerChat(form.dataset.chatOrder);
+    } catch (error) { $("#customerChatStatus").textContent = error.message; }
+    finally { button.disabled = false; }
   });
   try {
     const savedOrderId = localStorage.getItem("coc_last_order_id");

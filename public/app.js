@@ -544,7 +544,9 @@ async function loadDashboard() {
           <td>${escapeHtml(student.name)}</td>
           <td>${escapeHtml(student.phone)}</td>
           <td><span class="status">${student.verifiedPhone ? "Verified" : "Not verified"}</span></td>
+          <td><span class="status">${student.banned ? "Banned" : "Active"}</span></td>
           <td>${student.createdAt ? escapeHtml(new Date(student.createdAt).toLocaleString()) : "—"}</td>
+          <td><button type="button" class="${student.banned ? "secondary-button" : "danger-button"}" data-toggle-student-ban="${escapeHtml(student.id)}" data-student-name="${escapeHtml(student.name)}" data-student-banned="${student.banned ? "true" : "false"}">${student.banned ? "Unban student" : "Ban student"}</button></td>
         </tr>
       `).join("");
       const restaurantRows = restaurantResult.restaurants.map(restaurant => `
@@ -587,7 +589,7 @@ async function loadDashboard() {
           ${studentResult.students.length ? `
             <div style="overflow-x:auto">
               <table class="admin-student-table" style="width:100%;border-collapse:collapse;text-align:left">
-                <thead><tr><th style="padding:10px">Student name</th><th style="padding:10px">Phone / username</th><th style="padding:10px">Phone status</th><th style="padding:10px">Created</th></tr></thead>
+                <thead><tr><th style="padding:10px">Student name</th><th style="padding:10px">Phone / username</th><th style="padding:10px">Phone status</th><th style="padding:10px">Account status</th><th style="padding:10px">Created</th><th style="padding:10px">Action</th></tr></thead>
                 <tbody>${studentRows}</tbody>
               </table>
             </div>
@@ -777,6 +779,31 @@ async function initialize() {
 
     if (event.target.closest("#refreshRestaurantOrders")) {
       await loadDashboard();
+      return;
+    }
+
+    const studentBanButton = event.target.closest("[data-toggle-student-ban]");
+    if (studentBanButton) {
+      const studentId = studentBanButton.dataset.toggleStudentBan;
+      const studentName = studentBanButton.dataset.studentName || "this student";
+      const isBanned = studentBanButton.dataset.studentBanned === "true";
+      const nextBanned = !isBanned;
+      const action = nextBanned ? "ban" : "unban";
+      if (!confirm((nextBanned ? "Ban " : "Unban ") + studentName + "? " + (nextBanned ? "They will be signed out and won't be able to log in." : "They will be able to log in again."))) return;
+      studentBanButton.disabled = true;
+      studentBanButton.textContent = nextBanned ? "Banning…" : "Unbanning…";
+      try {
+        const result = await api("/api/admin/students/" + encodeURIComponent(studentId) + "/ban", {
+          method: "PATCH",
+          body: JSON.stringify({ banned: nextBanned })
+        });
+        showToast(result.message || ("Student " + action + "ned."));
+        await loadDashboard();
+      } catch (error) {
+        showToast(error.message);
+        studentBanButton.disabled = false;
+        studentBanButton.textContent = isBanned ? "Unban student" : "Ban student";
+      }
       return;
     }
 

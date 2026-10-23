@@ -426,6 +426,9 @@ app.post("/api/student/login", (req, res) => {
     if (!student || !passwordMatches(password, student)) {
       return res.status(401).json({ error: "Incorrect phone number or password." });
     }
+    if (student.banned) {
+      return res.status(403).json({ error: "This student account has been banned. Contact ChowOnCampus support if you think this is a mistake." });
+    }
     const account = { username: student.phone, role: "student", name: student.name };
     const token = crypto.randomBytes(32).toString("hex");
     sessions.set(token, account);
@@ -969,12 +972,30 @@ app.get("/api/admin/students", requireRole("admin"), (req, res) => {
       username: student.phone,
       phone: student.phone,
       verifiedPhone: Boolean(student.verifiedPhone),
+      banned: Boolean(student.banned),
       createdAt: student.createdAt || null
     }));
     res.json({ students });
   } catch (error) {
     res.status(500).json({ error: error.message || "Could not load students." });
   }
+});
+
+// Admin can ban or unban a student. Banning also invalidates any active session.
+app.patch("/api/admin/students/:id/ban", requireRole("admin"), (req, res) => {
+  const banned = req.body.banned;
+  if (typeof banned !== "boolean") return res.status(400).json({ error: "Choose whether to ban or unban this student." });
+  const students = readStudents();
+  const student = students.find(item => item.id === req.params.id);
+  if (!student) return res.status(404).json({ error: "Student account not found." });
+  student.banned = banned;
+  saveStudents(students);
+  if (banned) {
+    for (const [token, account] of sessions.entries()) {
+      if (account.role === "student" && account.username === student.phone) sessions.delete(token);
+    }
+  }
+  res.json({ ok: true, banned, message: banned ? "Student banned. Any active student session has been signed out." : "Student unbanned. They can log in again." });
 });
 
 // Admin-only agent list and agent-account creation.

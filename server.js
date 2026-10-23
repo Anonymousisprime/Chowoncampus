@@ -956,7 +956,12 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
       order.statusHistory.push({ status: newStatus, at: changedAt, by: req.account.role });
     }
 
-    // Erase the temporary delivery chat as soon as the order is completed or cancelled.\n    if (newStatus === "Completed" || newStatus === "Cancelled") {\n      delete order.chatMessages;\n    }\n\n    // Record agent earnings only once when the order is completed.
+    // Erase the temporary delivery chat as soon as the order is completed or cancelled.
+    if (newStatus === "Completed" || newStatus === "Cancelled") {
+      delete order.chatMessages;
+    }
+
+    // Record agent earnings only once when the order is completed.
     if (newStatus === "Completed" && !order.agentEarningsRecorded) {
       order.agentEarningsRecorded = true;
       order.agentEarnings = 100;

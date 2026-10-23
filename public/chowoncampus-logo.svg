@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="180" viewBox="0 0 760 180" role="img" aria-labelledby="title desc">
+<title id="title">Chowoncampus Delivery Service</title><desc id="desc">Green and gold campus food delivery logo with a chef hat, graduation cap, cutlery, and serving cloche.</desc>
+<rect width="760" height="180" rx="22" fill="#fffdf7"/>
+<g transform="translate(12 7)">
+  <path d="M29 78C9 76 3 59 10 44C17 28 35 25 49 34C57 12 81 6 99 20C112 29 116 44 112 56" fill="none" stroke="#06452e" stroke-width="8" stroke-linecap="round"/>
+  <path d="M52 71L84 29L139 37L103 69L94 91L72 86Z" fill="#06452e" stroke="#06452e" stroke-linejoin="round" stroke-width="3"/>
+  <path d="M91 33L126 40L101 59" fill="none" stroke="#f7b900" stroke-width="4" stroke-linecap="round"/>
+  <path d="M122 40L122 59" stroke="#f7b900" stroke-width="3" stroke-linecap="round"/><path d="M116 62Q122 54 128 62L125 72Q122 77 119 72Z" fill="#f7b900"/>
+  <path d="M25 104H5M27 116H0" stroke="#f7b900" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="72" cy="111" r="45" fill="#fffdf7" stroke="#f7b900" stroke-width="13"/>
+  <path d="M57 89V127M49 89V103M57 89V103M65 89V103M49 103Q49 111 57 111Q65 111 65 103" fill="none" stroke="#06452e" stroke-width="5" stroke-linecap="round"/>
+  <ellipse cx="83" cy="100" rx="10" ry="17" transform="rotate(28 83 100)" fill="#06452e"/><path d="M77 114L67 136" stroke="#06452e" stroke-width="5" stroke-linecap="round"/>
+  <path d="M99 132Q105 103 132 103Q151 103 157 132Z" fill="#06452e"/><path d="M95 135H159Q155 143 147 143H108Q99 143 95 135Z" fill="#06452e"/>
+  <path d="M157 116H174M159 128H179" stroke="#f7b900" stroke-width="5" stroke-linecap="round"/>
+</g>
+<text x="205" y="82" font-family="Arial, Helvetica, sans-serif" font-size="52" font-weight="900" letter-spacing="-2" fill="#06452e">Chowon</text>
+<text x="400" y="82" font-family="Arial, Helvetica, sans-serif" font-size="52" font-weight="900" letter-spacing="-2" fill="#f7b900">Campus</text>
+<path d="M207 98H720" stroke="#06452e" stroke-width="3" stroke-linecap="round"/>
+<text x="210" y="131" font-family="Arial, Helvetica, sans-serif" font-size="27" font-weight="800" font-style="italic" fill="#06452e">Delivery Service</text>
+<text x="210" y="157" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" letter-spacing="2.2" fill="#8b6b00">CAMPUS LIFE TASTES BETTER HERE</text>
+</svg>

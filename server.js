@@ -170,7 +170,6 @@ function publicOrder(order) {
 // Student accounts. Students are stored separately from staff accounts.
 // Configure Twilio Verify in Render to enable real phone verification.
 const STUDENTS_FILE = path.join(__dirname, "students.json");
-const pendingStudentRegistrations = new Map();
 
 function readStudents() {
   try {
@@ -199,35 +198,6 @@ function passwordMatches(password, student) {
   const actual = crypto.scryptSync(password, student.passwordSalt, 64);
   const expected = Buffer.from(student.passwordHash, "hex");
   return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
-}
-
-function twilioVerifyConfigured() {
-  return Boolean(
-    process.env.TWILIO_ACCOUNT_SID &&
-    process.env.TWILIO_AUTH_TOKEN &&
-    process.env.TWILIO_VERIFY_SERVICE_SID
-  );
-}
-
-async function twilioVerifyRequest(endpoint, params) {
-  const sid = process.env.TWILIO_ACCOUNT_SID;
-  const auth = Buffer.from(sid + ":" + process.env.TWILIO_AUTH_TOKEN).toString("base64");
-  const url = "https://verify.twilio.com/v2/Services/" +
-    encodeURIComponent(process.env.TWILIO_VERIFY_SERVICE_SID) + endpoint;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: "Basic " + auth,
-      "Content-Type": "application/x-www-form-urlencoded"
-    },
-    body: new URLSearchParams(params)
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    console.error("Phone verification provider error:", response.status);
-    throw new Error("Could not verify this phone number. Check the number and try again.");
-  }
-  return data;
 }
 
 function setSessionCookie(res, token) {

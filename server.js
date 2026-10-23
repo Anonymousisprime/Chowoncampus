@@ -53,7 +53,7 @@ const agents = [
 // Never put actual passwords in this file or commit them to GitHub.
 const accounts = [
   {
-    username: "admin",
+    username: (process.env.ADMIN_USERNAME || "admin").trim().toLowerCase(),
     password: process.env.ADMIN_PASSWORD || "",
     role: "admin",
     name: "Chowoncampus Admin"
@@ -354,8 +354,17 @@ app.post("/api/logout", (req, res) => {
 });
 
 // Create an order. All prices are calculated on the server.
-app.post("/api/orders", (req, res) => {
-  const { customerName, customerPhone, hostel, restaurantId, items } = req.body;
+app.post("/api/orders", requireRole("student"), (req, res) => {
+  const { hostel, restaurantId, items } = req.body;
+  let student;
+  try {
+    student = readStudents().find(item => item.phone === req.account.username);
+  } catch (error) {
+    return res.status(500).json({ error: "Could not verify your student account." });
+  }
+  if (!student) return res.status(403).json({ error: "A valid student account is required to order." });
+  const customerName = student.name;
+  const customerPhone = student.phone;
 
   if (
     typeof customerName !== "string" ||

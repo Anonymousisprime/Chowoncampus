@@ -829,7 +829,7 @@ async function initialize() {
         if (restaurant) restaurant.location = result.location;
         message.textContent = "Location saved successfully.";
         message.classList.add("success");
-        await loadMenu();
+        await refreshPublicMenu();
         showToast("Restaurant location updated.");
       } catch (error) {
         message.textContent = error.message;

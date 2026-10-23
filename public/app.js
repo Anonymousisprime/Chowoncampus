@@ -305,7 +305,7 @@ function renderTrackedOrder(order) {
       <p class="tiny muted">Tracking refreshes automatically every 15 seconds while this page is open.</p>
       ${state.account?.role === "student" && order.status === "Out for delivery" ? '<section style="margin-top:18px;padding:16px;border:1px solid #dce9df;border-radius:14px;background:#f8fbf8"><h4>Temporary delivery chat</h4><p class="tiny muted">Chat with your assigned delivery agent. Messages are automatically deleted when delivery is completed or cancelled.</p><div id="customerChatMessages" aria-live="polite" style="max-height:240px;overflow:auto;display:grid;gap:8px;margin:12px 0"><p class="tiny muted">Loading chat…</p></div><form id="customerChatForm" data-chat-order="${escapeHtml(order.id)}" style="display:flex;gap:8px;flex-wrap:wrap"><input name="message" maxlength="500" required placeholder="Message your delivery agent…" style="flex:1;min-width:180px;padding:12px;border:1px solid #cbd9cf;border-radius:10px;font:inherit"><button class="primary-button" type="submit">Send</button></form><p id="customerChatStatus" class="tiny muted" role="status"></p></section>' : ""}
     </article>`;
-  if (state.account?.role === "student" && order.status === "Out for delivery") loadCustomerChat(order.id);
+  if (state.account?.role === "student" && ["Ready for pickup", "Out for delivery"].includes(order.status)) loadCustomerChat(order.id);
 }
 
 async function loadCustomerChat(orderId) {
@@ -391,6 +391,7 @@ function renderOrderCard(order) {
   const canAssign = state.account.role === "admin" && order.status !== "Completed";
   const canChangeStatus = statuses.length > 0 && !(order.status === "Completed");
   const canContactAgent = state.account.role === "restaurant" && order.assignedAgentId && ["Ready for pickup", "Out for delivery"].includes(order.status);
+  const canDeliveryChat = ["Ready for pickup", "Out for delivery"].includes(order.status) && ((state.account.role === "restaurant" && order.assignedAgentId) || (state.account.role === "agent" && state.account.agentId === order.assignedAgentId));
 
   return `
     <article class="order-card">
@@ -425,6 +426,14 @@ function renderOrderCard(order) {
           <div id="restaurantChatMessages-${escapeHtml(order.id)}" class="dashboard-chat-messages" aria-live="polite">Loading messages…</div>
           <form class="dashboard-chat-form" data-restaurant-chat-order="${escapeHtml(order.id)}"><input name="message" maxlength="500" required placeholder="Message the delivery agent…"><button class="primary-button" type="submit">Send</button></form>
           <p class="tiny muted" data-restaurant-chat-status="${escapeHtml(order.id)}" role="status"></p>
+        </section>
+      ` : ""}
+      ${canDeliveryChat && state.account.role === "agent" ? `
+        <section class="agent-contact">
+          <div><span class="eyebrow">TEMPORARY DELIVERY CHAT</span><strong>Student order conversation</strong><p class="tiny muted">Coordinate pickup and delivery with the student. Messages are removed when the order is completed or cancelled.</p></div>
+          <div id="agentChatMessages-${escapeHtml(order.id)}" class="dashboard-chat-messages" aria-live="polite">Loading messages…</div>
+          <form class="dashboard-chat-form" data-agent-chat-order="${escapeHtml(order.id)}"><input name="message" maxlength="500" required placeholder="Message the student…"><button class="primary-button" type="submit">Send</button></form>
+          <p class="tiny muted" data-agent-chat-status="${escapeHtml(order.id)}" role="status"></p>
         </section>
       ` : ""}
       ${canChangeStatus ? `
@@ -535,6 +544,7 @@ async function loadDashboard() {
         ${section("Order history", "Completed and cancelled orders", completed, "completed")}`;
       renderRestaurantMenuManager();
       document.querySelectorAll("[data-restaurant-chat-order]").forEach(form => loadRestaurantChat(form.dataset.restaurantChatOrder));
+      document.querySelectorAll("[data-agent-chat-order]").forEach(form => loadAgentChat(form.dataset.agentChatOrder));
     } else if (account.role === "admin") {
       const [restaurantResult, studentResult] = await Promise.all([
         api("/api/admin/restaurants"),
@@ -659,6 +669,23 @@ async function loadRestaurantChat(orderId) {
     current.scrollTop = current.scrollHeight;
   } catch (error) {
     if (box) box.textContent = error.message;
+  }
+}
+
+async function loadAgentChat(orderId) {
+  const selector = "#agentChatMessages-" + CSS.escape(orderId);
+  const box = document.querySelector(selector);
+  if (!box) return;
+  try {
+    const result = await api("/api/orders/" + encodeURIComponent(orderId) + "/chat");
+    const current = document.querySelector(selector);
+    if (!current) return;
+    current.innerHTML = result.messages.length ? result.messages.map(m =>
+      '<div class="dashboard-chat-message"><strong>' + escapeHtml(m.senderName) + '</strong><p>' + escapeHtml(m.message) + '</p><small>' + escapeHtml(new Date(m.sentAt).toLocaleTimeString()) + '</small></div>'
+    ).join("") : '<p class="tiny muted">No messages yet. Send a note to the student.</p>';
+    current.scrollTop = current.scrollHeight;
+  } catch (error) {
+    box.textContent = error.message;
   }
 }
 
@@ -1027,6 +1054,27 @@ async function initialize() {
         await loadRestaurantChat(orderId);
       } catch (error) {
         const status = document.querySelector('[data-restaurant-chat-status="' + CSS.escape(orderId) + '"]');
+        if (status) status.textContent = error.message;
+      } finally { button.disabled = false; }
+      return;
+    }
+    const agentForm = event.target.closest("[data-agent-chat-order]");
+    if (agentForm) {
+      event.preventDefault();
+      const orderId = agentForm.dataset.agentChatOrder;
+      const input = agentForm.elements.message;
+      const message = input.value.trim();
+      if (!message) return;
+      const button = agentForm.querySelector("button[type=submit]");
+      button.disabled = true;
+      try {
+        await api("/api/orders/" + encodeURIComponent(orderId) + "/chat", { method: "POST", body: JSON.stringify({ message }) });
+        input.value = "";
+        const status = document.querySelector('[data-agent-chat-status="' + CSS.escape(orderId) + '"]');
+        if (status) status.textContent = "Message sent to the student.";
+        await loadAgentChat(orderId);
+      } catch (error) {
+        const status = document.querySelector('[data-agent-chat-status="' + CSS.escape(orderId) + '"]');
         if (status) status.textContent = error.message;
       } finally { button.disabled = false; }
       return;

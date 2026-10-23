@@ -22,6 +22,7 @@
         <a class="nav-link" href="/restaurant-login.html">Restaurant login</a>
          <a class="nav-link" href="/agent-login.html">Delivery agent login</a>
         <button type="button" class="nav-link hidden" id="dashboardNav" data-view="dashboard">Dashboard</button>
+        <button type="button" class="nav-link hidden" id="notificationToggle" aria-expanded="false">🔔 Notifications <span id="notificationCount" class="notification-count hidden">0</span></button>
         <button type="button" class="primary-button" id="cartJump">
           Cart (<span id="cartCount">0</span>)
         </button>
@@ -128,5 +129,7 @@
   </footer>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <aside id="notificationPanel" class="notification-panel hidden" aria-label="Notifications"><div class="notification-panel-heading"><strong>Notifications</strong><button type="button" id="notificationClose" aria-label="Close notifications">×</button></div><div id="notificationList"><p class="muted">Loading notifications…</p></div></aside>
+  <script src="/notifications.js?v=1" defer></script>
 </body>
 </html>

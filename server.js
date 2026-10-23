@@ -226,7 +226,8 @@ function requireRole(...roles) {
 }
 
 function publicOrder(order) {
-  return { ...order };
+  const { chatMessages, ...safeOrder } = order;
+  return safeOrder;
 }
 
 
@@ -480,6 +481,7 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     updatedAt: new Date().toISOString(),
     paymentStatus: "Unpaid — demo only",
     assignedAgentId: null,
+    chatMessages: [],
     agentEarningsRecorded: false,
     createdAt: new Date().toISOString()
   };
@@ -563,6 +565,52 @@ app.get("/api/orders", requireLogin, (req, res) => {
     res.json({ orders: orders.map(publicOrder) });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Temporary order chat: only the student who placed the order and its assigned agent can use it.
+// Chat is enabled only while the order is out for delivery and is erased on completion/cancellation.
+function canUseDeliveryChat(account, order) {
+  return Boolean(account && order && (
+    (account.role === "student" && account.username === order.customerPhone) ||
+    (account.role === "agent" && account.agentId && account.agentId === order.assignedAgentId)
+  ));
+}
+
+app.get("/api/orders/:id/chat", requireRole("student", "agent"), (req, res) => {
+  try {
+    const order = readOrders().find(item => item.id === req.params.id);
+    if (!order) return res.status(404).json({ error: "Order not found." });
+    if (!canUseDeliveryChat(req.account, order)) return res.status(403).json({ error: "Only the ordering student and assigned delivery agent can access this chat." });
+    if (order.status !== "Out for delivery") return res.status(410).json({ active: false, messages: [], error: "Chat is available only while the order is out for delivery." });
+    res.json({ active: true, messages: Array.isArray(order.chatMessages) ? order.chatMessages : [] });
+  } catch (error) {
+    res.status(500).json({ error: "Could not load delivery chat." });
+  }
+});
+
+app.post("/api/orders/:id/chat", requireRole("student", "agent"), (req, res) => {
+  const message = String(req.body.message || "").trim();
+  if (!message || message.length > 500) return res.status(400).json({ error: "Message must be between 1 and 500 characters." });
+  try {
+    const orders = readOrders();
+    const order = orders.find(item => item.id === req.params.id);
+    if (!order) return res.status(404).json({ error: "Order not found." });
+    if (!canUseDeliveryChat(req.account, order)) return res.status(403).json({ error: "Only the ordering student and assigned delivery agent can send messages here." });
+    if (order.status !== "Out for delivery") return res.status(410).json({ error: "This temporary chat has closed." });
+    order.chatMessages = Array.isArray(order.chatMessages) ? order.chatMessages : [];
+    if (order.chatMessages.length >= 100) order.chatMessages.shift();
+    order.chatMessages.push({
+      id: crypto.randomUUID(),
+      senderRole: req.account.role,
+      senderName: req.account.name || (req.account.role === "student" ? "Student" : "Delivery agent"),
+      message,
+      sentAt: new Date().toISOString()
+    });
+    saveOrders(orders);
+    res.status(201).json({ message: order.chatMessages[order.chatMessages.length - 1] });
+  } catch (error) {
+    res.status(500).json({ error: "Could not send message." });
   }
 });
 
@@ -908,7 +956,7 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
       order.statusHistory.push({ status: newStatus, at: changedAt, by: req.account.role });
     }
 
-    // Record agent earnings only once when the order is completed.
+    // Erase the temporary delivery chat as soon as the order is completed or cancelled.\n    if (newStatus === "Completed" || newStatus === "Cancelled") {\n      delete order.chatMessages;\n    }\n\n    // Record agent earnings only once when the order is completed.
     if (newStatus === "Completed" && !order.agentEarningsRecorded) {
       order.agentEarningsRecorded = true;
       order.agentEarnings = 100;

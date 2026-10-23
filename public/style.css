@@ -413,3 +413,7 @@ footer {
   .hero { padding: 22px; }
   .panel { padding: 16px; }
 }
+
+
+/* Live order tracking */
+.tracking-card{margin-top:18px}.tracking-progress{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin:22px 0;overflow-x:auto}.tracking-step{text-align:center;min-width:64px;color:#7b8b80;font-size:11px}.tracking-step span{display:grid;place-items:center;width:28px;height:28px;margin:0 auto 7px;border-radius:50%;border:2px solid #cbd8ce;background:#fff;font-weight:800}.tracking-step.done{color:#176b45}.tracking-step.done span{border-color:#176b45;background:#e7f5ec}.tracking-step.current span{box-shadow:0 0 0 4px #d6eddf}.tracking-step small{display:block;line-height:1.25}.tracking-timeline{list-style:none;padding:0;margin:12px 0 20px;border-left:2px solid #dce9df}.tracking-event{display:flex;gap:12px;position:relative;padding:0 0 16px 16px}.tracking-dot{position:absolute;left:-7px;top:4px;width:12px;height:12px;border-radius:50%;background:#176b45;border:2px solid white}.tracking-event small{display:block;color:#687a6e;margin-top:3px}.tracking-alert{background:#fff0f0;color:#963434;padding:12px;border-radius:10px}

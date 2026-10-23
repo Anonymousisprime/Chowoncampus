@@ -166,6 +166,187 @@ function publicOrder(order) {
   return { ...order };
 }
 
+
+// Student accounts. Students are stored separately from staff accounts.
+// Configure Twilio Verify in Render to enable real phone verification.
+const STUDENTS_FILE = path.join(__dirname, "students.json");
+const pendingStudentRegistrations = new Map();
+
+function readStudents() {
+  try {
+    if (!fs.existsSync(STUDENTS_FILE)) return [];
+    const data = JSON.parse(fs.readFileSync(STUDENTS_FILE, "utf8"));
+    if (!Array.isArray(data)) throw new Error("Invalid student data.");
+    return data;
+  } catch (error) {
+    console.error("Could not read student data:", error.message);
+    throw new Error("Student storage is unavailable.");
+  }
+}
+
+function saveStudents(students) {
+  const temp = STUDENTS_FILE + ".tmp";
+  fs.writeFileSync(temp, JSON.stringify(students, null, 2), "utf8");
+  fs.renameSync(temp, STUDENTS_FILE);
+}
+
+function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
+  const hash = crypto.scryptSync(password, salt, 64).toString("hex");
+  return { salt, hash };
+}
+
+function passwordMatches(password, student) {
+  const actual = crypto.scryptSync(password, student.passwordSalt, 64);
+  const expected = Buffer.from(student.passwordHash, "hex");
+  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+}
+
+function twilioVerifyConfigured() {
+  return Boolean(
+    process.env.TWILIO_ACCOUNT_SID &&
+    process.env.TWILIO_AUTH_TOKEN &&
+    process.env.TWILIO_VERIFY_SERVICE_SID
+  );
+}
+
+async function twilioVerifyRequest(endpoint, params) {
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const auth = Buffer.from(sid + ":" + process.env.TWILIO_AUTH_TOKEN).toString("base64");
+  const url = "https://verify.twilio.com/v2/Services/" +
+    encodeURIComponent(process.env.TWILIO_VERIFY_SERVICE_SID) + endpoint;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: "Basic " + auth,
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams(params)
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    console.error("Phone verification provider error:", response.status);
+    throw new Error("Could not verify this phone number. Check the number and try again.");
+  }
+  return data;
+}
+
+function setSessionCookie(res, token) {
+  res.setHeader(
+    "Set-Cookie",
+    "coc_session=" + token + "; HttpOnly; SameSite=Lax; Path=/; Max-Age=28800" +
+      (IS_PRODUCTION ? "; Secure" : "")
+  );
+}
+
+// Start sign-up by sending a real SMS verification code.
+// Phone numbers must use international format, e.g. +2348012345678.
+app.post("/api/student/register", async (req, res) => {
+  const name = String(req.body.name || "").trim();
+  const phone = String(req.body.phone || "").trim();
+  const password = String(req.body.password || "");
+
+  if (name.length < 2 || name.length > 100) {
+    return res.status(400).json({ error: "Enter your name (2–100 characters)." });
+  }
+  if (!/^\+[1-9]\d{7,14}$/.test(phone)) {
+    return res.status(400).json({ error: "Enter your phone in international format, e.g. +2348012345678." });
+  }
+  if (password.length < 10 || password.length > 128) {
+    return res.status(400).json({ error: "Use a password between 10 and 128 characters." });
+  }
+  if (!twilioVerifyConfigured()) {
+    return res.status(503).json({ error: "Phone verification is not configured yet. Please try again later." });
+  }
+
+  try {
+    const existing = readStudents().some(student => student.phone === phone);
+    if (existing) return res.status(409).json({ error: "An account already exists for this phone number. Please log in." });
+
+    await twilioVerifyRequest("/Verifications", { To: phone, Channel: "sms" });
+    const passwordData = hashPassword(password);
+    pendingStudentRegistrations.set(phone, {
+      name,
+      phone,
+      passwordSalt: passwordData.salt,
+      passwordHash: passwordData.hash,
+      expiresAt: Date.now() + 10 * 60 * 1000
+    });
+    res.status(202).json({ message: "Verification code sent by SMS. It expires in 10 minutes." });
+  } catch (error) {
+    res.status(502).json({ error: error.message || "Could not send a verification code." });
+  }
+});
+
+// Verify the SMS code before activating the account.
+app.post("/api/student/verify", async (req, res) => {
+  const phone = String(req.body.phone || "").trim();
+  const code = String(req.body.code || "").trim();
+  const pending = pendingStudentRegistrations.get(phone);
+
+  if (!pending || pending.expiresAt < Date.now()) {
+    pendingStudentRegistrations.delete(phone);
+    return res.status(400).json({ error: "Sign-up session expired. Please register again." });
+  }
+  if (!/^\d{4,10}$/.test(code)) {
+    return res.status(400).json({ error: "Enter the verification code from your SMS." });
+  }
+
+  try {
+    const verification = await twilioVerifyRequest("/VerificationCheck", { To: phone, Code: code });
+    if (verification.status !== "approved") {
+      return res.status(400).json({ error: "That code is not valid. Please try again." });
+    }
+
+    const students = readStudents();
+    if (students.some(student => student.phone === phone)) {
+      pendingStudentRegistrations.delete(phone);
+      return res.status(409).json({ error: "An account already exists for this phone number." });
+    }
+    const student = {
+      id: crypto.randomUUID(),
+      name: pending.name,
+      phone: pending.phone,
+      passwordSalt: pending.passwordSalt,
+      passwordHash: pending.passwordHash,
+      role: "student",
+      verifiedPhone: true,
+      createdAt: new Date().toISOString()
+    };
+    students.push(student);
+    saveStudents(students);
+    pendingStudentRegistrations.delete(phone);
+
+    const account = { username: student.phone, role: "student", name: student.name };
+    const token = crypto.randomBytes(32).toString("hex");
+    sessions.set(token, account);
+    setSessionCookie(res, token);
+    res.status(201).json({ account, message: "Phone verified. Your student account is ready." });
+  } catch (error) {
+    res.status(502).json({ error: error.message || "Verification could not be completed." });
+  }
+});
+
+// Student login is separate from staff/admin login.
+app.post("/api/student/login", (req, res) => {
+  const phone = String(req.body.phone || "").trim();
+  const password = String(req.body.password || "");
+  if (!phone || !password) return res.status(400).json({ error: "Enter your phone number and password." });
+
+  try {
+    const student = readStudents().find(item => item.phone === phone && item.verifiedPhone);
+    if (!student || !passwordMatches(password, student)) {
+      return res.status(401).json({ error: "Incorrect phone number or password." });
+    }
+    const account = { username: student.phone, role: "student", name: student.name };
+    const token = crypto.randomBytes(32).toString("hex");
+    sessions.set(token, account);
+    setSessionCookie(res, token);
+    res.json({ account });
+  } catch (error) {
+    res.status(500).json({ error: "Could not sign in. Please try again." });
+  }
+});
+
 // Health check
 app.get("/api/health", (req, res) => {
   res.json({ ok: true, service: "Chowoncampus" });
@@ -182,6 +363,7 @@ app.get("/api/me", (req, res) => {
   res.json({ account: session || null });
 });
 
+// Staff login endpoint is used by the separate admin login page and staff accounts.
 // Login
 app.post("/api/login", (req, res) => {
   const username = String(req.body.username || "").trim().toLowerCase();

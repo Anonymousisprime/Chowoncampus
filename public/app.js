@@ -360,6 +360,7 @@ function renderOrderCard(order) {
   const statuses = availableStatuses(order);
   const canAssign = state.account.role === "admin" && order.status !== "Completed";
   const canChangeStatus = statuses.length > 0 && !(order.status === "Completed");
+  const canContactAgent = state.account.role === "restaurant" && order.assignedAgentId && ["Ready for pickup", "Out for delivery"].includes(order.status);
 
   return `
     <article class="order-card">
@@ -385,6 +386,14 @@ function renderOrderCard(order) {
             </select>
           </label>
         </div>
+      ` : ""}
+      ${canContactAgent ? `
+        <section class="agent-contact">
+          <div><span class="eyebrow">PICKUP COORDINATION</span><strong>Assigned delivery agent: ${escapeHtml(order.assignedAgentId)}</strong><p class="tiny muted">Use this temporary chat to tell the agent when the order is ready. Messages are deleted when the order is completed or cancelled.</p></div>
+          <div id="restaurantChatMessages-${escapeHtml(order.id)}" class="dashboard-chat-messages" aria-live="polite">Loading messages…</div>
+          <form class="dashboard-chat-form" data-restaurant-chat-order="${escapeHtml(order.id)}"><input name="message" maxlength="500" required placeholder="Message the delivery agent…"><button class="primary-button" type="submit">Send</button></form>
+          <p class="tiny muted" data-restaurant-chat-status="${escapeHtml(order.id)}" role="status"></p>
+        </section>
       ` : ""}
       ${canChangeStatus ? `
         <div class="order-actions">
@@ -427,9 +436,35 @@ async function loadDashboard() {
     }
 
     const { orders } = await api("/api/orders");
-    $("#dashboardContent").innerHTML = orders.length
-      ? `<div class="order-list">${orders.map(renderOrderCard).join("")}</div>`
-      : `<div class="empty-state">No orders here yet. New orders will appear when customers place them.</div>`;
+    if (account.role === "restaurant") {
+      const incoming = orders.filter(order => ["Awaiting payment", "Confirmed"].includes(order.status));
+      const preparing = orders.filter(order => order.status === "Preparing");
+      const pickup = orders.filter(order => ["Ready for pickup", "Out for delivery"].includes(order.status));
+      const completed = orders.filter(order => ["Completed", "Cancelled"].includes(order.status));
+      const section = (title, subtitle, list, key) => `
+        <section class="dashboard-order-section">
+          <div class="dashboard-section-heading"><div><h2>${title}</h2><p>${subtitle}</p></div><span class="count-pill">${list.length}</span></div>
+          ${list.length ? `<div class="order-list">${list.map(renderOrderCard).join("")}</div>` : `<div class="empty-state compact-empty">No ${key} orders right now.</div>`}
+        </section>`;
+      const totalSales = orders.filter(order => order.status === "Completed").reduce((sum, order) => sum + Number(order.total || 0), 0);
+      $("#dashboardContent").innerHTML = `
+        <div class="restaurant-welcome"><div><span class="eyebrow">RESTAURANT WORKSPACE</span><h2>Let's get orders moving.</h2><p>Review incoming orders, prepare meals and coordinate pickup with your delivery agent.</p></div><button class="secondary-button" id="refreshRestaurantOrders" type="button">↻ Refresh orders</button></div>
+        <div class="restaurant-metrics">
+          <article><span>Incoming</span><strong>${incoming.length}</strong><small>Awaiting action</small></article>
+          <article><span>Preparing</span><strong>${preparing.length}</strong><small>In the kitchen</small></article>
+          <article><span>Pickup / delivery</span><strong>${pickup.length}</strong><small>Agent coordination</small></article>
+          <article><span>Completed sales</span><strong>${money(totalSales)}</strong><small>${completed.filter(o => o.status === "Completed").length} completed orders</small></article>
+        </div>
+        ${section("Incoming orders", "New orders that need your attention", incoming, "incoming")}
+        ${section("In the kitchen", "Orders currently being prepared", preparing, "preparing")}
+        ${section("Ready for pickup & delivery", "Contact your assigned agent and coordinate handoff", pickup, "pickup")}
+        ${section("Order history", "Completed and cancelled orders", completed, "completed")}`;
+      document.querySelectorAll("[data-restaurant-chat-order]").forEach(form => loadRestaurantChat(form.dataset.restaurantChatOrder));
+    } else {
+      $("#dashboardContent").innerHTML = orders.length
+        ? `<div class="order-list">${orders.map(renderOrderCard).join("")}</div>`
+        : `<div class="empty-state">No orders here yet. New orders will appear when customers place them.</div>`;
+    }
 
     if (account.role === "admin" || account.role === "agent") {
       const result = await api("/api/earnings");
@@ -444,6 +479,22 @@ async function loadDashboard() {
     }
   } catch (error) {
     $("#dashboardContent").innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+async function loadRestaurantChat(orderId) {
+  const box = document.querySelector("#restaurantChatMessages-" + CSS.escape(orderId));
+  if (!box) return;
+  try {
+    const result = await api("/api/orders/" + encodeURIComponent(orderId) + "/chat");
+    const current = document.querySelector("#restaurantChatMessages-" + CSS.escape(orderId));
+    if (!current) return;
+    current.innerHTML = result.messages.length ? result.messages.map(m =>
+      '<div class="dashboard-chat-message"><strong>' + escapeHtml(m.senderName) + '</strong><p>' + escapeHtml(m.message) + '</p><small>' + escapeHtml(new Date(m.sentAt).toLocaleTimeString()) + '</small></div>'
+    ).join("") : '<p class="tiny muted">No messages yet. Send a pickup note to your agent.</p>';
+    current.scrollTop = current.scrollHeight;
+  } catch (error) {
+    if (box) box.textContent = error.message;
   }
 }
 
@@ -577,6 +628,27 @@ async function initialize() {
     trackOrder($("#trackId").value);
   });
   document.addEventListener("submit", async event => {
+    const restaurantForm = event.target.closest("[data-restaurant-chat-order]");
+    if (restaurantForm) {
+      event.preventDefault();
+      const orderId = restaurantForm.dataset.restaurantChatOrder;
+      const input = restaurantForm.elements.message;
+      const message = input.value.trim();
+      if (!message) return;
+      const button = restaurantForm.querySelector("button[type=submit]");
+      button.disabled = true;
+      try {
+        await api("/api/orders/" + encodeURIComponent(orderId) + "/chat", { method: "POST", body: JSON.stringify({ message }) });
+        input.value = "";
+        const status = document.querySelector('[data-restaurant-chat-status="' + CSS.escape(orderId) + '"]');
+        if (status) status.textContent = "Message sent to the delivery agent.";
+        await loadRestaurantChat(orderId);
+      } catch (error) {
+        const status = document.querySelector('[data-restaurant-chat-status="' + CSS.escape(orderId) + '"]');
+        if (status) status.textContent = error.message;
+      } finally { button.disabled = false; }
+      return;
+    }
     const form = event.target.closest("#customerChatForm");
     if (!form) return;
     event.preventDefault();

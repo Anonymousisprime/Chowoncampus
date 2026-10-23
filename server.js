@@ -746,6 +746,17 @@ function assignReadyOrders() {
   return changed;
 }
 
+// An agent can view only their own availability and active assignment metadata.
+app.get("/api/agents/me", requireRole("agent"), (req, res) => {
+  try {
+    const agent = readAgentRecords().find(item => item.id === req.account.agentId);
+    if (!agent) return res.status(404).json({ error: "Agent account not found." });
+    res.json({ id: agent.id, name: agent.name, username: agent.username, online: Boolean(agent.online), activeOrderId: agent.activeOrderId || null });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Could not load agent profile." });
+  }
+});
+
 // An agent can change only their own availability. Going online triggers assignment.
 app.patch("/api/agent/availability", requireRole("agent"), (req, res) => {
   if (typeof req.body.online !== "boolean") return res.status(400).json({ error: "Choose online or offline." });

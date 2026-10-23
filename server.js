@@ -1069,6 +1069,18 @@ app.get("/api/agents", requireRole("admin"), (req, res) => {
   })) });
 });
 
+// Restaurants can see which delivery agents are currently available for pickup.
+app.get("/api/agents/available", requireRole("restaurant", "admin"), (req, res) => {
+  const records = readAgentRecords();
+  const busyIds = new Set(readOrders()
+    .filter(order => order.assignedAgentId && !["Completed", "Cancelled"].includes(order.status))
+    .map(order => order.assignedAgentId));
+  const available = records
+    .filter(agent => agent.online && !busyIds.has(agent.id) && !agent.activeOrderId)
+    .map(agent => ({ id: agent.id, name: agent.name, online: true }));
+  res.json({ agents: available });
+});
+
 app.post("/api/admin/agents", requireRole("admin"), (req, res) => {
   const name = String(req.body.name || "").trim();
   const username = String(req.body.username || "").trim().toLowerCase();
@@ -1115,6 +1127,10 @@ function assignReadyOrders() {
     agent.activeOrderId = order.id;
     agent.lastAssignedAt = order.assignedAt;
     busyAgentIds.add(agent.id);
+    createNotification({ role: "agent", agentId: agent.id }, "Delivery assigned", `You have been assigned order ${order.id}. It is ready for pickup.`, order.id);
+    createNotification({ role: "student", username: order.customerPhone }, "Delivery agent assigned", `${agent.name} has been assigned to your order ${order.id}.`, order.id);
+    createNotification({ role: "admin" }, "Delivery agent assigned", `${agent.name} was assigned to ${order.id}.`, order.id);
+    createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Delivery agent assigned", `${agent.name} is assigned to ${order.id} and ready for pickup.`, order.id);
     changed = true;
   }
   if (changed) {

@@ -388,11 +388,11 @@ function passwordMatches(password, student) {
 }
 
 function normalizeNigerianPhone(value) {
-  const compact = String(value || "").trim().replace(/[\\s()\\-]/g, "");
-  if (/^0[789][01]\\d{8}$/.test(compact)) return "+234" + compact.slice(1);
-  if (/^[789][01]\\d{8}$/.test(compact)) return "+234" + compact;
-  if (/^234[789][01]\\d{8}$/.test(compact)) return "+" + compact;
-  if (/^\\+[1-9]\\d{7,14}$/.test(compact)) return compact;
+  const compact = String(value || "").trim().replace(/[\s()\-]/g, "");
+  if (/^0[789][01]\d{8}$/.test(compact)) return "+234" + compact.slice(1);
+  if (/^[789][01]\d{8}$/.test(compact)) return "+234" + compact;
+  if (/^234[789][01]\d{8}$/.test(compact)) return "+" + compact;
+  if (/^\+[1-9]\d{7,14}$/.test(compact)) return compact;
   return null;
 }
 

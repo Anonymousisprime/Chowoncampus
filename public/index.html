@@ -16,11 +16,8 @@
       <a href="#" id="brandHome" class="brand">Chow<span>oncampus</span></a>
       <div class="nav-actions">
         <button type="button" class="nav-link" data-view="home">Home</button>
-        <button type="button" class="nav-link" id="loginNav" data-view="login">Login</button>
-        <a class="nav-link" href="/student-login.html">Student login</a>
-        <a class="nav-link" href="/student-signup.html">Sign up</a>
-        <a class="nav-link" href="/admin-login.html">Admin login</a>
-        <a class="nav-link" href="/restaurant-login.html">Restaurant login</a>
+        <a class="nav-link" href="/student-login.html">Log in</a>
+        <a class="nav-link" href="/student-signup.html">Create account</a>
         <button type="button" class="nav-link hidden" id="dashboardNav" data-view="dashboard">Dashboard</button>
         <button type="button" class="primary-button" id="cartJump">
           Cart (<span id="cartCount">0</span>)
@@ -78,12 +75,7 @@
 
         <form id="checkoutForm" class="form-card">
           <h3>Delivery details</h3>
-          <label for="customerName">Full name</label>
-          <input id="customerName" name="customerName" type="text" autocomplete="name" required>
-
-          <label for="customerPhone">Phone number</label>
-          <input id="customerPhone" name="customerPhone" type="tel" autocomplete="tel" required>
-
+          <p class="small-note">You must be signed in with a student account to place an order. Your account details will be used automatically.</p>
           <label for="hostel">Hostel / delivery location</label>
           <input id="hostel" name="hostel" type="text" placeholder="Enter your hostel or location" required>
 
@@ -109,23 +101,6 @@
       </section>
     </section>
 
-    <section id="loginView" class="view hidden content-section">
-      <div class="form-card login-card">
-        <span class="eyebrow">WELCOME BACK</span>
-        <h1>Account login</h1>
-        <p>Sign in to access your authorised dashboard.</p>
-        <form id="loginForm">
-          <label for="username">Username</label>
-          <input id="username" name="username" type="text" autocomplete="username" required>
-          <label for="password">Password</label>
-          <input id="password" name="password" type="password" autocomplete="current-password" required>
-          <p id="loginMessage" class="form-message" aria-live="polite"></p>
-          <button type="submit" class="primary-button full-width">Log in</button>
-        </form>
-        <button type="button" class="text-button" data-view="home">Back to home</button>
-      </div>
-    </section>
-
     <section id="dashboardView" class="view hidden content-section">
       <div class="dashboard-header">
         <div>
@@ -145,6 +120,7 @@
   <footer class="site-footer">
     <a href="#" class="brand">Chow<span>oncampus</span></a>
     <p>Good food, closer to you.</p>
+    <p class="tiny"><a href="/admin-login.html">Admin</a> · <a href="/restaurant-login.html">Restaurant partners</a></p>
     <p>© <span id="year"></span> Chowoncampus. Made for campus life.</p>
   </footer>
 

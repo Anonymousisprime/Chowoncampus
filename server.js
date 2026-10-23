@@ -110,6 +110,31 @@ for (const record of addedRestaurantRecords) {
   }
 }
 
+// Restaurant menu overrides are kept separately so menu edits survive app restarts
+// when the deployment has persistent storage configured.
+const MENUS_FILE = path.join(__dirname, "restaurant-menus.json");
+function readMenuOverrides() {
+  try {
+    if (!fs.existsSync(MENUS_FILE)) return {};
+    const data = JSON.parse(fs.readFileSync(MENUS_FILE, "utf8"));
+    if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid menu data.");
+    return data;
+  } catch (error) {
+    console.error("Could not read restaurant menus:", error.message);
+    throw new Error("Restaurant menu storage is unavailable.");
+  }
+}
+function saveMenuOverrides(data) {
+  const temporaryFile = MENUS_FILE + ".tmp";
+  fs.writeFileSync(temporaryFile, JSON.stringify(data, null, 2), "utf8");
+  fs.renameSync(temporaryFile, MENUS_FILE);
+}
+const menuOverrides = readMenuOverrides();
+for (const restaurant of restaurants) {
+  if (Array.isArray(menuOverrides[restaurant.id])) restaurant.items = menuOverrides[restaurant.id];
+  restaurant.items = restaurant.items.map(item => ({ ...item, available: item.available !== false }));
+}
+
 /* Delivery agents are created by an administrator. JSON storage is demo storage;
    use a persistent database before relying on this for live operations. */
 const AGENTS_FILE = path.join(__dirname, "delivery-agents.json");
@@ -325,7 +350,44 @@ app.get("/api/health", (req, res) => {
 
 // Public menu
 app.get("/api/menu", (req, res) => {
-  res.json({ restaurants });
+  res.json({ restaurants: restaurants.map(restaurant => ({
+    ...restaurant,
+    items: restaurant.items.map(item => ({ ...item, available: item.available !== false }))
+  })) });
+});
+
+// Restaurant partners can manage up to 70 menu items and mark each item available/sold out.
+app.put("/api/restaurant/menu", requireRole("restaurant"), (req, res) => {
+  const submitted = req.body.items;
+  if (!Array.isArray(submitted) || submitted.length < 1 || submitted.length > 70) {
+    return res.status(400).json({ error: "A menu must contain between 1 and 70 items." });
+  }
+  const items = [];
+  const ids = new Set();
+  for (let index = 0; index < submitted.length; index++) {
+    const source = submitted[index] || {};
+    const name = String(source.name || "").trim();
+    const category = String(source.category || "Meals").trim() || "Meals";
+    const price = Number(source.price);
+    if (name.length < 2 || name.length > 80) return res.status(400).json({ error: "Each item name must be 2–80 characters." });
+    if (!Number.isFinite(price) || price < 1 || price > 1000000) return res.status(400).json({ error: "Each item price must be between ₦1 and ₦1,000,000." });
+    let id = String(source.id || "").trim();
+    if (!id || ids.has(id)) id = "m" + crypto.randomBytes(8).toString("hex");
+    ids.add(id);
+    items.push({ id, name, price: Math.round(price), category: category.slice(0, 40), emoji: String(source.emoji || "🍽️").slice(0, 8), available: source.available !== false });
+  }
+  try {
+    const restaurant = restaurants.find(item => item.id === req.account.restaurantId);
+    if (!restaurant) return res.status(404).json({ error: "Restaurant account not found." });
+    const overrides = readMenuOverrides();
+    overrides[restaurant.id] = items;
+    saveMenuOverrides(overrides);
+    restaurant.items = items;
+    res.json({ items: restaurant.items, message: "Menu saved successfully." });
+  } catch (error) {
+    console.error("Could not save restaurant menu:", error);
+    res.status(500).json({ error: "Could not save your menu. Please try again." });
+  }
 });
 
 // Current login
@@ -447,7 +509,7 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     const menuItem = restaurant.items.find(i => i.id === item.id);
     const qty = Number(item.qty);
 
-    if (!menuItem || !Number.isInteger(qty) || qty < 1 || qty > 20) {
+    if (!menuItem || menuItem.available === false || !Number.isInteger(qty) || qty < 1 || qty > 20) {
       return res.status(400).json({
         error: "One of your cart items is invalid."
       });

@@ -446,6 +446,8 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     deliveryFee,
     total: subtotal + deliveryFee,
     status: "Awaiting payment",
+    statusHistory: [{ status: "Awaiting payment", at: new Date().toISOString(), by: "system" }],
+    updatedAt: new Date().toISOString(),
     paymentStatus: "Unpaid — demo only",
     assignedAgentId: null,
     agentEarningsRecorded: false,
@@ -492,6 +494,9 @@ app.post("/api/orders/:id/demo-payment", (req, res) => {
     order.paymentStatus = "Paid — demo verified";
     order.status = "Confirmed";
     order.demoPaymentAt = new Date().toISOString();
+    order.updatedAt = order.demoPaymentAt;
+    order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [{ status: "Awaiting payment", at: order.createdAt, by: "system" }];
+    order.statusHistory.push({ status: "Confirmed", at: order.updatedAt, by: "demo payment" });
 
     saveOrders(orders);
 
@@ -564,6 +569,8 @@ app.get("/api/orders/:id", (req, res) => {
         deliveryFee: order.deliveryFee,
         total: order.total,
         status: order.status,
+        statusHistory: Array.isArray(order.statusHistory) ? order.statusHistory : [{ status: order.status, at: order.updatedAt || order.createdAt, by: "system" }],
+        updatedAt: order.updatedAt || order.createdAt,
         paymentStatus: order.paymentStatus,
         createdAt: order.createdAt
       }
@@ -756,7 +763,13 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
       });
     }
 
-    order.status = newStatus;
+    if (order.status !== newStatus) {
+      const changedAt = new Date().toISOString();
+      order.status = newStatus;
+      order.updatedAt = changedAt;
+      order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [{ status: order.status, at: order.createdAt, by: "system" }];
+      order.statusHistory.push({ status: newStatus, at: changedAt, by: req.account.role });
+    }
 
     // Record agent earnings only once when the order is completed.
     if (newStatus === "Completed" && !order.agentEarningsRecorded) {

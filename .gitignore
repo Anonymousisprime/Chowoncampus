@@ -3,3 +3,5 @@ node_modules/
 .env
 orders.json
 orders.json.tmp
+students.json
+students.json.tmp

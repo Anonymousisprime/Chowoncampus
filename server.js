@@ -166,6 +166,124 @@ function publicOrder(order) {
   return { ...order };
 }
 
+
+// Student accounts. Students are stored separately from staff accounts.
+// Configure Twilio Verify in Render to enable real phone verification.
+const STUDENTS_FILE = path.join(__dirname, "students.json");
+const pendingStudentRegistrations = new Map();
+
+function readStudents() {
+  try {
+    if (!fs.existsSync(STUDENTS_FILE)) return [];
+    const data = JSON.parse(fs.readFileSync(STUDENTS_FILE, "utf8"));
+    if (!Array.isArray(data)) throw new Error("Invalid student data.");
+    return data;
+  } catch (error) {
+    console.error("Could not read student data:", error.message);
+    throw new Error("Student storage is unavailable.");
+  }
+}
+
+function saveStudents(students) {
+  const temp = STUDENTS_FILE + ".tmp";
+  fs.writeFileSync(temp, JSON.stringify(students, null, 2), "utf8");
+  fs.renameSync(temp, STUDENTS_FILE);
+}
+
+function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
+  const hash = crypto.scryptSync(password, salt, 64).toString("hex");
+  return { salt, hash };
+}
+
+function passwordMatches(password, student) {
+  const actual = crypto.scryptSync(password, student.passwordSalt, 64);
+  const expected = Buffer.from(student.passwordHash, "hex");
+  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+}
+
+function twilioVerifyConfigured() {
+  return Boolean(
+    process.env.TWILIO_ACCOUNT_SID &&
+    process.env.TWILIO_AUTH_TOKEN &&
+    process.env.TWILIO_VERIFY_SERVICE_SID
+  );
+}
+
+async function twilioVerifyRequest(endpoint, params) {
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const auth = Buffer.from(sid + ":" + process.env.TWILIO_AUTH_TOKEN).toString("base64");
+  const url = "https://verify.twilio.com/v2/Services/" +
+    encodeURIComponent(process.env.TWILIO_VERIFY_SERVICE_SID) + endpoint;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: "Basic " + auth,
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams(params)
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    console.error("Phone verification provider error:", response.status);
+    throw new Error("Could not verify this phone number. Check the number and try again.");
+  }
+  return data;
+}
+
+function setSessionCookie(res, token) {
+  res.setHeader(
+    "Set-Cookie",
+    "coc_session=" + token + "; HttpOnly; SameSite=Lax; Path=/; Max-Age=28800" +
+      (IS_PRODUCTION ? "; Secure" : "")
+  );
+}
+
+// Student sign-up: no SMS verification yet. Phone numbers are collected but NOT marked verified.
+app.post("/api/student/register", (req, res) => {
+  const name = String(req.body.name || "").trim();
+  const phone = String(req.body.phone || "").trim();
+  const password = String(req.body.password || "");
+  if (name.length < 2 || name.length > 100) return res.status(400).json({ error: "Enter your name (2–100 characters)." });
+  if (!/^\+[1-9]\d{7,14}$/.test(phone)) return res.status(400).json({ error: "Enter your phone in international format, e.g. +2348012345678." });
+  if (password.length < 10 || password.length > 128) return res.status(400).json({ error: "Use a password between 10 and 128 characters." });
+  try {
+    const students = readStudents();
+    if (students.some(student => student.phone === phone)) return res.status(409).json({ error: "An account already exists for this phone number. Please log in." });
+    const passwordData = hashPassword(password);
+    const student = { id: crypto.randomUUID(), name, phone, passwordSalt: passwordData.salt, passwordHash: passwordData.hash, role: "student", verifiedPhone: false, createdAt: new Date().toISOString() };
+    students.push(student);
+    saveStudents(students);
+    const account = { username: student.phone, role: "student", name: student.name };
+    const token = crypto.randomBytes(32).toString("hex");
+    sessions.set(token, account);
+    setSessionCookie(res, token);
+    res.status(201).json({ account, message: "Account created. Your phone number has not been verified." });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Could not create your account." });
+  }
+});
+
+// Student login is separate from staff/admin login.
+app.post("/api/student/login", (req, res) => {
+  const phone = String(req.body.phone || "").trim();
+  const password = String(req.body.password || "");
+  if (!phone || !password) return res.status(400).json({ error: "Enter your phone number and password." });
+
+  try {
+    const student = readStudents().find(item => item.phone === phone);
+    if (!student || !passwordMatches(password, student)) {
+      return res.status(401).json({ error: "Incorrect phone number or password." });
+    }
+    const account = { username: student.phone, role: "student", name: student.name };
+    const token = crypto.randomBytes(32).toString("hex");
+    sessions.set(token, account);
+    setSessionCookie(res, token);
+    res.json({ account });
+  } catch (error) {
+    res.status(500).json({ error: "Could not sign in. Please try again." });
+  }
+});
+
 // Health check
 app.get("/api/health", (req, res) => {
   res.json({ ok: true, service: "Chowoncampus" });
@@ -182,6 +300,7 @@ app.get("/api/me", (req, res) => {
   res.json({ account: session || null });
 });
 
+// Staff login endpoint is used by the separate admin login page and staff accounts.
 // Login
 app.post("/api/login", (req, res) => {
   const username = String(req.body.username || "").trim().toLowerCase();
@@ -385,6 +504,11 @@ app.get("/api/orders", requireLogin, (req, res) => {
       orders = orders.filter(
         order => order.assignedAgentId === req.account.agentId
       );
+    } else if (req.account.role === "student") {
+      // Students may only view orders placed using their verified phone number.
+      orders = orders.filter(order => order.customerPhone === req.account.username);
+    } else if (req.account.role !== "admin") {
+      return res.status(403).json({ error: "You don't have permission to view orders." });
     }
 
     res.json({ orders: orders.map(publicOrder) });

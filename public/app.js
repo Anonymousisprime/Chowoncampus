@@ -73,8 +73,7 @@ function setView(name) {
 }
 
 function updateNavigation() {
-  $("#loginNav").classList.toggle("hidden", Boolean(state.account));
-  $("#dashboardNav").classList.toggle("hidden", !state.account);
+  $("#dashboardNav").classList.toggle("hidden", !state.account || !["admin", "restaurant", "agent"].includes(state.account.role));
 }
 
 function cartSubtotal() {
@@ -206,6 +205,11 @@ function renderCart() {
 
 async function placeOrder(event) {
   event.preventDefault();
+  if (!state.account || state.account.role !== "student") {
+    showMessage("#checkoutMessage", "Please sign up or log in with a student account before ordering.");
+    location.href = "/student-login.html?next=order";
+    return;
+  }
   if (!state.cart.length) {
     return showMessage("#checkoutMessage", "Add food to your bag first.");
   }
@@ -218,8 +222,6 @@ async function placeOrder(event) {
     const result = await api("/api/orders", {
       method: "POST",
       body: JSON.stringify({
-        customerName: $("#customerName").value,
-        customerPhone: $("#customerPhone").value,
         hostel: $("#hostel").value,
         restaurantId: state.cart[0].restaurantId,
         items: state.cart.map(item => ({ id: item.id, qty: item.qty }))
@@ -301,29 +303,6 @@ async function simulatePayment(orderId) {
     await trackOrder(orderId);
   } catch (error) {
     showToast(error.message);
-  }
-}
-
-async function login(event) {
-  event.preventDefault();
-  showMessage("#loginMessage", "Signing in…");
-
-  try {
-    const result = await api("/api/login", {
-      method: "POST",
-      body: JSON.stringify({
-        username: $("#username").value,
-        password: $("#password").value
-      })
-    });
-
-    state.account = result.account;
-    $("#loginForm").reset();
-    updateNavigation();
-    showToast(`Welcome, ${state.account.name}!`);
-    setView("dashboard");
-  } catch (error) {
-    showMessage("#loginMessage", error.message);
   }
 }
 
@@ -499,7 +478,7 @@ async function initialize() {
 
   document.addEventListener("click", async event => {
     const viewButton = event.target.closest("[data-view]");
-    if (viewButton) setView(viewButton.dataset.view);
+    if (viewButton && viewButton.dataset.view !== "login") setView(viewButton.dataset.view);
 
     const openMenu = event.target.closest("[data-open-menu]");
     if (openMenu) {
@@ -567,7 +546,7 @@ async function initialize() {
   });
 
   $("#checkoutForm").addEventListener("submit", placeOrder);
-  $("#loginForm").addEventListener("submit", login);
+
   $("#trackForm").addEventListener("submit", event => {
     event.preventDefault();
     trackOrder($("#trackId").value);

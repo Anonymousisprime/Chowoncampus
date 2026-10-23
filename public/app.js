@@ -606,7 +606,9 @@ async function initialize() {
       const rows = $("#restaurantMenuRows");
       if (rows && rows.querySelectorAll("[data-menu-row]").length < 70) {
         rows.insertAdjacentHTML("beforeend", renderMenuRow());
-        $("#menuItemCount").textContent = rows.querySelectorAll("[data-menu-row]").length + "/70 items";
+        const count = rows.querySelectorAll("[data-menu-row]").length;
+        $("#menuItemCount").textContent = count + "/70 items";
+        $("#addMenuItem").disabled = count >= 70;
       }
     }
     const removeMenuItem = event.target.closest("[data-remove-menu-item]");
@@ -708,8 +710,13 @@ async function initialize() {
         const result = await api("/api/restaurant/menu", { method: "PUT", body: JSON.stringify({ items }) });
         const restaurant = state.restaurants.find(item => item.id === state.account.restaurantId);
         if (restaurant) restaurant.items = result.items;
+        result.items.forEach((item, index) => {
+          const idInput = menuForm.querySelectorAll('[name="id"]')[index];
+          if (idInput) idInput.value = item.id;
+        });
         message.textContent = "Menu saved. Customers will now see the updated prices and availability.";
-        renderMenuManagerAfterSave();
+        $("#menuItemCount").textContent = result.items.length + "/70 items";
+        $("#addMenuItem").disabled = result.items.length >= 70;
       } catch (error) { message.textContent = error.message; }
       finally { saveButton.disabled = false; }
       return;

@@ -17,7 +17,7 @@ app.use(express.static(path.join(__dirname, "public")));
 const DATA_FILE = path.join(__dirname, "orders.json");
 const sessions = new Map();
 
-const restaurants = [
+let restaurants = [
   {
     id: "CB",
     name: "Campus Bites",
@@ -51,7 +51,7 @@ const agents = [
 ];
 
 // Never put actual passwords in this file or commit them to GitHub.
-const accounts = [
+let accounts = [
   {
     username: (process.env.ADMIN_USERNAME || "coc_owner_2026").trim().toLowerCase(),
     password: process.env.ADMIN_PASSWORD || "",
@@ -86,6 +86,39 @@ if (accounts.some(account => !account.password)) {
     "Missing login passwords. Set ADMIN_PASSWORD, CAMPUSBITES_PASSWORD, " +
     "MAMASKITCHEN_PASSWORD, A1_PASSWORD, A2_PASSWORD and A3_PASSWORD in .env."
   );
+}
+
+// Dynamically created restaurant partners and their hashed login credentials.
+const RESTAURANTS_FILE = path.join(__dirname, "added-restaurants.json");
+function readAddedRestaurants() {
+  try {
+    if (!fs.existsSync(RESTAURANTS_FILE)) return [];
+    const records = JSON.parse(fs.readFileSync(RESTAURANTS_FILE, "utf8"));
+    if (!Array.isArray(records)) throw new Error("Invalid restaurant data.");
+    return records;
+  } catch (error) {
+    console.error("Could not read added restaurants:", error.message);
+    throw new Error("Restaurant storage is unavailable.");
+  }
+}
+function saveAddedRestaurants(records) {
+  const temp = RESTAURANTS_FILE + ".tmp";
+  fs.writeFileSync(temp, JSON.stringify(records, null, 2), "utf8");
+  fs.renameSync(temp, RESTAURANTS_FILE);
+}
+const addedRestaurantRecords = readAddedRestaurants();
+for (const record of addedRestaurantRecords) {
+  if (record.restaurant && record.username && record.passwordSalt && record.passwordHash) {
+    restaurants.push(record.restaurant);
+    accounts.push({
+      username: record.username,
+      role: "restaurant",
+      restaurantId: record.restaurant.id,
+      name: record.restaurant.name,
+      passwordSalt: record.passwordSalt,
+      passwordHash: record.passwordHash
+    });
+  }
 }
 
 function readOrders() {
@@ -284,7 +317,9 @@ app.post("/api/login", (req, res) => {
 
   const account = accounts.find(a =>
     a.username === username &&
-    a.password === password
+    (a.passwordHash
+      ? passwordMatches(password, a)
+      : a.password === password)
   );
 
   if (!account) {
@@ -535,6 +570,60 @@ app.get("/api/orders/:id", (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin-only restaurant creation. New partner passwords are hashed before storage.
+app.get("/api/admin/restaurants", requireRole("admin"), (req, res) => {
+  res.json({
+    restaurants: restaurants.map(restaurant => ({
+      id: restaurant.id,
+      name: restaurant.name,
+      description: restaurant.description,
+      username: accounts.find(a => a.role === "restaurant" && a.restaurantId === restaurant.id)?.username || "",
+      itemCount: restaurant.items.length
+    }))
+  });
+});
+
+app.post("/api/admin/restaurants", requireRole("admin"), (req, res) => {
+  const name = String(req.body.name || "").trim();
+  const description = String(req.body.description || "").trim();
+  const username = String(req.body.username || "").trim().toLowerCase();
+  const password = String(req.body.password || "");
+  const firstItemName = String(req.body.firstItemName || "").trim();
+  const firstItemPrice = Number(req.body.firstItemPrice);
+
+  if (name.length < 2 || name.length > 100) return res.status(400).json({ error: "Restaurant name must be 2–100 characters." });
+  if (description.length > 240) return res.status(400).json({ error: "Description must be 240 characters or fewer." });
+  if (!/^[a-z0-9._-]{3,30}$/.test(username)) return res.status(400).json({ error: "Username must be 3–30 characters: letters, numbers, dots, underscores or hyphens." });
+  if (password.length < 10 || password.length > 128) return res.status(400).json({ error: "Restaurant password must be 10–128 characters." });
+  if (accounts.some(account => account.username === username)) return res.status(409).json({ error: "That username is already in use." });
+  if (firstItemName.length < 2 || firstItemName.length > 80) return res.status(400).json({ error: "Add the first menu item's name (2–80 characters)." });
+  if (!Number.isFinite(firstItemPrice) || firstItemPrice < 1 || firstItemPrice > 1000000) return res.status(400).json({ error: "Enter a valid first menu item price." });
+
+  try {
+    const id = "R" + crypto.randomBytes(4).toString("hex").toUpperCase();
+    const itemId = id.toLowerCase() + "1";
+    const restaurant = {
+      id,
+      name,
+      description: description || "Fresh meals for campus students.",
+      items: [{ id: itemId, name: firstItemName, price: Math.round(firstItemPrice), category: "Meals", emoji: "🍽️" }]
+    };
+    const passwordData = hashPassword(password);
+    const record = { restaurant, username, passwordSalt: passwordData.salt, passwordHash: passwordData.hash };
+    const records = readAddedRestaurants();
+    records.push(record);
+    saveAddedRestaurants(records);
+    restaurants.push(restaurant);
+    accounts.push({ username, role: "restaurant", restaurantId: id, name, passwordSalt: passwordData.salt, passwordHash: passwordData.hash });
+    res.status(201).json({
+      restaurant: { id, name, description: restaurant.description, username, itemCount: restaurant.items.length },
+      message: "Restaurant created. Save the login details securely and share the password with the partner."
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Could not create restaurant." });
   }
 });
 

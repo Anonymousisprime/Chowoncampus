@@ -525,3 +525,10 @@ button,a{ -webkit-tap-highlight-color:transparent; }
 .delivery-location-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.restaurant-location{font-size:.88rem;overflow-wrap:anywhere}.map-link{display:inline-flex;align-items:center;min-height:42px;margin:4px 0}@media(max-width:420px){.delivery-location-grid{grid-template-columns:1fr}}
 
 .restaurant-location-manager{border:1px solid var(--border-color, #ddd);border-radius:14px;padding:16px;margin-bottom:22px;background:var(--card-bg, transparent)}.restaurant-location-manager label{display:block;margin:8px 0}.restaurant-location-manager input{width:100%;box-sizing:border-box}.restaurant-location-manager .menu-editor-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:12px}@media(max-width:480px){.restaurant-location-manager{padding:12px}}
+
+
+/* Official Chowoncampus logo */
+.brand-logo{display:block;width:clamp(190px,23vw,270px);height:auto;max-height:68px;object-fit:contain;}
+.brand{min-width:0;flex-shrink:0;}
+.footer-brand-logo .brand-logo{width:240px;max-height:72px;}
+@media(max-width:600px){.brand-logo{width:190px;max-height:56px}.footer-brand-logo .brand-logo{width:210px}}

@@ -538,6 +538,23 @@ app.get("/api/orders/:id", (req, res) => {
   }
 });
 
+// Admin-only student directory. Never return password hashes or salts.
+app.get("/api/admin/students", requireRole("admin"), (req, res) => {
+  try {
+    const students = readStudents().map(student => ({
+      id: student.id,
+      name: student.name,
+      username: student.phone,
+      phone: student.phone,
+      verifiedPhone: Boolean(student.verifiedPhone),
+      createdAt: student.createdAt || null
+    }));
+    res.json({ students });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Could not load students." });
+  }
+});
+
 // Admin-only agent list
 app.get("/api/agents", requireRole("admin"), (req, res) => {
   res.json({ agents });

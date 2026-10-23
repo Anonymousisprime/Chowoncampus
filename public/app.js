@@ -637,9 +637,14 @@ async function loadDashboard() {
           ${orders.length ? `<div class="order-list">${orders.map(renderOrderCard).join("")}</div>` : '<div class="empty-state">No orders here yet. New orders will appear when customers place them.</div>'}
         </section>`;
     } else {
-      $("#dashboardContent").innerHTML = orders.length
-        ? `<div class="order-list">${orders.map(renderOrderCard).join("")}</div>`
-        : `<div class="empty-state">No orders here yet. New orders will appear when customers place them.</div>`;
+      $("#dashboardContent").innerHTML = `
+        <div class="restaurant-welcome">
+          <div><span class="eyebrow">STUDENT WORKSPACE</span><h2>Welcome, ${escapeHtml(account.name)}!</h2><p>Ready for your next meal? Check your orders below or head back to the menu to find something delicious.</p></div>
+          <button class="secondary-button" type="button" data-view="home">Browse food</button>
+        </div>
+        ${orders.length
+          ? `<div class="order-list">${orders.map(renderOrderCard).join("")}</div>`
+          : `<div class="empty-state">You have no orders yet. Browse the menu and place your first order!</div>`}`;
     }
 
     const securityPanel = document.createElement("section");
@@ -755,7 +760,7 @@ async function initialize() {
     state.account = result.account;
     updateNavigation();
     const params = new URLSearchParams(location.search);
-    if (state.account && (state.account.role === "restaurant" || state.account.role === "agent") && params.get("dashboard") === "1") {
+    if (state.account && ["student", "restaurant", "agent"].includes(state.account.role) && params.get("dashboard") === "1") {
       setView("dashboard");
       history.replaceState({}, "", location.pathname);
     }

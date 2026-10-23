@@ -470,6 +470,24 @@ app.get("/api/menu", (req, res) => {
   })) });
 });
 
+// Restaurant partners can edit their own pickup location.
+app.put("/api/restaurant/location", requireRole("restaurant"), (req, res) => {
+  const location = String(req.body.location || "").trim();
+  if (location.length > 180) return res.status(400).json({ error: "Location must be 180 characters or fewer." });
+  const restaurant = restaurants.find(item => item.id === req.account.restaurantId);
+  if (!restaurant) return res.status(404).json({ error: "Restaurant account not found." });
+  restaurant.location = location;
+  const record = addedRestaurantRecords.find(item => item.restaurant && item.restaurant.id === restaurant.id);
+  if (record) record.restaurant.location = location;
+  try {
+    if (record) saveAddedRestaurants(addedRestaurantRecords);
+    res.json({ ok: true, location, message: "Restaurant location saved." });
+  } catch (error) {
+    console.error("Could not save restaurant location:", error);
+    res.status(500).json({ error: "Could not save location. Please try again." });
+  }
+});
+
 // Restaurant partners can manage up to 70 menu items and mark each item available/sold out.
 app.put("/api/restaurant/menu", requireRole("restaurant"), (req, res) => {
   const submitted = req.body.items;

@@ -518,6 +518,48 @@ async function loadDashboard() {
         ${section("Order history", "Completed and cancelled orders", completed, "completed")}`;
       renderRestaurantMenuManager();
       document.querySelectorAll("[data-restaurant-chat-order]").forEach(form => loadRestaurantChat(form.dataset.restaurantChatOrder));
+    } else if (account.role === "admin") {
+      const restaurantResult = await api("/api/admin/restaurants");
+      const restaurantRows = restaurantResult.restaurants.map(restaurant => `
+        <article class="order-card">
+          <div class="order-top"><div><span class="eyebrow">RESTAURANT PARTNER</span><h3>${escapeHtml(restaurant.name)}</h3></div><span class="status">${restaurant.itemCount} items</span></div>
+          <p>${escapeHtml(restaurant.description || "No description")}</p>
+          <p>Login username: <strong>${escapeHtml(restaurant.username)}</strong></p>
+        </article>
+      `).join("");
+      $("#dashboardContent").innerHTML = `
+        <section class="dashboard-order-section">
+          <div class="dashboard-section-heading"><div><h2>Add restaurant</h2><p>Create a partner login and add the first menu item.</p></div></div>
+          <form id="adminAddRestaurantForm" class="order-card">
+            <label>Restaurant name<input name="name" required minlength="2" maxlength="100" placeholder="e.g. Chow House"></label>
+            <label>Description<input name="description" maxlength="240" placeholder="Fresh meals for campus students"></label>
+            <label>Login username<input name="username" required minlength="3" maxlength="30" pattern="[a-zA-Z0-9._-]+" placeholder="chowhouse"></label>
+            <label>Temporary password<input name="password" type="password" required minlength="10" maxlength="128" autocomplete="new-password" placeholder="At least 10 characters"></label>
+            <h3>First menu item</h3>
+            <label>Item name<input name="firstItemName" required minlength="2" maxlength="80" placeholder="Jollof rice"></label>
+            <label>Price (₦)<input name="firstItemPrice" type="number" required min="1" max="1000000" step="1" placeholder="2500"></label>
+            <button class="primary-button" type="submit">＋ Add restaurant</button>
+            <p id="adminAddRestaurantMessage" class="muted" role="status"></p>
+          </form>
+        </section>
+        <section class="dashboard-order-section">
+          <div class="dashboard-section-heading"><div><h2>Add delivery agent</h2><p>Create a delivery login for a new agent.</p></div></div>
+          <form id="adminAddAgentForm" class="order-card">
+            <label>Agent full name<input name="name" required minlength="2" maxlength="100" placeholder="Full name"></label>
+            <label>Login username<input name="username" required minlength="3" maxlength="30" pattern="[a-zA-Z0-9._-]+" placeholder="agentname"></label>
+            <label>Temporary password<input name="password" type="password" required minlength="10" maxlength="128" autocomplete="new-password" placeholder="At least 10 characters"></label>
+            <button class="primary-button" type="submit">＋ Add delivery agent</button>
+            <p id="adminAddAgentMessage" class="muted" role="status"></p>
+          </form>
+        </section>
+        <section class="dashboard-order-section">
+          <div class="dashboard-section-heading"><div><h2>Restaurant partners</h2><p>Current restaurants registered in ChowOnCampus.</p></div></div>
+          ${restaurantRows || '<div class="empty-state">No restaurant partners found.</div>'}
+        </section>
+        <section class="dashboard-order-section">
+          <div class="dashboard-section-heading"><div><h2>Orders</h2><p>Manage orders and assign delivery agents.</p></div><span class="count-pill">${orders.length}</span></div>
+          ${orders.length ? `<div class="order-list">${orders.map(renderOrderCard).join("")}</div>` : '<div class="empty-state">No orders here yet. New orders will appear when customers place them.</div>'}
+        </section>`;
     } else {
       $("#dashboardContent").innerHTML = orders.length
         ? `<div class="order-list">${orders.map(renderOrderCard).join("")}</div>`
@@ -741,6 +783,49 @@ async function initialize() {
         $("#addMenuItem").disabled = result.items.length >= 70;
       } catch (error) { message.textContent = error.message; }
       finally { saveButton.disabled = false; }
+      return;
+    }
+    const addRestaurantForm = event.target.closest("#adminAddRestaurantForm");
+    if (addRestaurantForm) {
+      event.preventDefault();
+      const message = $("#adminAddRestaurantMessage");
+      const button = addRestaurantForm.querySelector('button[type="submit"]');
+      const values = Object.fromEntries(new FormData(addRestaurantForm).entries());
+      values.firstItemPrice = Number(values.firstItemPrice);
+      button.disabled = true;
+      message.textContent = "Creating restaurant…";
+      try {
+        const result = await api("/api/admin/restaurants", { method: "POST", body: JSON.stringify(values) });
+        message.textContent = result.message + " Restaurant ID: " + result.restaurant.id;
+        message.classList.add("success");
+        addRestaurantForm.reset();
+        await loadDashboard();
+        showToast("Restaurant added successfully.");
+      } catch (error) {
+        message.textContent = error.message;
+        message.classList.remove("success");
+      } finally { button.disabled = false; }
+      return;
+    }
+    const addAgentForm = event.target.closest("#adminAddAgentForm");
+    if (addAgentForm) {
+      event.preventDefault();
+      const message = $("#adminAddAgentMessage");
+      const button = addAgentForm.querySelector('button[type="submit"]');
+      const values = Object.fromEntries(new FormData(addAgentForm).entries());
+      button.disabled = true;
+      message.textContent = "Creating delivery agent…";
+      try {
+        const result = await api("/api/admin/agents", { method: "POST", body: JSON.stringify(values) });
+        message.textContent = result.message + " Agent ID: " + result.agent.id;
+        message.classList.add("success");
+        addAgentForm.reset();
+        await loadDashboard();
+        showToast("Delivery agent added successfully.");
+      } catch (error) {
+        message.textContent = error.message;
+        message.classList.remove("success");
+      } finally { button.disabled = false; }
       return;
     }
     const restaurantForm = event.target.closest("[data-restaurant-chat-order]");

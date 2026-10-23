@@ -553,6 +553,7 @@ async function loadDashboard() {
           <p>${escapeHtml(restaurant.description || "No description")}</p>
           <p>📍 Location: ${escapeHtml(restaurant.location || "Not added yet")}</p>
           <p>Login username: <strong>${escapeHtml(restaurant.username)}</strong></p>
+          <div class="order-actions"><button type="button" class="danger-button" data-delete-restaurant="${escapeHtml(restaurant.id)}" data-restaurant-name="${escapeHtml(restaurant.name)}">Delete restaurant</button></div>
         </article>
       `).join("");
       $("#dashboardContent").innerHTML = `
@@ -776,6 +777,26 @@ async function initialize() {
 
     if (event.target.closest("#refreshRestaurantOrders")) {
       await loadDashboard();
+      return;
+    }
+
+    const deleteRestaurantButton = event.target.closest("[data-delete-restaurant]");
+    if (deleteRestaurantButton) {
+      const restaurantId = deleteRestaurantButton.dataset.deleteRestaurant;
+      const restaurantName = deleteRestaurantButton.dataset.restaurantName || "this restaurant";
+      if (!confirm("Delete " + restaurantName + "? It will disappear from the student menu and its login will be disabled. Completed order history will be kept. Restaurants with active orders cannot be deleted.")) return;
+      deleteRestaurantButton.disabled = true;
+      deleteRestaurantButton.textContent = "Deleting…";
+      try {
+        const result = await api("/api/admin/restaurants/" + encodeURIComponent(restaurantId), { method: "DELETE" });
+        showToast(result.message || "Restaurant deleted.");
+        await refreshPublicMenu();
+        await loadDashboard();
+      } catch (error) {
+        showToast(error.message);
+        deleteRestaurantButton.disabled = false;
+        deleteRestaurantButton.textContent = "Delete restaurant";
+      }
       return;
     }
 

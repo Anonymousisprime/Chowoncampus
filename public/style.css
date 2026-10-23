@@ -444,3 +444,17 @@ footer {
 .dashboard-chat-form button{white-space:nowrap}
 @media(max-width:760px){.restaurant-welcome{align-items:stretch;flex-direction:column;padding:20px}.restaurant-welcome button{width:100%}.restaurant-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.restaurant-metrics article{padding:13px}.restaurant-metrics small{line-height:1.4}.dashboard-section-heading h2{font-size:1.1rem}}
 @media(max-width:380px){.restaurant-metrics{grid-template-columns:1fr 1fr}.dashboard-chat-form{flex-direction:column}.dashboard-chat-form input,.dashboard-chat-form button{width:100%}}
+
+/* Restaurant menu editor and customer sold-out states */
+.restaurant-menu-manager{background:#fff;border:1px solid #dfe9e1;border-radius:18px;padding:clamp(16px,3vw,24px);margin:0 0 24px;box-shadow:var(--shadow)}
+.menu-editor-row{display:grid;grid-template-columns:minmax(150px,2fr) minmax(100px,1fr) minmax(110px,1fr) auto auto;gap:10px;align-items:end;padding:12px 0;border-bottom:1px solid #edf1ee}
+.menu-editor-row label{display:grid;gap:6px;font-size:.8rem;font-weight:750;color:var(--muted)}
+.menu-editor-row input:not([type=checkbox]){width:100%;min-width:0;padding:10px;border:1px solid #cbd9cf;border-radius:9px;font:inherit;color:var(--text,#173b2d);background:#fff}
+.menu-editor-row .menu-available{display:flex;align-items:center;gap:7px;white-space:nowrap;min-height:40px}
+.menu-available input{width:18px;height:18px;accent-color:var(--green)}
+.menu-remove{border:1px solid #f0d5d5;background:#fff5f5;color:#a33434;border-radius:9px;padding:10px;font:inherit;font-weight:700;cursor:pointer}
+.menu-editor-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+.menu-editor-actions button:disabled{opacity:.55;cursor:not-allowed}
+.sold-out-label{display:inline-flex;align-items:center;background:#fff0ef;color:#a33434;border-radius:8px;padding:7px 10px;font-size:.8rem;font-weight:800}
+.food-sold-out{opacity:.8}
+@media(max-width:720px){.menu-editor-row{grid-template-columns:1fr 1fr;align-items:end}.menu-editor-row label:first-of-type{grid-column:1/-1}.menu-editor-row .menu-available{justify-content:flex-start}.menu-remove{justify-self:stretch}.menu-editor-actions button{flex:1}}

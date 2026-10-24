@@ -19,7 +19,9 @@ const storageFiles = {
   "added-restaurants.json": "addedRestaurants",
   "delivery-agents.json": "deliveryAgents",
   "notifications.json": "notifications",
-  "account-passwords.json": "accountPasswords"
+  "account-passwords.json": "accountPasswords",
+  "admin-accounts.json": "adminAccounts",
+  "disabled-admins.json": "disabledAdmins"
 };
 
 function readLocalJson(filename, fallback) {
@@ -41,7 +43,9 @@ async function initializePersistentStorage() {
     ["added-restaurants.json", []],
     ["delivery-agents.json", []],
     ["notifications.json", []],
-    ["account-passwords.json", {}]
+    ["account-passwords.json", {}],
+    ["admin-accounts.json", []],
+    ["disabled-admins.json", []]
   ];
   if (!storagePool) {
     for (const [filename, fallback] of definitions) {
@@ -184,6 +188,13 @@ let accounts = [
     name: "Chowoncampus Admin"
   },
   {
+    username: (process.env.SUPERADMIN_USERNAME || "Anonymousisprime").trim().toLowerCase(),
+    password: process.env.SUPERADMIN_PASSWORD || "",
+    role: "admin",
+    isSuperAdmin: true,
+    name: "Anonymous Is Prime — Ultimate Admin"
+  },
+  {
     username: "campusbites",
     password: process.env.CAMPUSBITES_PASSWORD || "",
     role: "restaurant",
@@ -310,7 +321,8 @@ function safeAccount(account) {
     role: account.role,
     name: account.name,
     restaurantId: account.restaurantId || null,
-    agentId: account.agentId || null
+    agentId: account.agentId || null,
+    isSuperAdmin: Boolean(account.isSuperAdmin)
   };
 }
 
@@ -564,7 +576,15 @@ app.post("/api/login", (req, res) => {
   }
 
   const passwordOverrides = readAccountPasswords();
+  const disabledAdmins = readStoredJson(path.join(__dirname, "disabled-admins.json"), []);
+  const managedAdmins = readStoredJson(path.join(__dirname, "admin-accounts.json"), []);
+  for (const record of managedAdmins) {
+    if (!accounts.some(a => a.role === "admin" && a.username === record.username)) {
+      accounts.push({ ...record, role: "admin", isSuperAdmin: false });
+    }
+  }
   const account = accounts.find(a => {
+    if (a.role === "admin" && disabledAdmins.includes(a.username) && !a.isSuperAdmin) return false;
     if (a.username !== username) return false;
     const override = passwordOverrides[`${a.role}:${a.username}`];
     if (override?.passwordSalt && override?.passwordHash) return passwordMatches(password, override);
@@ -1023,6 +1043,65 @@ app.post("/api/admin/restaurants", requireRole("admin"), (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message || "Could not create restaurant." });
   }
+});
+
+// Ultimate admin can manage additional admin accounts and revoke existing non-superadmin admins.
+function requireSuperAdmin(req, res, next) {
+  const session = getSession(req);
+  if (!session) return res.status(401).json({ error: "Please log in first." });
+  if (session.role !== "admin" || !session.isSuperAdmin) return res.status(403).json({ error: "Only the ultimate admin can manage admin accounts." });
+  req.account = session;
+  next();
+}
+
+app.get("/api/superadmin/admins", requireSuperAdmin, (req, res) => {
+  const disabled = readStoredJson(path.join(__dirname, "disabled-admins.json"), []);
+  const managed = readStoredJson(path.join(__dirname, "admin-accounts.json"), []);
+  const admins = accounts.filter(a => a.role === "admin" && !a.isSuperAdmin && !disabled.includes(a.username));
+  for (const record of managed) {
+    if (!admins.some(a => a.username === record.username)) admins.push(record);
+  }
+  res.json({ admins: admins.map(a => ({ username: a.username, name: a.name || a.username, source: managed.some(m => m.username === a.username) ? "managed" : "configured" })) });
+});
+
+app.post("/api/superadmin/admins", requireSuperAdmin, (req, res) => {
+  const name = String(req.body.name || "").trim();
+  const username = String(req.body.username || "").trim().toLowerCase();
+  const password = String(req.body.password || "");
+  if (name.length < 2 || name.length > 100) return res.status(400).json({ error: "Admin name must be 2–100 characters." });
+  if (!/^[a-z0-9._-]{3,30}$/.test(username)) return res.status(400).json({ error: "Username must be 3–30 characters: letters, numbers, dots, underscores or hyphens." });
+  if (password.length < 10 || password.length > 128) return res.status(400).json({ error: "Password must be 10–128 characters." });
+  const disabled = readStoredJson(path.join(__dirname, "disabled-admins.json"), []);
+  const managed = readStoredJson(path.join(__dirname, "admin-accounts.json"), []);
+  if (accounts.some(a => a.username === username) || managed.some(a => a.username === username)) return res.status(409).json({ error: "That username is already in use." });
+  const hashed = hashPassword(password);
+  managed.push({ username, name, passwordSalt: hashed.salt, passwordHash: hashed.hash, createdAt: new Date().toISOString() });
+  saveStoredJson(path.join(__dirname, "admin-accounts.json"), managed);
+  saveStoredJson(path.join(__dirname, "disabled-admins.json"), disabled.filter(value => value !== username));
+  accounts.push({ username, name, role: "admin", passwordSalt: hashed.salt, passwordHash: hashed.hash, isSuperAdmin: false });
+  res.status(201).json({ ok: true, message: "Admin account created." });
+});
+
+app.delete("/api/superadmin/admins/:username", requireSuperAdmin, (req, res) => {
+  const username = String(req.params.username || "").trim().toLowerCase();
+  if (!username || username === req.account.username) return res.status(400).json({ error: "You cannot delete the ultimate admin account." });
+  const target = accounts.find(a => a.role === "admin" && a.username === username && !a.isSuperAdmin);
+  if (!target) return res.status(404).json({ error: "Admin account not found." });
+  const disabled = readStoredJson(path.join(__dirname, "disabled-admins.json"), []);
+  if (!disabled.includes(username)) disabled.push(username);
+  saveStoredJson(path.join(__dirname, "disabled-admins.json"), disabled);
+  const managed = readStoredJson(path.join(__dirname, "admin-accounts.json"), []);
+  saveStoredJson(path.join(__dirname, "admin-accounts.json"), managed.filter(a => a.username !== username));
+  for (let i = accounts.length - 1; i >= 0; i--) {
+    if (accounts[i].role === "admin" && accounts[i].username === username && !accounts[i].isSuperAdmin) accounts.splice(i, 1);
+  }
+  for (const [token, account] of sessions.entries()) {
+    if (account.role === "admin" && account.username === username && !account.isSuperAdmin) sessions.delete(token);
+  }
+  const overrides = readAccountPasswords();
+  delete overrides[`admin:${username}`];
+  saveAccountPasswords(overrides);
+  res.json({ ok: true, message: "Admin account deleted and active sessions revoked." });
 });
 
 // Admin-only student directory. Never return password hashes or salts.

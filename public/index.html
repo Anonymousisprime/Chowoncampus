@@ -54,6 +54,13 @@
           </div>
           <p>Find your next favourite meal.</p>
         </div>
+        <form id="catalogSearchForm" class="catalog-search" role="search">
+          <label class="sr-only" for="catalogSearchInput">Search restaurants and food</label>
+          <input id="catalogSearchInput" name="q" type="search" maxlength="100" placeholder="Search restaurants or food (e.g. jollof rice)" autocomplete="off">
+          <button type="submit" class="primary-button">Search</button>
+          <button type="button" id="clearCatalogSearch" class="secondary-button">Clear</button>
+        </form>
+        <p id="catalogSearchSummary" class="small-note" aria-live="polite"></p>
         <div id="restaurantList" class="restaurant-grid">
           <p>Loading restaurants...</p>
         </div>

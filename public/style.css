@@ -588,3 +588,21 @@ button,a{ -webkit-tap-highlight-color:transparent; }
 .restaurant-pickup-map{height:320px;width:100%;border:1px solid var(--border-color,#dce7df);border-radius:12px;overflow:hidden;background:#edf3ee;z-index:0}
 #restaurantPickupMapMessage{display:block;min-width:180px}
 @media(max-width:520px){.restaurant-pickup-map{height:260px}.pickup-gps-tools .menu-editor-actions{align-items:stretch;flex-direction:column}.pickup-gps-tools .menu-editor-actions button{width:100%}}
+
+
+/* Food, restaurant and delivery-agent ratings */
+.rating-panel{margin-top:16px;padding:16px;border:1px solid var(--border-color,#dce7df);border-radius:14px;background:var(--card-bg,#fff)}
+.rating-panel h3,.rating-reviews h3,.rating-summary-group h3{margin:0 0 8px}
+.rating-panel form{display:grid;gap:12px}
+.rating-panel label{display:grid;gap:6px;font-weight:600}
+.rating-panel select,.rating-panel textarea{width:100%;min-height:42px;border:1px solid var(--border-color,#cbd8cf);border-radius:9px;padding:9px;background:var(--card-bg,#fff);color:inherit}
+.rating-food-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
+.ratings-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:14px 0}
+.rating-summary-group{border:1px solid var(--border-color,#dce7df);border-radius:12px;padding:14px;min-width:0}
+.rating-summary-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border-color,#e5ebe7)}
+.rating-summary-row p{margin:3px 0 0;font-size:.85rem}
+.rating-average{font-weight:800;white-space:nowrap;color:var(--accent-color,#087443)}
+.rating-reviews{margin-top:16px}
+.rating-review-row{padding:12px 0;border-top:1px solid var(--border-color,#e5ebe7);overflow-wrap:anywhere}
+.rating-review-row p{margin:6px 0}
+@media(max-width:520px){.rating-panel{padding:12px}.ratings-summary-grid{grid-template-columns:1fr}.rating-food-list{grid-template-columns:1fr}.rating-summary-row{align-items:flex-start}}

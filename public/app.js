@@ -8,7 +8,8 @@ const state = {
   account: null,
   lastOrderId: null,
   agents: [],
-  availableAgents: []
+  availableAgents: [],
+  catalogSearchQuery: ""
 };
 
 const money = amount => new Intl.NumberFormat("en-NG", {
@@ -82,19 +83,35 @@ function cartSubtotal() {
 }
 
 function renderRestaurants() {
-  $("#restaurantList").innerHTML = state.restaurants.map((restaurant, index) => `
+  const query = state.catalogSearchQuery.trim().toLocaleLowerCase();
+  const matches = state.restaurants.map(restaurant => {
+    const matchingItems = (restaurant.items || []).filter(item =>
+      [item.name, item.category, item.description].some(value => String(value || "").toLocaleLowerCase().includes(query))
+    );
+    const restaurantMatches = !query || [restaurant.name, restaurant.description, restaurant.location]
+      .some(value => String(value || "").toLocaleLowerCase().includes(query));
+    return { restaurant, matchingItems, matches: restaurantMatches || matchingItems.length > 0 };
+  }).filter(entry => entry.matches);
+
+  const summary = $("#catalogSearchSummary");
+  if (summary) {
+    summary.textContent = query
+      ? `${matches.length} restaurant${matches.length === 1 ? "" : "s"} found for “${state.catalogSearchQuery.trim()}”. Food matches are shown on each card.`
+      : `Browse ${state.restaurants.length} restaurant${state.restaurants.length === 1 ? "" : "s"}, or search by restaurant name, meal, or category.`;
+  }
+
+  $("#restaurantList").innerHTML = matches.length ? matches.map(({ restaurant, matchingItems }, index) => `
     <article class="restaurant-card">
       <div class="restaurant-banner">${index === 0 ? "🍛" : "🍲"}</div>
       <div class="restaurant-info">
         <h3>${escapeHtml(restaurant.name)}</h3>
         <p>${escapeHtml(restaurant.description)}</p>
         ${restaurant.location ? `<p class="restaurant-location">📍 ${escapeHtml(restaurant.location)}</p>` : `<p class="restaurant-location muted">📍 Campus location not added yet</p>`}
-        <button class="secondary-button" data-open-menu="${escapeHtml(restaurant.id)}">
-          Explore menu →
-        </button>
+        ${query && matchingItems.length ? `<p class="search-food-matches"><strong>Matching food:</strong> ${matchingItems.slice(0, 5).map(item => escapeHtml(item.name)).join(", ")}${matchingItems.length > 5 ? ` and ${matchingItems.length - 5} more` : ""}</p>` : ""}
+        <button class="secondary-button" data-open-menu="${escapeHtml(restaurant.id)}">Explore menu →</button>
       </div>
     </article>
-  `).join("");
+  `).join("") : `<div class="empty-state catalog-empty"><strong>No matches found.</strong><p>Try another food name, restaurant name, or category.</p></div>`;
 }
 
 async function refreshPublicMenu() {
@@ -789,6 +806,18 @@ async function initialize() {
     const viewButton = event.target.closest("[data-view]");
     if (viewButton && viewButton.dataset.view !== "login") setView(viewButton.dataset.view);
 
+    if (event.target.closest("#catalogSearchForm")) {
+      // Form submission is handled below; this branch intentionally does not intercept the click.
+    }
+    const clearCatalogSearch = event.target.closest("#clearCatalogSearch");
+    if (clearCatalogSearch) {
+      state.catalogSearchQuery = "";
+      const searchInput = $("#catalogSearchInput");
+      if (searchInput) searchInput.value = "";
+      renderRestaurants();
+      return;
+    }
+
     const openMenu = event.target.closest("[data-open-menu]");
     if (openMenu) {
       state.selectedRestaurantId = openMenu.dataset.openMenu;
@@ -941,6 +970,15 @@ async function initialize() {
       setView("home");
     }
   });
+
+  const catalogSearchForm = $("#catalogSearchForm");
+  if (catalogSearchForm) {
+    catalogSearchForm.addEventListener("submit", event => {
+      event.preventDefault();
+      state.catalogSearchQuery = $("#catalogSearchInput").value.trim();
+      renderRestaurants();
+    });
+  }
 
   $("#checkoutForm").addEventListener("submit", placeOrder);
 

@@ -246,6 +246,24 @@ const deletedRestaurantIds = new Set(addedRestaurantRecords
 restaurants = restaurants.filter(restaurant => !deletedRestaurantIds.has(restaurant.id));
 accounts = accounts.filter(account => account.role !== "restaurant" || !deletedRestaurantIds.has(account.restaurantId));
 
+// Restaurant GPS coordinates are persisted separately so seeded and admin-created partners
+// keep their pickup pins across server restarts.
+const RESTAURANT_LOCATIONS_FILE = path.join(__dirname, "restaurant-locations.json");
+function readRestaurantLocations() {
+  return readStoredJson(RESTAURANT_LOCATIONS_FILE, {});
+}
+function saveRestaurantLocations(data) {
+  saveStoredJson(RESTAURANT_LOCATIONS_FILE, data);
+}
+const restaurantLocationCoordinates = readRestaurantLocations();
+for (const restaurant of restaurants) {
+  const saved = restaurantLocationCoordinates[restaurant.id];
+  if (saved && Number.isFinite(Number(saved.latitude)) && Number.isFinite(Number(saved.longitude))) {
+    restaurant.latitude = Number(saved.latitude);
+    restaurant.longitude = Number(saved.longitude);
+  }
+}
+
 // Restaurant menu overrides are kept separately so menu edits survive app restarts
 // when the deployment has persistent storage configured.
 const MENUS_FILE = path.join(__dirname, "restaurant-menus.json");
@@ -505,26 +523,33 @@ app.get("/api/menu", (req, res) => {
   })) });
 });
 
-// Restaurant partners can share their pickup GPS coordinates for nearest-agent matching.
+// Restaurant partners can save their pickup pin using GPS or the map picker.
 app.patch("/api/restaurant/location-coordinates", requireRole("restaurant"), (req, res) => {
   const latitude = Number(req.body.latitude);
   const longitude = Number(req.body.longitude);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude) ||
       Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
-    return res.status(400).json({ error: "Provide valid GPS coordinates." });
+    return res.status(400).json({ error: "Choose a valid pickup point on the map or use GPS." });
   }
   const restaurant = restaurants.find(item => item.id === req.account.restaurantId);
   if (!restaurant) return res.status(404).json({ error: "Restaurant account not found." });
-  restaurant.latitude = latitude;
-  restaurant.longitude = longitude;
-  const records = readAddedRestaurants();
-  const record = records.find(item => item.restaurant && item.restaurant.id === restaurant.id);
-  if (record) {
-    record.restaurant.latitude = latitude;
-    record.restaurant.longitude = longitude;
-    saveAddedRestaurants(records);
+  try {
+    restaurant.latitude = latitude;
+    restaurant.longitude = longitude;
+    restaurantLocationCoordinates[restaurant.id] = { latitude, longitude, updatedAt: new Date().toISOString() };
+    saveRestaurantLocations(restaurantLocationCoordinates);
+    const records = readAddedRestaurants();
+    const record = records.find(item => item.restaurant && item.restaurant.id === restaurant.id);
+    if (record) {
+      record.restaurant.latitude = latitude;
+      record.restaurant.longitude = longitude;
+      saveAddedRestaurants(records);
+    }
+    res.json({ ok: true, latitude, longitude, message: "Restaurant pickup pin saved." });
+  } catch (error) {
+    console.error("Could not save restaurant pickup coordinates:", error.message);
+    res.status(500).json({ error: "Could not save pickup coordinates. Please try again." });
   }
-  res.json({ ok: true, message: "Restaurant pickup coordinates updated." });
 });
 
 // Restaurant partners can edit their own pickup location.

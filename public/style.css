@@ -606,3 +606,7 @@ button,a{ -webkit-tap-highlight-color:transparent; }
 .rating-review-row{padding:12px 0;border-top:1px solid var(--border-color,#e5ebe7);overflow-wrap:anywhere}
 .rating-review-row p{margin:6px 0}
 @media(max-width:520px){.rating-panel{padding:12px}.ratings-summary-grid{grid-template-columns:1fr}.rating-food-list{grid-template-columns:1fr}.rating-summary-row{align-items:flex-start}}
+
+
+.public-rating{font-size:.9rem;font-weight:700;margin:6px 0;color:#b77908}
+.food-public-rating{font-size:.82rem;font-weight:600;margin:5px 0 8px}

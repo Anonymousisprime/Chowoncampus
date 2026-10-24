@@ -765,14 +765,16 @@ async function loadDashboard() {
         const ratingList = (items, title) => '<div class="rating-summary-group"><h3>' + title + '</h3>' +
           (items.length ? items.map(item => '<article class="rating-summary-row"><div><strong>' + escapeHtml(item.name) + '</strong><p class="muted">' + item.count + ' review(s)</p></div><span class="rating-average">' + (item.average == null ? '—' : '★ ' + item.average + '/5') + '</span></article>').join('') : '<p class="muted">No ratings yet.</p>') + '</div>';
         const reviewRows = ratingResult.reviews.slice(0, 15).map(review =>
-          '<article class="rating-review-row"><div><strong>' + escapeHtml(review.restaurantName) + '</strong><span class="muted"> · Order ' + escapeHtml(review.orderId) + '</span></div>' +
+          '<article class="rating-review-row"><div><strong>' + escapeHtml(review.restaurantName) + '</strong><span class="muted"> · Order ' + escapeHtml(review.orderId) + '</span></div><p class="muted">Review from ' + escapeHtml(review.studentName || "Student") + '</p>' +
           '<p>Restaurant: ★ ' + review.restaurantRating + '/5' + (review.agentRating ? ' · Agent: ★ ' + review.agentRating + '/5' : '') + '</p>' +
           '<p class="muted">' + (review.foodRatings || []).map(food => escapeHtml(food.itemName) + ' ★ ' + food.rating + '/5').join(' · ') + '</p>' +
           (review.comment ? '<p>' + escapeHtml(review.comment) + '</p>' : '') +
           '<small class="muted">' + (review.ratedAt ? escapeHtml(new Date(review.ratedAt).toLocaleDateString()) : '') + '</small></article>').join('');
         const ratingPanel = document.createElement("section");
         ratingPanel.className = "dashboard-order-section ratings-dashboard";
-        ratingPanel.innerHTML = '<div class="dashboard-section-heading"><div><span class="eyebrow">CUSTOMER FEEDBACK</span><h2>Ratings & reviews</h2><p>' + ratingResult.totalReviews + ' completed-order review(s). Averages update as students rate orders.</p></div></div>' +
+        const ratingHeading = account.role === "admin" ? "All ratings & reviews" : account.role === "restaurant" ? "Your restaurant ratings & reviews" : "Your delivery ratings & reviews";
+        const ratingDescription = account.role === "admin" ? "Review customer feedback across every restaurant, food item and delivery agent." : account.role === "restaurant" ? "See ratings for your restaurant and menu items. Only your restaurant's reviews are shown." : "See customer ratings for deliveries assigned to you. Only your delivery feedback is shown.";
+        ratingPanel.innerHTML = '<div class="dashboard-section-heading"><div><span class="eyebrow">CUSTOMER FEEDBACK</span><h2>' + ratingHeading + '</h2><p>' + ratingDescription + ' ' + ratingResult.totalReviews + ' review(s) available.</p></div></div>' +
           '<div class="ratings-summary-grid">' + ratingList(ratingResult.restaurants, 'Restaurant ratings') + ratingList(ratingResult.food, 'Food ratings') + ratingList(ratingResult.agents, 'Delivery-agent ratings') + '</div>' +
           '<div class="rating-reviews"><h3>Recent reviews</h3>' + (reviewRows || '<p class="muted">Reviews will appear here after students rate completed orders.</p>') + '</div>';
         $("#dashboardContent").appendChild(ratingPanel);

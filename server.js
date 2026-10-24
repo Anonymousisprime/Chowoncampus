@@ -1391,6 +1391,35 @@ app.get("/api/agents/me", requireRole("agent"), (req, res) => {
   }
 });
 
+// Agent explicitly accepts a pickup offer within its 60-second window.
+app.post("/api/agent/assignments/:id/accept", requireRole("agent"), (req, res) => {
+  try {
+    const orders = readOrders();
+    const order = orders.find(item => item.id === req.params.id);
+    if (!order) return res.status(404).json({ error: "Order not found." });
+    if (order.assignedAgentId !== req.account.agentId || order.status !== "Ready for pickup") {
+      return res.status(409).json({ error: "This pickup offer is no longer assigned to you." });
+    }
+    if (!order.assignmentExpiresAt || new Date(order.assignmentExpiresAt).getTime() <= Date.now()) {
+      expireUnacceptedOffers();
+      return res.status(409).json({ error: "The 60-second window expired. The order may have been offered to another agent." });
+    }
+    order.assignmentAcceptedAt = new Date().toISOString();
+    order.assignmentExpiresAt = null;
+    order.updatedAt = order.assignmentAcceptedAt;
+    order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+    order.statusHistory.push({ status: "Delivery assignment accepted", at: order.assignmentAcceptedAt, by: "agent" });
+    saveOrders(orders);
+    createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Delivery agent accepted",
+      `The delivery agent accepted pickup for ${order.id} and is heading to collect it.`, order.id);
+    createNotification({ role: "student", username: order.customerPhone }, "Delivery agent accepted",
+      `Your delivery agent accepted order ${order.id} and is heading to the restaurant.`, order.id);
+    res.json({ ok: true, message: "Pickup accepted. Head to the restaurant." });
+  } catch (error) {
+    res.status(500).json({ error: "Could not accept this pickup offer." });
+  }
+});
+
 // Agents can update their current GPS position so pickup offers can be sorted by distance.
 app.patch("/api/agent/location", requireRole("agent"), (req, res) => {
   const latitude = Number(req.body.latitude);

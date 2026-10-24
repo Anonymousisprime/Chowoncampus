@@ -736,7 +736,7 @@ app.post("/api/logout", (req, res) => {
 
 // Create an order. All prices are calculated on the server.
 app.post("/api/orders", requireRole("student"), (req, res) => {
-  const { hostel, block, room, landmark, latitude, longitude, restaurantId, items } = req.body;
+  const { hostel, block, room, landmark, latitude, longitude, restaurantId, items, requestId } = req.body;
   let student;
   try {
     student = readStudents().find(item => item.phone === req.account.username);
@@ -746,6 +746,23 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
   if (!student) return res.status(403).json({ error: "A valid student account is required to order." });
   const customerName = student.name;
   const customerPhone = student.phone;
+  const cleanRequestId = typeof requestId === "string" ? requestId.trim() : "";
+  if (requestId !== undefined && (!cleanRequestId || cleanRequestId.length > 100)) {
+    return res.status(400).json({ error: "Invalid order request identifier. Please try again." });
+  }
+  // Idempotency: a retry after a timeout returns the original order instead of creating a duplicate.
+  if (cleanRequestId) {
+    const existingOrder = readOrders().find(order => order.idempotencyKey === cleanRequestId);
+    if (existingOrder) {
+      if (existingOrder.customerPhone !== customerPhone) {
+        return res.status(409).json({ error: "This order request identifier has already been used." });
+      }
+      return res.status(200).json({
+        order: publicOrder(existingOrder),
+        message: "This order was already received; returning the existing order."
+      });
+    }
+  }
 
   if (
     typeof customerName !== "string" ||
@@ -831,6 +848,7 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     statusHistory: [{ status: "Awaiting payment", at: new Date().toISOString(), by: "system" }],
     updatedAt: new Date().toISOString(),
     paymentStatus: "Unpaid — demo only",
+    idempotencyKey: cleanRequestId || null,
     assignedAgentId: null,
     chatMessages: [],
     agentEarningsRecorded: false,

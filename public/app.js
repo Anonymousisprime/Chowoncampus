@@ -405,6 +405,21 @@ function availableStatuses(order) {
   return [];
 }
 
+
+function renderStudentRating(order) {
+  if (!state.account || state.account.role !== "student" || order.status !== "Completed") return "";
+  if (order.rating) return '<section class="rating-panel"><strong>✓ You rated this order</strong><p class="muted">Thanks for sharing your feedback.</p></section>';
+  const options = '<option value="">Choose stars</option><option value="5">★★★★★ — Excellent</option><option value="4">★★★★ — Good</option><option value="3">★★★ — Okay</option><option value="2">★★ — Poor</option><option value="1">★ — Very poor</option>';
+  const food = order.items.map(item => '<label>' + escapeHtml(item.name) + ' rating<select name="food-' + escapeHtml(item.id) + '" required>' + options + '</select></label>').join("");
+  return '<section class="rating-panel"><div class="dashboard-section-heading"><div><span class="eyebrow">YOUR FEEDBACK</span><h3>Rate this order</h3><p>Choose 1–5 stars for the food and service.</p></div></div>' +
+    '<form data-order-rating="' + escapeHtml(order.id) + '">' +
+    '<label>Restaurant rating<select name="restaurantRating" required>' + options + '</select></label>' +
+    (order.assignedAgentId ? '<label>Delivery agent rating<select name="agentRating" required>' + options + '</select></label>' : '') +
+    '<div class="rating-food-list">' + food + '</div>' +
+    '<label>Comment (optional)<textarea name="comment" maxlength="500" rows="2" placeholder="Tell us what went well or what we can improve"></textarea></label>' +
+    '<button type="submit" class="primary-button">Submit rating</button><p class="muted" role="status" data-rating-message></p></form></section>';
+}
+
 function renderOrderCard(order) {
   const statuses = availableStatuses(order);
   const canAssign = state.account.role === "admin" && order.status !== "Completed";
@@ -476,6 +491,7 @@ function renderOrderCard(order) {
           <button class="secondary-button" data-save-status="${escapeHtml(order.id)}">Save status</button>
         </div>
       ` : ""}
+      ${renderStudentRating(order)}
     </article>
   `;
 }
@@ -738,6 +754,27 @@ async function loadDashboard() {
         ${orders.length
           ? `<div class="order-list">${orders.map(renderOrderCard).join("")}</div>`
           : `<div class="empty-state">You have no orders yet. Browse the menu and place your first order!</div>`}`;
+    }
+
+
+    if (["admin", "restaurant", "agent"].includes(account.role)) {
+      try {
+        const ratingResult = await api("/api/ratings/summary");
+        const ratingList = (items, title) => '<div class="rating-summary-group"><h3>' + title + '</h3>' +
+          (items.length ? items.map(item => '<article class="rating-summary-row"><div><strong>' + escapeHtml(item.name) + '</strong><p class="muted">' + item.count + ' review(s)</p></div><span class="rating-average">' + (item.average == null ? '—' : '★ ' + item.average + '/5') + '</span></article>').join('') : '<p class="muted">No ratings yet.</p>') + '</div>';
+        const reviewRows = ratingResult.reviews.slice(0, 15).map(review =>
+          '<article class="rating-review-row"><div><strong>' + escapeHtml(review.restaurantName) + '</strong><span class="muted"> · Order ' + escapeHtml(review.orderId) + '</span></div>' +
+          '<p>Restaurant: ★ ' + review.restaurantRating + '/5' + (review.agentRating ? ' · Agent: ★ ' + review.agentRating + '/5' : '') + '</p>' +
+          '<p class="muted">' + (review.foodRatings || []).map(food => escapeHtml(food.itemName) + ' ★ ' + food.rating + '/5').join(' · ') + '</p>' +
+          (review.comment ? '<p>' + escapeHtml(review.comment) + '</p>' : '') +
+          '<small class="muted">' + (review.ratedAt ? escapeHtml(new Date(review.ratedAt).toLocaleDateString()) : '') + '</small></article>').join('');
+        const ratingPanel = document.createElement("section");
+        ratingPanel.className = "dashboard-order-section ratings-dashboard";
+        ratingPanel.innerHTML = '<div class="dashboard-section-heading"><div><span class="eyebrow">CUSTOMER FEEDBACK</span><h2>Ratings & reviews</h2><p>' + ratingResult.totalReviews + ' completed-order review(s). Averages update as students rate orders.</p></div></div>' +
+          '<div class="ratings-summary-grid">' + ratingList(ratingResult.restaurants, 'Restaurant ratings') + ratingList(ratingResult.food, 'Food ratings') + ratingList(ratingResult.agents, 'Delivery-agent ratings') + '</div>' +
+          '<div class="rating-reviews"><h3>Recent reviews</h3>' + (reviewRows || '<p class="muted">Reviews will appear here after students rate completed orders.</p>') + '</div>';
+        $("#dashboardContent").appendChild(ratingPanel);
+      } catch (error) { console.error("Could not load rating summary:", error); }
     }
 
     const securityPanel = document.createElement("section");
@@ -1063,6 +1100,25 @@ async function initialize() {
     trackOrder($("#trackId").value);
   });
   document.addEventListener("submit", async event => {
+
+    const ratingForm = event.target.closest("[data-order-rating]");
+    if (ratingForm) {
+      event.preventDefault();
+      const button = ratingForm.querySelector('button[type="submit"]');
+      const message = ratingForm.querySelector("[data-rating-message]");
+      const values = new FormData(ratingForm);
+      const foodRatings = Array.from(ratingForm.querySelectorAll('select[name^="food-"]')).map(select => ({ itemId: select.name.slice(5), rating: Number(select.value) }));
+      const payload = { restaurantRating: Number(values.get("restaurantRating")), agentRating: values.get("agentRating") ? Number(values.get("agentRating")) : null, foodRatings, comment: String(values.get("comment") || "").trim() };
+      button.disabled = true;
+      message.textContent = "Submitting your ratings…";
+      try {
+        const result = await api("/api/orders/" + encodeURIComponent(ratingForm.dataset.orderRating) + "/rating", { method: "POST", body: JSON.stringify(payload) });
+        message.textContent = result.message;
+        showToast("Thanks for your feedback!");
+        await loadDashboard();
+      } catch (error) { message.textContent = error.message; button.disabled = false; }
+      return;
+    }
     const passwordForm = event.target.closest("#changePasswordForm");
     if (passwordForm) {
       event.preventDefault();

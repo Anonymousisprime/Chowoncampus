@@ -1139,6 +1139,19 @@ app.patch("/api/admin/students/:id/ban", requireRole("admin"), (req, res) => {
   res.json({ ok: true, banned, message: banned ? "Student banned. Any active student session has been signed out." : "Student unbanned. They can log in again." });
 });
 
+// Permanently delete a student account while preserving historical orders.
+app.delete("/api/admin/students/:id", requireRole("admin"), (req, res) => {
+  const students = readStudents();
+  const index = students.findIndex(item => item.id === req.params.id);
+  if (index < 0) return res.status(404).json({ error: "Student account not found." });
+  const [student] = students.splice(index, 1);
+  saveStudents(students);
+  for (const [token, account] of sessions.entries()) {
+    if (account.role === "student" && account.username === student.phone) sessions.delete(token);
+  }
+  res.json({ ok: true, message: "Student account deleted. Historical orders have been preserved." });
+});
+
 // Admin-only agent list and agent-account creation.
 app.get("/api/agents", requireRole("admin"), (req, res) => {
   res.json({ agents: agents.map(agent => ({

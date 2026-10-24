@@ -589,8 +589,12 @@ async function loadDashboard() {
           <div class="dashboard-section-heading"><div><h2>Quick management</h2><p>Jump straight to account controls and restaurant management.</p></div></div>
           <div class="order-actions" style="display:flex;gap:10px;flex-wrap:wrap">
             <button type="button" class="secondary-button" data-admin-jump="adminStudentAccounts">Manage students · Ban / Unban</button>
-            <button type="button" class="secondary-button" data-admin-jump="adminRestaurantPartners">Manage restaurants · Delete</button>
+            <button type="button" class="secondary-button" data-admin-jump="adminRestaurantPartners">View / delete restaurants</button>
           </div>
+        </section>
+        <section class="dashboard-order-section" id="adminRestaurantPartners">
+          <div class="dashboard-section-heading"><div><h2>Restaurant partners · Delete</h2><p>Delete controls are shown here for each registered restaurant. Restaurants with active orders cannot be deleted.</p></div></div>
+          ${restaurantRows || '<div class="empty-state">No restaurant partners found.</div>'}
         </section>
         <section class="dashboard-order-section">
           <div class="dashboard-section-heading"><div><h2>Add restaurant</h2><p>Create a partner login and add the first menu item.</p></div></div>
@@ -627,10 +631,6 @@ async function loadDashboard() {
               </table>
             </div>
           ` : '<div class="empty-state">No student accounts registered yet.</div>'}
-        </section>
-        <section class="dashboard-order-section" id="adminRestaurantPartners">
-          <div class="dashboard-section-heading"><div><h2>Restaurant partners</h2><p>Current restaurants registered in ChowOnCampus.</p></div></div>
-          ${restaurantRows || '<div class="empty-state">No restaurant partners found.</div>'}
         </section>
         <section class="dashboard-order-section">
           <div class="dashboard-section-heading"><div><h2>Orders</h2><p>Manage orders and assign delivery agents.</p></div><span class="count-pill">${orders.length}</span></div>
@@ -833,6 +833,10 @@ async function initialize() {
     if (event.target.closest("#exploreButton")) {
       const restaurantsSection = $("#restaurantsSection");
       restaurantsSection.classList.remove("hidden");
+      const list = $("#restaurantList");
+      if (!state.restaurants.length && list) {
+        list.innerHTML = '<div class="empty-state">No restaurants are available yet. Please check back soon.</div>';
+      }
       restaurantsSection.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 

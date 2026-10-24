@@ -50,6 +50,14 @@ async function initializePersistentStorage() {
     ["admin-accounts.json", []],
     ["disabled-admins.json", []]
   ];
+  if (process.env.LOAD_TEST_MODE === "true") {
+    // Dedicated load-test environment: never load any live/legacy local data.
+    for (const [filename, fallback] of definitions) {
+      storageCache.set(storageFiles[filename], JSON.parse(JSON.stringify(fallback)));
+    }
+    console.log("Load-test mode: initialized isolated empty test data.");
+    return;
+  }
   if (!storagePool) {
     for (const [filename, fallback] of definitions) {
       storageCache.set(storageFiles[filename], readLocalJson(filename, fallback));
@@ -1904,8 +1912,85 @@ app.use("/api", (req, res) => {
   res.status(404).json({ error: "API endpoint not found." });
 });
 
+async function runIsolatedLoadTest() {
+  const base = `http://127.0.0.1:${PORT}`;
+  const startedAt = Date.now();
+  const suffix = String(Date.now()).slice(-8);
+  const phone = "080" + suffix;
+  const password = "LoadTestPass!2026";
+  const results = { target: "isolated load-test instance", concurrentOrders: 50, registration: false, successfulOrders: 0, failedOrders: 0, uniqueOrderIds: 0, duplicateRetryPassed: false, elapsedMs: 0, errors: [] };
+
+  try {
+    const registerResponse = await fetch(base + "/api/student/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "ChowOnCampus Load Test", phone, password })
+    });
+    const registerBody = await registerResponse.json().catch(() => ({}));
+    const cookie = (registerResponse.headers.get("set-cookie") || "").split(";")[0];
+    results.registration = registerResponse.status === 201 && Boolean(cookie);
+    if (!results.registration) throw new Error("Test student registration failed: HTTP " + registerResponse.status + " " + JSON.stringify(registerBody));
+
+    const requests = Array.from({ length: 50 }, (_, index) => {
+      const requestId = "load-test-" + suffix + "-" + index;
+      const body = {
+        hostel: "LOAD TEST — NOT A REAL DELIVERY",
+        block: "TEST",
+        room: String(index + 1),
+        landmark: "Automated stress test",
+        restaurantId: "CB",
+        items: [{ id: "cb1", qty: 1 }],
+        requestId
+      };
+      return { requestId, body };
+    });
+
+    const outcomes = await Promise.all(requests.map(async request => {
+      const response = await fetch(base + "/api/orders", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify(request.body)
+      });
+      const data = await response.json().catch(() => ({}));
+      return { status: response.status, data, request };
+    }));
+    results.successfulOrders = outcomes.filter(x => x.status === 201 && x.data?.order?.id).length;
+    results.failedOrders = outcomes.length - results.successfulOrders;
+    results.uniqueOrderIds = new Set(outcomes.filter(x => x.data?.order?.id).map(x => x.data.order.id)).size;
+    const failures = outcomes.filter(x => x.status !== 201 || !x.data?.order?.id);
+    results.errors = failures.slice(0, 5).map(x => ({ status: x.status, error: x.data?.error || "Missing order ID" }));
+
+    const retryTarget = outcomes.find(x => x.status === 201 && x.data?.order?.id);
+    if (retryTarget) {
+      const retryResponse = await fetch(base + "/api/orders", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify(retryTarget.request.body)
+      });
+      const retryData = await retryResponse.json().catch(() => ({}));
+      results.duplicateRetryPassed = retryResponse.status === 200 && retryData?.order?.id === retryTarget.data.order.id;
+    }
+
+    results.elapsedMs = Date.now() - startedAt;
+    console.log("LOAD_TEST_RESULT " + JSON.stringify(results));
+    if (results.successfulOrders !== 50 || results.uniqueOrderIds !== 50 || !results.duplicateRetryPassed) {
+      console.error("LOAD_TEST_STATUS FAIL");
+    } else {
+      console.log("LOAD_TEST_STATUS PASS");
+    }
+  } catch (error) {
+    results.elapsedMs = Date.now() - startedAt;
+    results.errors.push(String(error?.message || error));
+    console.log("LOAD_TEST_RESULT " + JSON.stringify(results));
+    console.error("LOAD_TEST_STATUS FAIL");
+  }
+}
+
 app.listen(PORT, () => {
   console.log(`Chowoncampus running at http://localhost:${PORT}`);
+  if (process.env.LOAD_TEST_MODE === "true") {
+    setTimeout(() => runIsolatedLoadTest(), 1000);
+  }
 });
 }
 

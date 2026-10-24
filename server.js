@@ -1108,6 +1108,41 @@ app.post("/api/admin/agents", requireRole("admin"), (req, res) => {
   }
 });
 
+// Admin can delete a delivery-agent account. Refuse deletion while an active order is assigned.
+app.delete("/api/admin/agents/:id", requireRole("admin"), (req, res) => {
+  try {
+    const records = readAgentRecords();
+    const agent = records.find(item => item.id === req.params.id);
+    if (!agent) return res.status(404).json({ error: "Delivery agent not found." });
+
+    const activeOrder = readOrders().find(order =>
+      order.assignedAgentId === agent.id && !["Completed", "Cancelled"].includes(order.status)
+    );
+    if (activeOrder) {
+      return res.status(409).json({
+        error: "This agent has an active order (" + activeOrder.id + "). Complete or cancel/reassign that order before deleting the agent."
+      });
+    }
+
+    const remaining = records.filter(item => item.id !== agent.id);
+    saveAgentRecords(remaining);
+    agents.splice(0, agents.length, ...remaining.map(record => ({
+      id: record.id, name: record.name, username: record.username,
+      online: Boolean(record.online), activeOrderId: record.activeOrderId || null,
+      createdAt: record.createdAt || null
+    })));
+    for (let i = accounts.length - 1; i >= 0; i--) {
+      if (accounts[i].role === "agent" && accounts[i].agentId === agent.id) accounts.splice(i, 1);
+    }
+    for (const [token, account] of sessions.entries()) {
+      if (account.role === "agent" && account.agentId === agent.id) sessions.delete(token);
+    }
+    res.json({ ok: true, message: agent.name + " was deleted. Completed order history has been preserved." });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Could not delete delivery agent." });
+  }
+});
+
 function assignReadyOrders() {
   const records = readAgentRecords();
   const orders = readOrders();

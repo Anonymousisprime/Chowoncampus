@@ -532,3 +532,51 @@ button,a{ -webkit-tap-highlight-color:transparent; }
 .brand{min-width:0;flex-shrink:0;}
 .footer-brand-logo .brand-logo{width:240px;max-height:72px;}
 @media(max-width:600px){.brand-logo{width:190px;max-height:56px}.footer-brand-logo .brand-logo{width:210px}}
+
+
+/* Restaurant and food search */
+.catalog-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  margin: 18px 0 8px;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+.catalog-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+}
+.catalog-search-summary { margin: 6px 0 14px; }
+.search-food-matches {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff5e8;
+  color: var(--ink) !important;
+  font-size: .9rem;
+}
+.catalog-empty { grid-column: 1 / -1; padding: 24px; text-align: center; }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@media (max-width: 560px) {
+  .catalog-search { grid-template-columns: minmax(0, 1fr) auto; padding: 10px; }
+  .catalog-search input { grid-column: 1 / -1; }
+  .catalog-search .primary-button, .catalog-search .secondary-button { width: 100%; }
+}

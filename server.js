@@ -505,6 +505,28 @@ app.get("/api/menu", (req, res) => {
   })) });
 });
 
+// Restaurant partners can share their pickup GPS coordinates for nearest-agent matching.
+app.patch("/api/restaurant/location-coordinates", requireRole("restaurant"), (req, res) => {
+  const latitude = Number(req.body.latitude);
+  const longitude = Number(req.body.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+      Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+    return res.status(400).json({ error: "Provide valid GPS coordinates." });
+  }
+  const restaurant = restaurants.find(item => item.id === req.account.restaurantId);
+  if (!restaurant) return res.status(404).json({ error: "Restaurant account not found." });
+  restaurant.latitude = latitude;
+  restaurant.longitude = longitude;
+  const records = readAddedRestaurants();
+  const record = records.find(item => item.restaurant && item.restaurant.id === restaurant.id);
+  if (record) {
+    record.restaurant.latitude = latitude;
+    record.restaurant.longitude = longitude;
+    saveAddedRestaurants(records);
+  }
+  res.json({ ok: true, message: "Restaurant pickup coordinates updated." });
+});
+
 // Restaurant partners can edit their own pickup location.
 app.put("/api/restaurant/location", requireRole("restaurant"), (req, res) => {
   const location = String(req.body.location || "").trim();
@@ -759,6 +781,8 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     hostel: [deliveryLocation.hostel, deliveryLocation.block && `Block ${deliveryLocation.block}`, deliveryLocation.room && `Room ${deliveryLocation.room}`, deliveryLocation.landmark && `Near ${deliveryLocation.landmark}`].filter(Boolean).join(", "),
     deliveryLocation,
     restaurantLocation: restaurant.location || "",
+    restaurantLatitude: Number.isFinite(Number(restaurant.latitude)) && restaurant.latitude !== null ? Number(restaurant.latitude) : null,
+    restaurantLongitude: Number.isFinite(Number(restaurant.longitude)) && restaurant.longitude !== null ? Number(restaurant.longitude) : null,
     restaurantId: restaurant.id,
     restaurantName: restaurant.name,
     items: cleanItems,
@@ -1263,17 +1287,23 @@ function assignReadyOrders() {
     if (!eligible.length) continue;
 
     const delivery = order.deliveryLocation || {};
-    const hasDeliveryCoords = Number.isFinite(Number(delivery.latitude)) &&
-      Number.isFinite(Number(delivery.longitude)) &&
-      delivery.latitude !== null && delivery.longitude !== null;
+    // Pickup is at the restaurant, so prefer restaurant GPS; use the delivery
+    // pin only when the restaurant has not supplied GPS coordinates.
+    const targetLatitude = order.restaurantLatitude !== null && order.restaurantLatitude !== undefined
+      ? order.restaurantLatitude : delivery.latitude;
+    const targetLongitude = order.restaurantLongitude !== null && order.restaurantLongitude !== undefined
+      ? order.restaurantLongitude : delivery.longitude;
+    const hasTargetCoords = Number.isFinite(Number(targetLatitude)) &&
+      Number.isFinite(Number(targetLongitude)) &&
+      targetLatitude !== null && targetLongitude !== null;
     eligible.sort((a, b) => {
       const aHas = Number.isFinite(Number(a.latitude)) && Number.isFinite(Number(a.longitude)) &&
-        a.latitude !== null && a.longitude !== null && hasDeliveryCoords;
+        a.latitude !== null && a.longitude !== null && hasTargetCoords;
       const bHas = Number.isFinite(Number(b.latitude)) && Number.isFinite(Number(b.longitude)) &&
-        b.latitude !== null && b.longitude !== null && hasDeliveryCoords;
+        b.latitude !== null && b.longitude !== null && hasTargetCoords;
       if (aHas && bHas) {
-        return distanceKm(delivery.latitude, delivery.longitude, a.latitude, a.longitude) -
-          distanceKm(delivery.latitude, delivery.longitude, b.latitude, b.longitude);
+        return distanceKm(targetLatitude, targetLongitude, a.latitude, a.longitude) -
+          distanceKm(targetLatitude, targetLongitude, b.latitude, b.longitude);
       }
       if (aHas !== bHas) return aHas ? -1 : 1;
       return new Date(a.lastAssignedAt || 0) - new Date(b.lastAssignedAt || 0);

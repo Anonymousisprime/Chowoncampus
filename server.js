@@ -264,27 +264,27 @@ let agents = [];
 let accounts = [
   {
     username: (process.env.ADMIN_USERNAME || "coc_owner_2026").trim().toLowerCase(),
-    password: process.env.ADMIN_PASSWORD || "",
+    password: process.env.ADMIN_PASSWORD || (process.env.LOAD_TEST_MODE === "true" ? crypto.randomBytes(32).toString("hex") : ""),
     role: "admin",
     name: "Chowoncampus Admin"
   },
   {
     username: (process.env.SUPERADMIN_USERNAME || "Anonymousisprime").trim().toLowerCase(),
-    password: process.env.SUPERADMIN_PASSWORD || "",
+    password: process.env.SUPERADMIN_PASSWORD || (process.env.LOAD_TEST_MODE === "true" ? crypto.randomBytes(32).toString("hex") : ""),
     role: "admin",
     isSuperAdmin: true,
     name: "Anonymous Is Prime — Ultimate Admin"
   },
   {
     username: "campusbites",
-    password: process.env.CAMPUSBITES_PASSWORD || "",
+    password: process.env.CAMPUSBITES_PASSWORD || (process.env.LOAD_TEST_MODE === "true" ? crypto.randomBytes(32).toString("hex") : ""),
     role: "restaurant",
     restaurantId: "CB",
     name: "Campus Bites"
   },
   {
     username: "mamaskitchen",
-    password: process.env.MAMASKITCHEN_PASSWORD || "",
+    password: process.env.MAMASKITCHEN_PASSWORD || (process.env.LOAD_TEST_MODE === "true" ? crypto.randomBytes(32).toString("hex") : ""),
     role: "restaurant",
     restaurantId: "MK",
     name: "Mama's Kitchen"

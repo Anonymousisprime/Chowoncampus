@@ -996,7 +996,7 @@ app.get("/api/ratings/summary", requireLogin, (req, res) => {
     restaurants: shape(restaurantMap),
     food: shape(foodMap),
     agents: shape(agentMap),
-    reviews: scoped.map(order => ({
+    reviews: [...scoped].sort((a, b) => new Date(b.rating.ratedAt || 0) - new Date(a.rating.ratedAt || 0)).map(order => ({
       orderId: order.id, studentName: order.rating.studentName,
       restaurantName: order.restaurantName, restaurantRating: order.rating.restaurantRating,
       agentId: order.assignedAgentId || null, agentRating: order.rating.agentRating,

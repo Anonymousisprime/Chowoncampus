@@ -11,6 +11,7 @@ const storagePool = process.env.DATABASE_URL
   ? new Pool({ connectionString: process.env.DATABASE_URL, max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 })
   : null;
 const storageCache = new Map();
+const persistedOrderSnapshot = new Map();
 let storageWriteQueue = Promise.resolve();
 const storageFiles = {
   "orders.json": "orders",
@@ -63,7 +64,43 @@ async function initializePersistentStorage() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  // Orders are stored as individual rows so concurrent order creation does not rewrite
+  // one giant JSON document and overwrite unrelated orders.
+  await storagePool.query(`
+    CREATE TABLE IF NOT EXISTS coc_orders (
+      id TEXT PRIMARY KEY,
+      data JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  const orderCount = await storagePool.query("SELECT COUNT(*)::int AS count FROM coc_orders");
+  if (orderCount.rows[0].count === 0) {
+    const legacyOrders = await storagePool.query(
+      "SELECT data FROM coc_app_store WHERE store_key = $1", ["orders"]
+    );
+    const legacy = Array.isArray(legacyOrders.rows[0]?.data) ? legacyOrders.rows[0].data : [];
+    for (const order of legacy) {
+      if (!order || !order.id) continue;
+      await storagePool.query(
+        `INSERT INTO coc_orders (id, data, created_at)
+         VALUES ($1, $2::jsonb, COALESCE($3::timestamptz, NOW()))
+         ON CONFLICT (id) DO NOTHING`,
+        [String(order.id), JSON.stringify(order), order.createdAt || null]
+      );
+    }
+  }
+  const orderRows = await storagePool.query(
+    "SELECT data FROM coc_orders ORDER BY created_at DESC, id DESC"
+  );
+  const orders = orderRows.rows.map(row => row.data);
+  storageCache.set("orders", orders);
+  persistedOrderSnapshot.clear();
+  for (const order of orders) {
+    if (order?.id) persistedOrderSnapshot.set(String(order.id), JSON.stringify(order));
+  }
   for (const [filename, fallback] of definitions) {
+    if (filename === "orders.json") continue;
     const key = storageFiles[filename];
     const existing = await storagePool.query(
       "SELECT data FROM coc_app_store WHERE store_key = $1", [key]
@@ -101,6 +138,40 @@ function saveStoredJson(filePath, data) {
   if (!key) throw new Error("Unknown persistent storage file: " + filename);
   storageCache.set(key, data);
   if (storagePool) {
+    if (key === "orders") {
+      const current = new Map();
+      for (const order of Array.isArray(data) ? data : []) {
+        if (!order?.id) continue;
+        const id = String(order.id);
+        const serializedOrder = JSON.stringify(order);
+        current.set(id, serializedOrder);
+        if (persistedOrderSnapshot.get(id) !== serializedOrder) {
+          // Only write orders that actually changed; each order has its own database row.
+          storageWriteQueue = storageWriteQueue.catch(() => {}).then(() =>
+            storagePool.query(
+              `INSERT INTO coc_orders (id, data, created_at, updated_at)
+               VALUES ($1, $2::jsonb, COALESCE($3::timestamptz, NOW()), NOW())
+               ON CONFLICT (id) DO UPDATE
+               SET data = EXCLUDED.data, created_at = EXCLUDED.created_at, updated_at = NOW()`,
+              [id, serializedOrder, order.createdAt || null]
+            )
+          );
+        }
+      }
+      for (const oldId of persistedOrderSnapshot.keys()) {
+        if (!current.has(oldId)) {
+          storageWriteQueue = storageWriteQueue.catch(() => {}).then(() =>
+            storagePool.query("DELETE FROM coc_orders WHERE id = $1", [oldId])
+          );
+        }
+      }
+      persistedOrderSnapshot.clear();
+      for (const [id, serializedOrder] of current) persistedOrderSnapshot.set(id, serializedOrder);
+      storageWriteQueue.catch(error => {
+        console.error("PostgreSQL order persistence failed:", error.message);
+      });
+      return;
+    }
     const serialized = JSON.stringify(data);
     storageWriteQueue = storageWriteQueue.catch(() => {}).then(() =>
       storagePool.query(

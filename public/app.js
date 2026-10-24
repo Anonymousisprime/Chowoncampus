@@ -497,6 +497,72 @@ function renderMenuManagerAfterSave() {
   renderRestaurantMenuManager();
 }
 
+let restaurantPickupMap = null;
+let restaurantPickupMarker = null;
+let restaurantPickupMapReady = false;
+
+function loadLeaflet() {
+  if (window.L) return Promise.resolve();
+  if (window.__cocLeafletPromise) return window.__cocLeafletPromise;
+  window.__cocLeafletPromise = new Promise((resolve, reject) => {
+    if (!document.querySelector('link[data-coc-leaflet]')) {
+      const css = document.createElement("link");
+      css.rel = "stylesheet";
+      css.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      css.dataset.cocLeaflet = "1";
+      document.head.appendChild(css);
+    }
+    const script = document.createElement("script");
+    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    script.onload = resolve;
+    script.onerror = () => reject(new Error("Map could not load. Check your internet connection and try again."));
+    document.head.appendChild(script);
+  });
+  return window.__cocLeafletPromise;
+}
+
+function setRestaurantPickupPin(latitude, longitude, zoom = 17) {
+  const lat = Number(latitude), lon = Number(longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  $("#restaurantPickupLatitude").value = lat.toFixed(6);
+  $("#restaurantPickupLongitude").value = lon.toFixed(6);
+  $("#restaurantPickupCoordinates").textContent = lat.toFixed(6) + ", " + lon.toFixed(6);
+  if (restaurantPickupMapReady && restaurantPickupMap) {
+    const point = [lat, lon];
+    if (!restaurantPickupMarker) restaurantPickupMarker = window.L.marker(point).addTo(restaurantPickupMap);
+    else restaurantPickupMarker.setLatLng(point);
+    restaurantPickupMap.setView(point, zoom);
+  }
+}
+
+async function initRestaurantPickupMap(restaurant) {
+  const mapElement = $("#restaurantPickupMap");
+  if (!mapElement) return;
+  const initialLat = Number(restaurant.latitude);
+  const initialLon = Number(restaurant.longitude);
+  const hasPin = restaurant.latitude !== null && restaurant.latitude !== undefined &&
+    restaurant.longitude !== null && restaurant.longitude !== undefined &&
+    Number.isFinite(initialLat) && Number.isFinite(initialLon);
+  try {
+    await loadLeaflet();
+    if (!$("#restaurantPickupMap")) return;
+    restaurantPickupMap = window.L.map("restaurantPickupMap").setView(
+      hasPin ? [initialLat, initialLon] : [9.0820, 8.6753], hasPin ? 16 : 6
+    );
+    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
+    }).addTo(restaurantPickupMap);
+    restaurantPickupMap.on("click", event => setRestaurantPickupPin(event.latlng.lat, event.latlng.lng, 17));
+    restaurantPickupMapReady = true;
+    if (hasPin) setRestaurantPickupPin(initialLat, initialLon, 16);
+    setTimeout(() => restaurantPickupMap && restaurantPickupMap.invalidateSize(), 100);
+  } catch (error) {
+    const status = $("#restaurantPickupMapMessage");
+    if (status) status.textContent = error.message;
+  }
+}
+
 function renderRestaurantMenuManager() {
   if (!state.account || state.account.role !== "restaurant") return;
   const restaurant = state.restaurants.find(item => item.id === state.account.restaurantId);
@@ -505,12 +571,21 @@ function renderRestaurantMenuManager() {
   container.className = "restaurant-menu-manager";
   container.innerHTML = `
     <section class="restaurant-location-manager">
-      <div class="dashboard-section-heading"><div><span class="eyebrow">PICKUP POINT</span><h2>Edit restaurant location</h2><p>Tell students and delivery agents where to find your restaurant.</p></div></div>
+      <div class="dashboard-section-heading"><div><span class="eyebrow">PICKUP POINT</span><h2>Restaurant location</h2><p>Save written pickup instructions and set the exact GPS pin so the nearest available agent can find your restaurant.</p></div></div>
       <form id="restaurantLocationForm">
         <label for="restaurantLocationInput">Restaurant location / pickup instructions</label>
         <input id="restaurantLocationInput" name="location" maxlength="180" value="${escapeHtml(restaurant.location || "")}" placeholder="e.g. Student Centre, Block B, beside the library">
-        <div class="menu-editor-actions"><button type="submit" class="primary-button" id="saveRestaurantLocation">Save location</button><span id="restaurantLocationMessage" class="muted" role="status"></span></div>
+        <div class="menu-editor-actions"><button type="submit" class="primary-button" id="saveRestaurantLocation">Save address</button><span id="restaurantLocationMessage" class="muted" role="status"></span></div>
       </form>
+      <div class="pickup-gps-tools">
+        <h3>Exact pickup GPS</h3>
+        <p class="muted">Tap Use my GPS while standing at the restaurant, or click anywhere on the map to place or adjust the pickup pin.</p>
+        <div id="restaurantPickupMap" class="restaurant-pickup-map" role="application" aria-label="Click the map to choose the restaurant pickup point"></div>
+        <input type="hidden" id="restaurantPickupLatitude" value="${restaurant.latitude ?? ""}">
+        <input type="hidden" id="restaurantPickupLongitude" value="${restaurant.longitude ?? ""}">
+        <p class="muted">Selected coordinates: <strong id="restaurantPickupCoordinates">${restaurant.latitude != null && restaurant.longitude != null ? escapeHtml(Number(restaurant.latitude).toFixed(6)+", "+Number(restaurant.longitude).toFixed(6)) : "No pickup pin saved yet"}</strong></p>
+        <div class="menu-editor-actions"><button type="button" class="secondary-button" id="restaurantUseGps">Use my GPS</button><button type="button" class="primary-button" id="saveRestaurantPickupPin">Save pickup pin</button><span id="restaurantPickupMapMessage" class="muted" role="status"></span></div>
+      </div>
     </section>
     <div class="dashboard-section-heading"><div><span class="eyebrow">YOUR MENU</span><h2>Manage food and prices</h2><p>Add up to 70 items and mark anything unavailable as sold out.</p></div><span class="count-pill" id="menuItemCount">${restaurant.items.length}/70 items</span></div>
     <form id="restaurantMenuForm">
@@ -519,6 +594,7 @@ function renderRestaurantMenuManager() {
       <p id="restaurantMenuMessage" class="muted" role="status"></p>
     </form>`;
   $("#dashboardContent").prepend(container);
+  initRestaurantPickupMap(restaurant);
 }
 
 async function loadDashboard() {
@@ -1009,6 +1085,41 @@ async function initialize() {
         message.classList.remove("success");
         button.disabled = false;
       }
+      return;
+    }
+    const useRestaurantGps = event.target.closest("#restaurantUseGps");
+    if (useRestaurantGps) {
+      const message = $("#restaurantPickupMapMessage");
+      if (!navigator.geolocation) { message.textContent = "GPS is not supported by this browser. Click the map to place the pin manually."; return; }
+      useRestaurantGps.disabled = true;
+      message.textContent = "Requesting location permission…";
+      navigator.geolocation.getCurrentPosition(position => {
+        setRestaurantPickupPin(position.coords.latitude, position.coords.longitude, 17);
+        message.textContent = "GPS selected. Save the pickup pin to keep it.";
+        useRestaurantGps.disabled = false;
+      }, error => {
+        message.textContent = error.code === 1 ? "Location permission denied. Allow location in browser settings or click the map to place the pin." : "Could not get GPS. Check device location settings or click the map.";
+        useRestaurantGps.disabled = false;
+      }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 });
+      return;
+    }
+    const saveRestaurantPin = event.target.closest("#saveRestaurantPickupPin");
+    if (saveRestaurantPin) {
+      const message = $("#restaurantPickupMapMessage");
+      const latitude = $("#restaurantPickupLatitude").value;
+      const longitude = $("#restaurantPickupLongitude").value;
+      if (latitude === "" || longitude === "") { message.textContent = "Use GPS or click the map to choose a pickup point first."; return; }
+      saveRestaurantPin.disabled = true;
+      message.textContent = "Saving pickup pin…";
+      try {
+        const result = await api("/api/restaurant/location-coordinates", { method: "PATCH", body: JSON.stringify({ latitude: Number(latitude), longitude: Number(longitude) }) });
+        const restaurant = state.restaurants.find(item => item.id === state.account.restaurantId);
+        if (restaurant) { restaurant.latitude = result.latitude; restaurant.longitude = result.longitude; }
+        message.textContent = "Pickup pin saved. The system can now use this restaurant location to find the nearest available agent.";
+        showToast("Restaurant pickup pin saved.");
+      } catch (error) {
+        message.textContent = error.message;
+      } finally { saveRestaurantPin.disabled = false; }
       return;
     }
     const locationForm = event.target.closest("#restaurantLocationForm");

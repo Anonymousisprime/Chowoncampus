@@ -516,13 +516,24 @@ app.get("/api/health", (req, res) => {
   res.json({ ok: true, service: "Chowoncampus" });
 });
 
-// Public menu
+// Public menu includes crowd-sourced average ratings for restaurants and food items.
 app.get("/api/menu", (req, res) => {
-  res.json({ restaurants: restaurants.map(restaurant => ({
-    ...restaurant,
-    location: restaurant.location || "",
-    items: restaurant.items.map(item => ({ ...item, available: item.available !== false }))
-  })) });
+  const ratedOrders = readOrders().filter(order => order.rating);
+  const average = values => values.length ? Math.round(values.reduce((sum, value) => sum + Number(value), 0) / values.length * 10) / 10 : null;
+  res.json({ restaurants: restaurants.map(restaurant => {
+    const restaurantReviews = ratedOrders.filter(order => order.restaurantId === restaurant.id && order.rating.restaurantRating);
+    return {
+      ...restaurant,
+      location: restaurant.location || "",
+      ratingAverage: average(restaurantReviews.map(order => order.rating.restaurantRating)),
+      ratingCount: restaurantReviews.length,
+      items: restaurant.items.map(item => {
+        const scores = ratedOrders.filter(order => order.restaurantId === restaurant.id)
+          .flatMap(order => (order.rating.foodRatings || []).filter(rating => rating.itemId === item.id).map(rating => rating.rating));
+        return { ...item, available: item.available !== false, ratingAverage: average(scores), ratingCount: scores.length };
+      })
+    };
+  }) });
 });
 
 // Restaurant partners can save their pickup pin using GPS or the map picker.

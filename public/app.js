@@ -831,7 +831,9 @@ async function initialize() {
     }
 
     if (event.target.closest("#exploreButton")) {
-      $("#menuSection").scrollIntoView({ behavior: "smooth" });
+      const restaurantsSection = $("#restaurantsSection");
+      restaurantsSection.classList.remove("hidden");
+      restaurantsSection.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
     if (event.target.closest("#cartJump")) {

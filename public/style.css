@@ -580,3 +580,11 @@ button,a{ -webkit-tap-highlight-color:transparent; }
   .catalog-search input { grid-column: 1 / -1; }
   .catalog-search .primary-button, .catalog-search .secondary-button { width: 100%; }
 }
+
+
+/* Restaurant pickup GPS map picker */
+.pickup-gps-tools{margin-top:18px;padding-top:16px;border-top:1px solid var(--border-color,#dce7df)}
+.pickup-gps-tools h3{margin:0 0 6px}
+.restaurant-pickup-map{height:320px;width:100%;border:1px solid var(--border-color,#dce7df);border-radius:12px;overflow:hidden;background:#edf3ee;z-index:0}
+#restaurantPickupMapMessage{display:block;min-width:180px}
+@media(max-width:520px){.restaurant-pickup-map{height:260px}.pickup-gps-tools .menu-editor-actions{align-items:stretch;flex-direction:column}.pickup-gps-tools .menu-editor-actions button{width:100%}}

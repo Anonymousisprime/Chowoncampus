@@ -7,6 +7,7 @@ const state = {
   cart: [],
   account: null,
   lastOrderId: null,
+  pendingOrderRequestId: null,
   agents: [],
   availableAgents: [],
   catalogSearchQuery: ""
@@ -175,6 +176,7 @@ function addToCart(itemId) {
   const item = restaurant?.items.find(i => i.id === itemId);
   if (!item) return;
   if (item.available === false) return showToast("This item is currently sold out.");
+  state.pendingOrderRequestId = null;
 
   if (state.cart.length && state.cart[0].restaurantId !== restaurant.id) {
     if (!confirm("Your bag contains food from another restaurant. Clear it and start a new order?")) {
@@ -206,6 +208,7 @@ function addToCart(itemId) {
 function changeQuantity(itemId, amount) {
   const item = state.cart.find(i => i.id === itemId);
   if (!item) return;
+  state.pendingOrderRequestId = null;
 
   item.qty += amount;
   if (item.qty <= 0) {
@@ -259,6 +262,12 @@ async function placeOrder(event) {
     return showMessage("#checkoutMessage", "Add food to your bag first.");
   }
 
+  if (!state.pendingOrderRequestId) {
+    state.pendingOrderRequestId = window.crypto?.randomUUID
+      ? window.crypto.randomUUID()
+      : `coc-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
   const button = $("#placeOrderButton");
   button.disabled = true;
   button.textContent = "Placing order…";
@@ -274,11 +283,13 @@ async function placeOrder(event) {
         latitude: $("#deliveryLatitude").value === "" ? undefined : Number($("#deliveryLatitude").value),
         longitude: $("#deliveryLongitude").value === "" ? undefined : Number($("#deliveryLongitude").value),
         restaurantId: state.cart[0].restaurantId,
-        items: state.cart.map(item => ({ id: item.id, qty: item.qty }))
+        items: state.cart.map(item => ({ id: item.id, qty: item.qty })),
+        requestId: state.pendingOrderRequestId
       })
     });
 
     const order = result.order;
+    state.pendingOrderRequestId = null;
     state.lastOrderId = order.id;
     try { localStorage.setItem("coc_last_order_id", order.id); } catch {}
     state.cart = [];

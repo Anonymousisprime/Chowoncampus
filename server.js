@@ -909,6 +909,92 @@ app.get("/api/orders", requireLogin, (req, res) => {
   }
 });
 
+// Ratings are stored on completed orders, so each order can only be reviewed once.
+app.post("/api/orders/:id/rating", requireRole("student"), (req, res) => {
+  const orders = readOrders();
+  const order = orders.find(item => item.id === req.params.id);
+  if (!order) return res.status(404).json({ error: "Order not found." });
+  if (order.customerPhone !== req.account.username) return res.status(403).json({ error: "You can only rate your own orders." });
+  if (order.status !== "Completed") return res.status(400).json({ error: "You can rate an order after it is completed." });
+  if (order.rating) return res.status(409).json({ error: "This order has already been rated." });
+  const validScore = value => Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 5;
+  const restaurantRating = Number(req.body.restaurantRating);
+  const agentRating = Number(req.body.agentRating);
+  const foodRatings = req.body.foodRatings;
+  if (!validScore(restaurantRating)) return res.status(400).json({ error: "Choose a restaurant rating from 1 to 5 stars." });
+  if (order.assignedAgentId && !validScore(agentRating)) return res.status(400).json({ error: "Choose a delivery-agent rating from 1 to 5 stars." });
+  if (!Array.isArray(foodRatings) || foodRatings.length !== order.items.length) return res.status(400).json({ error: "Rate each food item in this order." });
+  const cleanedFoodRatings = [];
+  for (const item of order.items) {
+    const submitted = foodRatings.find(rating => rating.itemId === item.id);
+    if (!submitted || !validScore(submitted.rating)) return res.status(400).json({ error: "Choose a 1–5 star rating for " + item.name + "." });
+    cleanedFoodRatings.push({ itemId: item.id, itemName: item.name, rating: Number(submitted.rating) });
+  }
+  const comment = String(req.body.comment || "").trim().slice(0, 500);
+  order.rating = {
+    studentName: order.customerName,
+    restaurantId: order.restaurantId,
+    restaurantName: order.restaurantName,
+    restaurantRating,
+    agentId: order.assignedAgentId || null,
+    agentRating: order.assignedAgentId ? agentRating : null,
+    foodRatings: cleanedFoodRatings,
+    comment,
+    ratedAt: new Date().toISOString()
+  };
+  saveOrders(orders);
+  res.status(201).json({ ok: true, message: "Thanks for rating your food, restaurant and delivery experience." });
+});
+
+app.get("/api/ratings/summary", requireLogin, (req, res) => {
+  const orders = readOrders();
+  const ratedOrders = orders.filter(order => order.rating);
+  const scoped = req.account.role === "restaurant"
+    ? ratedOrders.filter(order => order.restaurantId === req.account.restaurantId)
+    : req.account.role === "agent"
+      ? ratedOrders.filter(order => order.assignedAgentId === req.account.agentId)
+      : req.account.role === "student"
+        ? ratedOrders.filter(order => order.customerPhone === req.account.username)
+        : ratedOrders;
+  const average = values => values.length ? Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 10) / 10 : null;
+  const restaurantMap = new Map();
+  const foodMap = new Map();
+  const agentMap = new Map();
+  for (const order of scoped) {
+    const rating = order.rating;
+    if (rating.restaurantRating) {
+      if (!restaurantMap.has(order.restaurantId)) restaurantMap.set(order.restaurantId, { id: order.restaurantId, name: order.restaurantName, scores: [] });
+      restaurantMap.get(order.restaurantId).scores.push(Number(rating.restaurantRating));
+    }
+    for (const food of rating.foodRatings || []) {
+      const key = order.restaurantId + ":" + food.itemId;
+      if (!foodMap.has(key)) foodMap.set(key, { id: food.itemId, restaurantId: order.restaurantId, restaurantName: order.restaurantName, name: food.itemName, scores: [] });
+      foodMap.get(key).scores.push(Number(food.rating));
+    }
+    if (order.assignedAgentId && rating.agentRating) {
+      if (!agentMap.has(order.assignedAgentId)) {
+        const agent = readAgentRecords().find(item => item.id === order.assignedAgentId);
+        agentMap.set(order.assignedAgentId, { id: order.assignedAgentId, name: agent?.name || order.assignedAgentId, scores: [] });
+      }
+      agentMap.get(order.assignedAgentId).scores.push(Number(rating.agentRating));
+    }
+  }
+  const shape = map => [...map.values()].map(item => ({ ...item, average: average(item.scores), count: item.scores.length })).sort((a, b) => (b.average || 0) - (a.average || 0));
+  res.json({
+    totalReviews: scoped.length,
+    restaurants: shape(restaurantMap),
+    food: shape(foodMap),
+    agents: shape(agentMap),
+    reviews: scoped.map(order => ({
+      orderId: order.id, studentName: order.rating.studentName,
+      restaurantName: order.restaurantName, restaurantRating: order.rating.restaurantRating,
+      agentId: order.assignedAgentId || null, agentRating: order.rating.agentRating,
+      foodRatings: order.rating.foodRatings || [], comment: order.rating.comment || "",
+      ratedAt: order.rating.ratedAt
+    }))
+  });
+});
+
 // Temporary order chat: only the student who placed the order and its assigned agent can use it.
 // Chat is enabled only while the order is out for delivery and is erased on completion/cancellation.
 function canUseDeliveryChat(account, order) {

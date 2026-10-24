@@ -1311,16 +1311,13 @@ function assignReadyOrders() {
     );
     if (!eligible.length) continue;
 
-    const delivery = order.deliveryLocation || {};
-    // Pickup is at the restaurant, so prefer restaurant GPS; use the delivery
-    // pin only when the restaurant has not supplied GPS coordinates.
-    const targetLatitude = order.restaurantLatitude !== null && order.restaurantLatitude !== undefined
-      ? order.restaurantLatitude : delivery.latitude;
-    const targetLongitude = order.restaurantLongitude !== null && order.restaurantLongitude !== undefined
-      ? order.restaurantLongitude : delivery.longitude;
-    const hasTargetCoords = Number.isFinite(Number(targetLatitude)) &&
-      Number.isFinite(Number(targetLongitude)) &&
-      targetLatitude !== null && targetLongitude !== null;
+    // Pickup is at the restaurant. Never use the student's delivery pin as a
+    // substitute for restaurant coordinates; without a pickup pin use fair rotation.
+    const targetLatitude = order.restaurantLatitude;
+    const targetLongitude = order.restaurantLongitude;
+    const hasTargetCoords = targetLatitude !== null && targetLatitude !== undefined &&
+      targetLongitude !== null && targetLongitude !== undefined &&
+      Number.isFinite(Number(targetLatitude)) && Number.isFinite(Number(targetLongitude));
     eligible.sort((a, b) => {
       const aHas = Number.isFinite(Number(a.latitude)) && Number.isFinite(Number(a.longitude)) &&
         a.latitude !== null && a.longitude !== null && hasTargetCoords;

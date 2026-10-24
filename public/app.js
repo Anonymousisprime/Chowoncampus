@@ -106,6 +106,7 @@ function renderRestaurants() {
       <div class="restaurant-info">
         <h3>${escapeHtml(restaurant.name)}</h3>
         <p>${escapeHtml(restaurant.description)}</p>
+        <p class="public-rating">${restaurant.ratingAverage == null ? "☆ Not rated yet" : "★ " + restaurant.ratingAverage + "/5"} <span class="muted">(${restaurant.ratingCount || 0} rating(s))</span></p>
         ${restaurant.location ? `<p class="restaurant-location">📍 ${escapeHtml(restaurant.location)}</p>` : `<p class="restaurant-location muted">📍 Campus location not added yet</p>`}
         ${query && matchingItems.length ? `<p class="search-food-matches"><strong>Matching food:</strong> ${matchingItems.slice(0, 5).map(item => escapeHtml(item.name)).join(", ")}${matchingItems.length > 5 ? ` and ${matchingItems.length - 5} more` : ""}</p>` : ""}
         <button class="secondary-button" data-open-menu="${escapeHtml(restaurant.id)}">Explore menu →</button>
@@ -155,6 +156,7 @@ function renderMenu() {
           <div class="food-info">
             <h3>${escapeHtml(item.name)}</h3>
             <span class="muted">${escapeHtml(item.category)}</span>
+            <p class="public-rating food-public-rating">${item.ratingAverage == null ? "☆ Not rated yet" : "★ " + item.ratingAverage + "/5"} <span class="muted">(${item.ratingCount || 0})</span></p>
             <div class="food-bottom">
               <span class="price">${money(item.price)}</span>
               ${item.available === false

@@ -1235,38 +1235,132 @@ app.delete("/api/admin/agents/:id", requireRole("admin"), (req, res) => {
   }
 });
 
+function distanceKm(aLat, aLon, bLat, bLon) {
+  const toRad = value => value * Math.PI / 180;
+  const dLat = toRad(bLat - aLat);
+  const dLon = toRad(bLon - aLon);
+  const x = Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLon / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+
 function assignReadyOrders() {
   const records = readAgentRecords();
   const orders = readOrders();
-  const busyAgentIds = new Set(orders.filter(order => order.assignedAgentId && !["Completed", "Cancelled"].includes(order.status)).map(order => order.assignedAgentId));
-  const waiting = orders.filter(order => order.status === "Ready for pickup" && !order.assignedAgentId);
+  const busyAgentIds = new Set(orders.filter(order =>
+    order.assignedAgentId && !["Completed", "Cancelled"].includes(order.status)
+  ).map(order => order.assignedAgentId));
+  const waiting = orders.filter(order =>
+    order.status === "Ready for pickup" && !order.assignedAgentId
+  );
   let changed = false;
+
   for (const order of waiting) {
-    const eligible = records.filter(agent => agent.online && !busyAgentIds.has(agent.id) && !agent.activeOrderId);
-    if (!eligible.length) break;
-    eligible.sort((a, b) => new Date(a.lastAssignedAt || 0) - new Date(b.lastAssignedAt || 0));
+    const tried = new Set(Array.isArray(order.offeredAgentIds) ? order.offeredAgentIds : []);
+    const eligible = records.filter(agent =>
+      agent.online && !busyAgentIds.has(agent.id) && !agent.activeOrderId && !tried.has(agent.id)
+    );
+    if (!eligible.length) continue;
+
+    const delivery = order.deliveryLocation || {};
+    const hasDeliveryCoords = Number.isFinite(Number(delivery.latitude)) &&
+      Number.isFinite(Number(delivery.longitude)) &&
+      delivery.latitude !== null && delivery.longitude !== null;
+    eligible.sort((a, b) => {
+      const aHas = Number.isFinite(Number(a.latitude)) && Number.isFinite(Number(a.longitude)) &&
+        a.latitude !== null && a.longitude !== null && hasDeliveryCoords;
+      const bHas = Number.isFinite(Number(b.latitude)) && Number.isFinite(Number(b.longitude)) &&
+        b.latitude !== null && b.longitude !== null && hasDeliveryCoords;
+      if (aHas && bHas) {
+        return distanceKm(delivery.latitude, delivery.longitude, a.latitude, a.longitude) -
+          distanceKm(delivery.latitude, delivery.longitude, b.latitude, b.longitude);
+      }
+      if (aHas !== bHas) return aHas ? -1 : 1;
+      return new Date(a.lastAssignedAt || 0) - new Date(b.lastAssignedAt || 0);
+    });
+
     const agent = eligible[0];
+    const now = new Date();
     order.assignedAgentId = agent.id;
-    order.assignedAt = new Date().toISOString();
-    order.updatedAt = order.assignedAt;
+    order.assignmentOfferedAt = now.toISOString();
+    order.assignmentExpiresAt = new Date(now.getTime() + 60 * 1000).toISOString();
+    order.offeredAgentIds = [...tried, agent.id];
+    order.updatedAt = now.toISOString();
     order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
-    order.statusHistory.push({ status: "Delivery agent assigned", at: order.assignedAt, by: "system" });
+    order.statusHistory.push({ status: "Delivery assignment offered", at: now.toISOString(), by: "system" });
     agent.activeOrderId = order.id;
-    agent.lastAssignedAt = order.assignedAt;
+    agent.lastAssignedAt = now.toISOString();
     busyAgentIds.add(agent.id);
-    createNotification({ role: "agent", agentId: agent.id }, "Delivery assigned", `You have been assigned order ${order.id}. It is ready for pickup.`, order.id);
-    createNotification({ role: "student", username: order.customerPhone }, "Delivery agent assigned", `${agent.name} has been assigned to your order ${order.id}.`, order.id);
-    createNotification({ role: "admin" }, "Delivery agent assigned", `${agent.name} was assigned to ${order.id}.`, order.id);
-    createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Delivery agent assigned", `${agent.name} is assigned to ${order.id} and ready for pickup.`, order.id);
+
+    createNotification({ role: "agent", agentId: agent.id }, "Pickup request — 60 seconds to accept",
+      `Order ${order.id} is ready for pickup. Accept by starting delivery within 60 seconds or it will be offered to another agent.`, order.id);
+    createNotification({ role: "student", username: order.customerPhone }, "Finding a delivery agent",
+      `A pickup request for order ${order.id} has been sent to ${agent.name}.`, order.id);
+    createNotification({ role: "admin" }, "Pickup request sent",
+      `${agent.name} has 60 seconds to accept order ${order.id}.`, order.id);
+    createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Delivery agent notified",
+      `${agent.name} has 60 seconds to accept pickup for ${order.id}.`, order.id);
     changed = true;
   }
+
   if (changed) {
     saveAgentRecords(records);
     saveOrders(orders);
-    agents = records.map(record => ({ id: record.id, name: record.name, username: record.username, online: Boolean(record.online), activeOrderId: record.activeOrderId || null, createdAt: record.createdAt || null }));
+    agents = records.map(record => ({
+      id: record.id, name: record.name, username: record.username,
+      online: Boolean(record.online), activeOrderId: record.activeOrderId || null,
+      createdAt: record.createdAt || null
+    }));
   }
   return changed;
 }
+
+// If an agent does not accept within 60 seconds, release the order and offer it
+// to the next available agent. Starting delivery counts as accepting the offer.
+function expireUnacceptedOffers() {
+  const orders = readOrders();
+  const records = readAgentRecords();
+  const now = Date.now();
+  let ordersChanged = false;
+  let agentsChanged = false;
+
+  for (const order of orders) {
+    if (order.status !== "Ready for pickup" || !order.assignedAgentId ||
+        !order.assignmentExpiresAt || order.assignmentAcceptedAt) continue;
+    if (new Date(order.assignmentExpiresAt).getTime() > now) continue;
+
+    const previousAgentId = order.assignedAgentId;
+    const previousAgent = records.find(agent => agent.id === previousAgentId);
+    if (previousAgent && previousAgent.activeOrderId === order.id) {
+      previousAgent.activeOrderId = null;
+      agentsChanged = true;
+    }
+    createNotification({ role: "agent", agentId: previousAgentId }, "Pickup request expired",
+      `The 60-second window for order ${order.id} expired. The order will be offered to another agent.`, order.id);
+    order.assignedAgentId = null;
+    order.assignmentExpiresAt = null;
+    order.updatedAt = new Date().toISOString();
+    order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+    order.statusHistory.push({ status: "Pickup offer expired", at: order.updatedAt, by: "system" });
+    ordersChanged = true;
+  }
+
+  if (agentsChanged) {
+    saveAgentRecords(records);
+    agents = records.map(record => ({
+      id: record.id, name: record.name, username: record.username,
+      online: Boolean(record.online), activeOrderId: record.activeOrderId || null,
+      createdAt: record.createdAt || null
+    }));
+  }
+  if (ordersChanged) saveOrders(orders);
+  if (ordersChanged) assignReadyOrders();
+}
+
+setInterval(() => {
+  try { expireUnacceptedOffers(); }
+  catch (error) { console.error("Pickup offer expiry check failed:", error.message); }
+}, 5000);
 
 // Admin can override an agent's availability and trigger assignment when enabling them.
 app.patch("/api/admin/agents/:id/availability", requireRole("admin"), (req, res) => {
@@ -1294,6 +1388,28 @@ app.get("/api/agents/me", requireRole("agent"), (req, res) => {
     res.json({ id: agent.id, name: agent.name, username: agent.username, online: Boolean(agent.online), activeOrderId: agent.activeOrderId || null });
   } catch (error) {
     res.status(500).json({ error: error.message || "Could not load agent profile." });
+  }
+});
+
+// Agents can update their current GPS position so pickup offers can be sorted by distance.
+app.patch("/api/agent/location", requireRole("agent"), (req, res) => {
+  const latitude = Number(req.body.latitude);
+  const longitude = Number(req.body.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+      Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+    return res.status(400).json({ error: "Provide valid GPS coordinates." });
+  }
+  try {
+    const records = readAgentRecords();
+    const agent = records.find(item => item.id === req.account.agentId);
+    if (!agent) return res.status(404).json({ error: "Agent account not found." });
+    agent.latitude = latitude;
+    agent.longitude = longitude;
+    agent.locationUpdatedAt = new Date().toISOString();
+    saveAgentRecords(records);
+    res.json({ ok: true, message: "Agent location updated." });
+  } catch (error) {
+    res.status(500).json({ error: "Could not update agent location." });
   }
 });
 
@@ -1438,6 +1554,12 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
     // Erase the temporary delivery chat as soon as the order is completed or cancelled.
     if (newStatus === "Completed" || newStatus === "Cancelled") {
       delete order.chatMessages;
+    }
+
+    // Starting delivery accepts the 60-second pickup offer.
+    if (newStatus === "Out for delivery" && order.assignedAgentId === req.account.agentId) {
+      order.assignmentAcceptedAt = new Date().toISOString();
+      order.assignmentExpiresAt = null;
     }
 
     // Record agent earnings only once when the order is completed.

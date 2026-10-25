@@ -85,6 +85,7 @@
         <div class="cart-summary">
           <div><span>Subtotal</span><strong id="subtotal">₦0</strong></div>
           <div><span>Delivery fee</span><strong id="deliveryFee">₦300</strong></div>
+          <p id="deliveryEstimate" class="small-note" aria-live="polite">Add food and set a delivery pin to estimate your delivery fee.</p>
           <div class="grand-total"><span>Total</span><strong id="grandTotal">₦300</strong></div>
         </div>
 
@@ -100,8 +101,12 @@
           <label for="deliveryLandmark">Nearby landmark / gate<input id="deliveryLandmark" name="landmark" type="text" maxlength="150" placeholder="e.g. near the main gate"></label>
           <input id="deliveryLatitude" type="hidden" name="latitude">
           <input id="deliveryLongitude" type="hidden" name="longitude">
-          <button type="button" id="useMyLocation" class="secondary-button full-width">📍 Use my current GPS location (optional)</button>
-          <p id="locationMessage" class="small-note" aria-live="polite">Enter your location manually or share a GPS pin. Your browser will ask permission.</p>
+          <div class="delivery-pin-tools">
+            <p class="small-note"><strong>Set your exact delivery point</strong><br>Allow GPS or click the map to place the pin where your order should arrive.</p>
+            <button type="button" id="deliveryMapPickGps" class="secondary-button full-width">📍 Use current GPS location</button>
+            <div id="deliveryLocationMap" class="restaurant-pickup-map" role="application" aria-label="Choose your delivery location on the map"></div>
+          </div>
+          <p id="locationMessage" class="small-note" aria-live="polite">No delivery pin selected yet. You can enter your address manually, use GPS, or click the map.</p>
 
           <p id="checkoutMessage" class="form-message" aria-live="polite"></p>
           <button type="submit" id="placeOrderButton" class="primary-button full-width">Place order</button>

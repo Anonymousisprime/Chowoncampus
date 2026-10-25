@@ -1625,7 +1625,17 @@ app.get("/api/agents/me", requireRole("agent"), (req, res) => {
   try {
     const agent = readAgentRecords().find(item => item.id === req.account.agentId);
     if (!agent) return res.status(404).json({ error: "Agent account not found." });
-    res.json({ id: agent.id, name: agent.name, username: agent.username, online: Boolean(agent.online), activeOrderId: agent.activeOrderId || null });
+    const successfulDeliveries = readOrders().filter(order =>
+      String(order.assignedAgentId || "") === String(agent.id) && order.status === "Completed"
+    ).length;
+    res.json({
+      id: agent.id,
+      name: agent.name,
+      username: agent.username,
+      online: Boolean(agent.online),
+      activeOrderId: agent.activeOrderId || null,
+      successfulDeliveries
+    });
   } catch (error) {
     res.status(500).json({ error: error.message || "Could not load agent profile." });
   }

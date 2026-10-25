@@ -369,20 +369,20 @@ async function placeOrder(event) {
     location.href = "/student-login.html?next=order";
     return;
   }
-  if (!state.cart.length) {
-    return showMessage("#checkoutMessage", "Add food to your bag first.");
+  if (!state.cart.length) return showMessage("#checkoutMessage", "Add food to your bag first.");
+  const emailInput = $("#paymentEmail");
+  if (!isLocalDemo && (!emailInput || !emailInput.value.trim() || !emailInput.validity.valid)) {
+    emailInput?.focus();
+    return showMessage("#checkoutMessage", "Enter a valid email address to receive your payment receipt.");
   }
-
   if (!state.pendingOrderRequestId) {
     state.pendingOrderRequestId = window.crypto?.randomUUID
       ? window.crypto.randomUUID()
-      : `coc-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      : "coc-" + Date.now() + "-" + Math.random().toString(36).slice(2);
   }
-
   const button = $("#placeOrderButton");
   button.disabled = true;
-  button.textContent = "Placing order…";
-
+  button.textContent = isLocalDemo ? "Creating demo order…" : "Preparing secure checkout…";
   try {
     const result = await api("/api/orders", {
       method: "POST",
@@ -398,8 +398,20 @@ async function placeOrder(event) {
         requestId: state.pendingOrderRequestId
       })
     });
-
     const order = result.order;
+    if (!isLocalDemo) {
+      const payment = await api("/api/orders/" + encodeURIComponent(order.id) + "/paystack/initialize", {
+        method: "POST",
+        body: JSON.stringify({ email: emailInput.value.trim() })
+      });
+      state.pendingOrderRequestId = null;
+      state.lastOrderId = order.id;
+      try { localStorage.setItem("coc_last_order_id", order.id); } catch {}
+      showMessage("#checkoutMessage", "Order " + order.id + " is ready. Redirecting you to Paystack to pay " + money(order.total) + ".", true);
+      location.href = payment.authorizationUrl;
+      return;
+    }
+
     state.pendingOrderRequestId = null;
     state.lastOrderId = order.id;
     try { localStorage.setItem("coc_last_order_id", order.id); } catch {}
@@ -413,9 +425,8 @@ async function placeOrder(event) {
     if ($("#locationMessage")) $("#locationMessage").textContent = "Enter your location manually, use GPS, or click the map to choose a delivery pin.";
     if ($("#deliveryLatitude")) $("#deliveryLatitude").value = "";
     if ($("#deliveryLongitude")) $("#deliveryLongitude").value = "";
-
     $("#trackId").value = order.id;
-    showMessage("#checkoutMessage", `Order ${order.id} created. No payment has been made.`, true);
+    showMessage("#checkoutMessage", "Demo order " + order.id + " created. No payment has been made.", true);
     showToast("Demo order created!");
     await trackOrder(order.id);
     $("#trackingSection").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -423,7 +434,7 @@ async function placeOrder(event) {
     showMessage("#checkoutMessage", error.message);
   } finally {
     button.disabled = false;
-    button.textContent = "Place demo order →";
+    button.textContent = isLocalDemo ? "Place demo order →" : "Continue to secure payment →";
   }
 }
 
@@ -1588,6 +1599,35 @@ async function initialize() {
     } catch (error) { $("#customerChatStatus").textContent = error.message; }
     finally { button.disabled = false; }
   });
+  const paymentParams = new URLSearchParams(location.search);
+  if (paymentParams.get("payment") === "paystack") {
+    const callbackOrderId = paymentParams.get("orderId") || "";
+    const paymentReference = paymentParams.get("reference") || paymentParams.get("trxref") || "";
+    history.replaceState({}, document.title, location.pathname + location.hash);
+    if (!callbackOrderId || !paymentReference) {
+      showMessage("#checkoutMessage", "Payment was not confirmed. If you were charged, contact support with your Paystack receipt.");
+    } else {
+      showMessage("#checkoutMessage", "Verifying your payment securely…");
+      try {
+        const verification = await api("/api/payments/paystack/verify", {
+          method: "POST",
+          body: JSON.stringify({ orderId: callbackOrderId, reference: paymentReference })
+        });
+        state.lastOrderId = callbackOrderId;
+        try { localStorage.setItem("coc_last_order_id", callbackOrderId); } catch {}
+        $("#trackId").value = callbackOrderId;
+        showMessage("#checkoutMessage", verification.message || "Payment verified and order confirmed.", true);
+        showToast("Payment verified. Your order is confirmed.");
+        await trackOrder(callbackOrderId);
+        $("#trackingSection").scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch (error) {
+        showMessage("#checkoutMessage", error.message + " If you were charged, keep your payment reference and contact support.");
+        $("#trackId").value = callbackOrderId;
+        await trackOrder(callbackOrderId);
+        $("#trackingSection").scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+  }
   try {
     const savedOrderId = localStorage.getItem("coc_last_order_id");
     if (savedOrderId) {

@@ -10,7 +10,8 @@ const state = {
   pendingOrderRequestId: null,
   agents: [],
   availableAgents: [],
-  catalogSearchQuery: ""
+  catalogSearchQuery: "",
+  deliveryQuote: null
 };
 
 const money = amount => new Intl.NumberFormat("en-NG", {
@@ -220,7 +221,9 @@ function changeQuantity(itemId, amount) {
 function renderCart() {
   const count = state.cart.reduce((sum, item) => sum + item.qty, 0);
   const subtotal = cartSubtotal();
-  const delivery = state.cart.length ? 300 : 0;
+  const quoteMatchesCart = state.deliveryQuote &&
+    state.cart.length && state.deliveryQuote.restaurantId === state.cart[0].restaurantId;
+  const delivery = state.cart.length ? (quoteMatchesCart ? state.deliveryQuote.deliveryFee : 300) : 0;
 
   $("#cartCount").textContent = count;
   $("#cartHeadingCount").textContent = `(${count})`;
@@ -248,6 +251,114 @@ function renderCart() {
         </div>
       `).join("")}
     `;
+  }
+  refreshDeliveryQuote();
+}
+
+let deliveryMap = null;
+let deliveryMarker = null;
+let deliveryMapReady = false;
+let deliveryQuoteRequestId = 0;
+
+function updateDeliveryQuoteDisplay(quote) {
+  const feeElement = $("#deliveryFee");
+  const totalElement = $("#grandTotal");
+  const estimateElement = $("#deliveryEstimate");
+  if (!state.cart.length) {
+    if (feeElement) feeElement.textContent = money(0);
+    if (totalElement) totalElement.textContent = money(0);
+    if (estimateElement) estimateElement.textContent = "Add food and set a delivery pin to estimate your delivery fee.";
+    return;
+  }
+  const fee = quote?.deliveryFee ?? 300;
+  if (feeElement) feeElement.textContent = money(fee);
+  if (totalElement) totalElement.textContent = money(cartSubtotal() + fee);
+  if (estimateElement) {
+    if (!quote) {
+      estimateElement.textContent = "Calculating delivery fee…";
+    } else if (quote.distanceBased) {
+      estimateElement.textContent = "Estimated road distance: " + quote.estimatedRoadDistanceKm + " km · " +
+        money(quote.baseFee) + " base + " + money(quote.perKm) + " per km. " + quote.message;
+    } else {
+      estimateElement.textContent = quote.message + " The displayed fee is the base fee until both pins are available.";
+    }
+  }
+}
+
+async function refreshDeliveryQuote() {
+  const requestId = ++deliveryQuoteRequestId;
+  if (!state.cart.length) {
+    state.deliveryQuote = null;
+    updateDeliveryQuoteDisplay(null);
+    return;
+  }
+  const restaurantId = state.cart[0].restaurantId;
+  const latValue = $("#deliveryLatitude")?.value ?? "";
+  const lonValue = $("#deliveryLongitude")?.value ?? "";
+  updateDeliveryQuoteDisplay(null);
+  try {
+    const quote = await api("/api/delivery/quote", {
+      method: "POST",
+      body: JSON.stringify({
+        restaurantId,
+        latitude: latValue === "" ? undefined : Number(latValue),
+        longitude: lonValue === "" ? undefined : Number(lonValue)
+      })
+    });
+    if (requestId !== deliveryQuoteRequestId || !state.cart.length || state.cart[0].restaurantId !== restaurantId) return;
+    state.deliveryQuote = { ...quote, restaurantId };
+    updateDeliveryQuoteDisplay(state.deliveryQuote);
+  } catch (error) {
+    if (requestId !== deliveryQuoteRequestId) return;
+    state.deliveryQuote = { deliveryFee: 300, restaurantId, distanceBased: false, message: "Could not calculate the distance fee. The base fee is shown for now." };
+    updateDeliveryQuoteDisplay(state.deliveryQuote);
+  }
+}
+
+function setDeliveryPin(latitude, longitude, zoom = 17, message = "Delivery pin selected.") {
+  const lat = Number(latitude), lon = Number(longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return;
+  $("#deliveryLatitude").value = lat.toFixed(6);
+  $("#deliveryLongitude").value = lon.toFixed(6);
+  const status = $("#locationMessage");
+  if (status) status.textContent = message + " (" + lat.toFixed(5) + ", " + lon.toFixed(5) + ")";
+  if (deliveryMapReady && deliveryMap) {
+    const point = [lat, lon];
+    if (!deliveryMarker) deliveryMarker = window.L.marker(point).addTo(deliveryMap);
+    else deliveryMarker.setLatLng(point);
+    deliveryMap.setView(point, zoom);
+  }
+  refreshDeliveryQuote();
+}
+
+async function initDeliveryMap() {
+  const mapElement = $("#deliveryLocationMap");
+  if (!mapElement || deliveryMapReady) return;
+  const cartRestaurant = state.restaurants.find(item => item.id === state.cart[0]?.restaurantId);
+  const hasSavedPin = $("#deliveryLatitude").value !== "" && $("#deliveryLongitude").value !== "";
+  const restaurantHasPin = cartRestaurant && cartRestaurant.latitude != null && cartRestaurant.longitude != null &&
+    Number.isFinite(Number(cartRestaurant.latitude)) && Number.isFinite(Number(cartRestaurant.longitude));
+  const start = hasSavedPin
+    ? [Number($("#deliveryLatitude").value), Number($("#deliveryLongitude").value)]
+    : restaurantHasPin
+      ? [Number(cartRestaurant.latitude), Number(cartRestaurant.longitude)]
+      : [9.0820, 8.6753];
+  const zoom = hasSavedPin || restaurantHasPin ? 15 : 6;
+  try {
+    await loadLeaflet();
+    if (!$("#deliveryLocationMap")) return;
+    deliveryMap = window.L.map("deliveryLocationMap").setView(start, zoom);
+    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
+    }).addTo(deliveryMap);
+    deliveryMap.on("click", event => setDeliveryPin(event.latlng.lat, event.latlng.lng, 17, "Map pin selected."));
+    deliveryMapReady = true;
+    if (hasSavedPin) deliveryMarker = window.L.marker(start).addTo(deliveryMap);
+    setTimeout(() => deliveryMap?.invalidateSize(), 150);
+  } catch (error) {
+    const status = $("#locationMessage");
+    if (status) status.textContent = "Map could not load. You can still use GPS or enter the address manually.";
   }
 }
 
@@ -296,6 +407,12 @@ async function placeOrder(event) {
     renderCart();
     const checkoutForm = $("#checkoutForm");
     if (checkoutForm) checkoutForm.reset();
+    if (deliveryMarker && deliveryMap) { deliveryMap.removeLayer(deliveryMarker); deliveryMarker = null; }
+    deliveryQuoteRequestId++;
+    state.deliveryQuote = null;
+    if ($("#locationMessage")) $("#locationMessage").textContent = "Enter your location manually, use GPS, or click the map to choose a delivery pin.";
+    if ($("#deliveryLatitude")) $("#deliveryLatitude").value = "";
+    if ($("#deliveryLongitude")) $("#deliveryLongitude").value = "";
 
     $("#trackId").value = order.id;
     showMessage("#checkoutMessage", `Order ${order.id} created. No payment has been made.`, true);
@@ -899,6 +1016,7 @@ async function initialize() {
 
   renderCart();
   updateNavigation();
+  initDeliveryMap();
 
   try {
     const result = await api("/api/me");
@@ -921,14 +1039,29 @@ async function initialize() {
       gpsButton.disabled = true;
       message.textContent = "Requesting your location permission…";
       navigator.geolocation.getCurrentPosition(position => {
-        $("#deliveryLatitude").value = position.coords.latitude;
-        $("#deliveryLongitude").value = position.coords.longitude;
-        message.textContent = "GPS pin added. Your delivery agent can open it in Maps.";
+        setDeliveryPin(position.coords.latitude, position.coords.longitude, 17, "Current GPS location selected.");
         gpsButton.disabled = false;
       }, error => {
         message.textContent = error.code === 1 ? "Location permission was denied. Enter your hostel and landmark manually, or allow location in browser settings." : "Could not get GPS location. Check device location settings or enter your address manually.";
         gpsButton.disabled = false;
       }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 });
+      return;
+    }
+    const deliveryMapButton = event.target.closest("#deliveryMapPickGps");
+    if (deliveryMapButton) {
+      const message = $("#locationMessage");
+      if (!navigator.geolocation) { message.textContent = "GPS is not supported. Click the map to choose your delivery pin."; return; }
+      deliveryMapButton.disabled = true;
+      message.textContent = "Requesting location permission…";
+      navigator.geolocation.getCurrentPosition(position => {
+        setDeliveryPin(position.coords.latitude, position.coords.longitude, 17, "Current GPS location selected.");
+        deliveryMapButton.disabled = false;
+      }, error => {
+        message.textContent = error.code === 1
+          ? "Location permission was denied. Allow location in browser settings or click the map to choose a pin."
+          : "Could not get GPS. Check device location settings or click the map to choose a pin.";
+        deliveryMapButton.disabled = false;
+      }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 });
       return;
     }
     const viewButton = event.target.closest("[data-view]");

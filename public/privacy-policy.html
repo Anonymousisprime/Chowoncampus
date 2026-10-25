@@ -6,11 +6,11 @@
 <meta name="description" content="Read the ChowOnCampus Privacy Policy and learn how account, order, and location information is handled.">
 <title>Privacy Policy | ChowOnCampus</title>
 <style>
-:root{font-family:Inter,system-ui,Arial,sans-serif;color:#163426;background:#f2f8f4;line-height:1.65}*{box-sizing:border-box}body{margin:0;padding:24px}.wrap{width:min(100%,850px);margin:auto}.top{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:8px 0 24px}.brand,a{color:#176b45}.brand{font-weight:900;text-decoration:none;font-size:21px}.panel{background:#fff;border:1px solid #dce9df;border-radius:20px;padding:clamp(20px,5vw,36px);box-shadow:0 12px 36px #153d2708}h1{font-size:clamp(30px,6vw,42px);line-height:1.15;margin:8px 0}h2{margin-top:28px;font-size:21px}p,li{color:#4c6254}.note{background:#edf5ef;padding:14px;border-radius:12px}.updated{font-size:14px;color:#65776b}.foot{text-align:center;color:#65776b;font-size:13px;margin:22px 0}a:focus-visible{outline:3px solid #8bc7a2;outline-offset:3px}
+:root{font-family:Inter,system-ui,Arial,sans-serif;color:#163426;background:#f2f8f4;line-height:1.65}*{box-sizing:border-box}body{margin:0;padding:24px}.wrap{width:min(100%,850px);margin:auto}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0 24px}.top-actions{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.home-button{display:inline-block;background:#176b45;color:#fff;padding:10px 14px;border-radius:10px;text-decoration:none;font-weight:750}.home-button:hover{background:#105536}.brand,a{color:#176b45}.brand{font-weight:900;text-decoration:none;font-size:21px}.panel{background:#fff;border:1px solid #dce9df;border-radius:20px;padding:clamp(20px,5vw,36px);box-shadow:0 12px 36px #153d2708}h1{font-size:clamp(30px,6vw,42px);line-height:1.15;margin:8px 0}h2{margin-top:28px;font-size:21px}p,li{color:#4c6254}.note{background:#edf5ef;padding:14px;border-radius:12px}.updated{font-size:14px;color:#65776b}.foot{text-align:center;color:#65776b;font-size:13px;margin:22px 0}a:focus-visible{outline:3px solid #8bc7a2;outline-offset:3px}
 </style>
 </head>
 <body><main class="wrap">
-<header class="top"><a class="brand" href="/">ChowOnCampus</a><a href="/support.html">Support</a></header>
+<header class="top"><a class="brand" href="/">ChowOnCampus</a><nav class="top-actions"><a class="home-button" href="/">← Back to Homepage</a><a href="/support.html">Support</a></nav></header>
 <article class="panel">
 <p class="updated">Last updated: 25 October 2026</p>
 <h1>Privacy Policy</h1>
@@ -45,4 +45,17 @@
 <ul><li>Phone: <a href="tel:+2349131999590">09131999590</a></li><li>WhatsApp: <a href="https://wa.me/2349131999590" target="_blank" rel="noopener noreferrer">Chat with support</a></li><li>Support page: <a href="/support.html">chowoncampus.onrender.com/support.html</a></li></ul>
 <p class="note">This policy is a practical starting point and is not legal advice. The operator should confirm the actual data flows, providers, retention periods, and applicable legal obligations before a full commercial launch.</p>
 </article><footer class="foot">© 2026 ChowOnCampus · <a href="/terms.html">Terms of Service</a> · <a href="/delivery-policy.html">Delivery &amp; Cancellation</a> · <a href="/support.html">Support</a></footer>
-</main></body></html>
+</main><script>
+(function(){
+  const key="coc_read_privacy_v1";
+  function markReadAtBottom(){
+    if(window.scrollY+window.innerHeight>=document.documentElement.scrollHeight-8){
+      localStorage.setItem(key,"yes");
+    }
+  }
+  window.addEventListener("scroll",markReadAtBottom,{passive:true});
+  window.addEventListener("resize",markReadAtBottom);
+  window.addEventListener("load",markReadAtBottom);
+  markReadAtBottom();
+})();
+</script></body></html>

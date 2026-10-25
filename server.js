@@ -1053,7 +1053,7 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     status: "Awaiting payment",
     statusHistory: [{ status: "Awaiting payment", at: new Date().toISOString(), by: "system" }],
     updatedAt: new Date().toISOString(),
-    paymentStatus: "Unpaid — demo only",
+    paymentStatus: IS_PRODUCTION ? "Unpaid" : "Unpaid — demo only",
     idempotencyKey: cleanRequestId || null,
     assignedAgentId: null,
     chatMessages: [],
@@ -1065,15 +1065,123 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     const orders = readOrders();
     orders.unshift(order);
     saveOrders(orders);
-    notifyOrderParties(order, "New order placed", `${order.customerName} placed an order at ${order.restaurantName}.`);
+    // Keep unpaid production orders out of restaurant fulfilment until Paystack confirms payment.
+    if (!IS_PRODUCTION) notifyOrderParties(order, "New order placed", order.customerName + " placed an order at " + order.restaurantName + ".");
 
     res.status(201).json({
       order: publicOrder(order),
-      message: "Demo order created. No payment has been made."
+      message: IS_PRODUCTION ? "Order created. Complete payment to confirm it." : "Demo order created. No payment has been made."
     });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Could not save your order." });
+  }
+});
+
+// Paystack checkout is initialized server-side; the secret key is never sent to the browser.
+function hasPaystackConfig() {
+  return Boolean(process.env.PAYSTACK_SECRET_KEY && /^sk_(test|live)_/.test(process.env.PAYSTACK_SECRET_KEY));
+}
+
+async function paystackRequest(url, options = {}) {
+  const response = await fetch("https://api.paystack.co" + url, {
+    ...options,
+    headers: {
+      Authorization: "Bearer " + process.env.PAYSTACK_SECRET_KEY,
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    }
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || result.status !== true) {
+    console.error("Paystack request failed:", response.status, result.message || "unknown error");
+    throw new Error("Payment provider could not complete the request. Please try again.");
+  }
+  return result.data;
+}
+
+app.post("/api/orders/:id/paystack/initialize", requireRole("student"), async (req, res) => {
+  if (!IS_PRODUCTION) return res.status(400).json({ error: "Use the local demo payment flow outside production." });
+  if (!hasPaystackConfig()) return res.status(503).json({ error: "Online payments are not configured yet. Please contact support." });
+  const email = String(req.body.email || "").trim().toLowerCase();
+  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: "Enter a valid email address for your payment receipt." });
+  }
+  const orders = readOrders();
+  const order = orders.find(item => item.id === req.params.id);
+  if (!order) return res.status(404).json({ error: "Order not found." });
+  if (order.customerPhone !== req.account.username) return res.status(403).json({ error: "You can only pay for your own order." });
+  if (["Paid — Paystack verified", "Paid — demo verified"].includes(order.paymentStatus)) {
+    return res.status(409).json({ error: "This order has already been paid." });
+  }
+  if (order.status === "Cancelled") return res.status(400).json({ error: "This order has been cancelled." });
+  if (!Number.isSafeInteger(Number(order.total)) || Number(order.total) <= 0) {
+    return res.status(400).json({ error: "The order total is invalid. Please contact support." });
+  }
+  const reference = "COC-" + crypto.randomBytes(16).toString("hex");
+  const baseUrl = String(process.env.PUBLIC_APP_URL || ((req.headers["x-forwarded-proto"] || req.protocol) + "://" + req.get("host"))).replace(/\/$/, "");
+  try {
+    const payment = await paystackRequest("/transaction/initialize", {
+      method: "POST",
+      body: JSON.stringify({
+        email,
+        amount: Math.round(Number(order.total) * 100),
+        currency: "NGN",
+        reference,
+        callback_url: baseUrl + "/?payment=paystack&orderId=" + encodeURIComponent(order.id),
+        metadata: { order_id: order.id, customer_phone: order.customerPhone, restaurant_id: order.restaurantId }
+      })
+    });
+    order.paymentEmail = email;
+    order.paystackReference = reference;
+    order.paymentInitializationAt = new Date().toISOString();
+    order.paymentStatus = "Payment pending";
+    order.updatedAt = order.paymentInitializationAt;
+    saveOrders(orders);
+    return res.json({ authorizationUrl: payment.authorization_url, reference, orderId: order.id });
+  } catch (error) {
+    console.error("Paystack initialization failed for order:", order.id, error.message);
+    return res.status(502).json({ error: error.message || "Could not start payment. Please try again." });
+  }
+});
+
+app.post("/api/payments/paystack/verify", requireRole("student"), async (req, res) => {
+  if (!hasPaystackConfig()) return res.status(503).json({ error: "Online payments are not configured yet." });
+  const orderId = String(req.body.orderId || "").trim();
+  const reference = String(req.body.reference || "").trim();
+  if (!orderId || !reference || reference.length > 100) return res.status(400).json({ error: "Order ID and payment reference are required." });
+  const orders = readOrders();
+  const order = orders.find(item => item.id === orderId);
+  if (!order) return res.status(404).json({ error: "Order not found." });
+  if (order.customerPhone !== req.account.username) return res.status(403).json({ error: "You can only verify your own order." });
+  if (order.paymentStatus === "Paid — Paystack verified" && order.paystackReference === reference) {
+    return res.json({ ok: true, order: publicOrder(order), message: "Payment was already verified." });
+  }
+  if (order.paystackReference !== reference) return res.status(400).json({ error: "This payment reference does not match the order." });
+  if (order.status === "Cancelled") return res.status(400).json({ error: "This order has been cancelled." });
+  try {
+    const payment = await paystackRequest("/transaction/verify/" + encodeURIComponent(reference));
+    const expectedAmount = Math.round(Number(order.total) * 100);
+    if (payment.status !== "success" || payment.reference !== reference ||
+        Number(payment.amount) !== expectedAmount || payment.currency !== "NGN" ||
+        String(payment.metadata?.order_id || "") !== order.id ||
+        String(payment.customer?.email || "").toLowerCase() !== String(order.paymentEmail || "").toLowerCase()) {
+      return res.status(400).json({ error: "Payment could not be verified against this order. If you were charged, contact support with your payment reference." });
+    }
+    const changedAt = new Date().toISOString();
+    order.paymentStatus = "Paid — Paystack verified";
+    order.paidAt = changedAt;
+    order.paymentChannel = String(payment.channel || "");
+    order.status = "Confirmed";
+    order.updatedAt = changedAt;
+    order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+    order.statusHistory.push({ status: "Confirmed", at: changedAt, by: "Paystack verification" });
+    saveOrders(orders);
+    notifyOrderParties(order, "Payment verified — new order", order.customerName + " paid for an order at " + order.restaurantName + ".");
+    return res.json({ ok: true, order: publicOrder(order), message: "Payment verified successfully. Your order is confirmed." });
+  } catch (error) {
+    console.error("Paystack verification failed for order:", order.id, error.message);
+    return res.status(502).json({ error: "We could not verify the payment right now. If you were charged, contact support with your payment reference." });
   }
 });
 
@@ -1125,11 +1233,13 @@ app.get("/api/orders", requireLogin, (req, res) => {
 
     if (req.account.role === "restaurant") {
       orders = orders.filter(
-        order => order.restaurantId === req.account.restaurantId
+        order => order.restaurantId === req.account.restaurantId &&
+          ["Paid — demo verified", "Paid — Paystack verified"].includes(order.paymentStatus)
       );
     } else if (req.account.role === "agent") {
       orders = orders.filter(
-        order => order.assignedAgentId === req.account.agentId
+        order => order.assignedAgentId === req.account.agentId &&
+          ["Paid — demo verified", "Paid — Paystack verified"].includes(order.paymentStatus)
       );
     } else if (req.account.role === "student") {
       // Students may only view orders placed using their verified phone number.
@@ -2076,10 +2186,10 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
     // Fulfilment requires a verified payment state.
     if (
       newStatus !== "Cancelled" &&
-      order.paymentStatus !== "Paid — demo verified"
+      !["Paid — demo verified", "Paid — Paystack verified"].includes(order.paymentStatus)
     ) {
       return res.status(400).json({
-        error: "This order is unpaid. Real payment verification must be integrated before fulfilment."
+        error: "This order is unpaid. Complete and verify payment before fulfilment."
       });
     }
 

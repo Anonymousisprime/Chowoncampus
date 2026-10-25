@@ -198,6 +198,10 @@ async function start() {
 const app = express();
 const PORT = process.env.PORT || 3000;
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
+// Distance-based delivery pricing. Adjust these in Render environment variables.
+const DELIVERY_BASE_FEE = Math.max(0, Number(process.env.DELIVERY_BASE_FEE || 300));
+const DELIVERY_PER_KM = Math.max(0, Number(process.env.DELIVERY_PER_KM || 100));
+const DELIVERY_ROAD_FACTOR = Math.max(1, Number(process.env.DELIVERY_ROAD_FACTOR || 1.3));
 
 app.use(express.json({ limit: "50kb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -711,6 +715,18 @@ app.get("/api/menu", (req, res) => {
   }) });
 });
 
+// Public quote endpoint: server-calculated fee based on restaurant and customer GPS/map pins.
+app.post("/api/delivery/quote", (req, res) => {
+  const restaurant = restaurants.find(item => item.id === req.body.restaurantId);
+  if (!restaurant) return res.status(400).json({ error: "Choose a valid restaurant." });
+  const latitude = Number(req.body.latitude);
+  const longitude = Number(req.body.longitude);
+  const hasDeliveryPin = req.body.latitude !== undefined && req.body.longitude !== undefined &&
+    Number.isFinite(latitude) && Number.isFinite(longitude) &&
+    Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
+  res.json(calculateDeliveryQuote(restaurant, hasDeliveryPin ? latitude : null, hasDeliveryPin ? longitude : null));
+});
+
 // Restaurant partners can save their pickup pin using GPS or the map picker.
 app.patch("/api/restaurant/location-coordinates", requireRole("restaurant"), (req, res) => {
   const latitude = Number(req.body.latitude);
@@ -1002,7 +1018,12 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     });
   }
 
-  const deliveryFee = 300;
+  const deliveryQuote = calculateDeliveryQuote(
+    restaurant,
+    hasCoordinates ? Number(latitude) : null,
+    hasCoordinates ? Number(longitude) : null
+  );
+  const deliveryFee = deliveryQuote.deliveryFee;
 
   const order = {
     id: `COC-${Date.now()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`,
@@ -1010,6 +1031,10 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     customerPhone: customerPhone.trim(),
     hostel: [deliveryLocation.hostel, deliveryLocation.block && `Block ${deliveryLocation.block}`, deliveryLocation.room && `Room ${deliveryLocation.room}`, deliveryLocation.landmark && `Near ${deliveryLocation.landmark}`].filter(Boolean).join(", "),
     deliveryLocation,
+    deliveryDistanceKm: deliveryQuote.distanceKm,
+    estimatedRoadDistanceKm: deliveryQuote.estimatedRoadDistanceKm,
+    deliveryPricingDistanceBased: deliveryQuote.distanceBased,
+    deliveryPricingMessage: deliveryQuote.message,
     restaurantLocation: restaurant.location || "",
     restaurantLatitude: Number.isFinite(Number(restaurant.latitude)) && restaurant.latitude !== null ? Number(restaurant.latitude) : null,
     restaurantLongitude: Number.isFinite(Number(restaurant.longitude)) && restaurant.longitude !== null ? Number(restaurant.longitude) : null,
@@ -1668,6 +1693,44 @@ function distanceKm(aLat, aLon, bLat, bLon) {
   return 6371 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
 
+function calculateDeliveryQuote(restaurant, deliveryLatitude, deliveryLongitude) {
+  const hasRestaurantPin = restaurant &&
+    restaurant.latitude !== null && restaurant.latitude !== undefined &&
+    restaurant.longitude !== null && restaurant.longitude !== undefined &&
+    Number.isFinite(Number(restaurant.latitude)) && Number.isFinite(Number(restaurant.longitude));
+  const hasDeliveryPin = deliveryLatitude !== null && deliveryLongitude !== null &&
+    Number.isFinite(Number(deliveryLatitude)) && Number.isFinite(Number(deliveryLongitude));
+  if (!hasRestaurantPin || !hasDeliveryPin) {
+    return {
+      deliveryFee: Math.round(DELIVERY_BASE_FEE),
+      distanceKm: null,
+      estimatedRoadDistanceKm: null,
+      distanceBased: false,
+      baseFee: Math.round(DELIVERY_BASE_FEE),
+      perKm: Math.round(DELIVERY_PER_KM),
+      message: !hasRestaurantPin
+        ? "This restaurant needs to save its pickup GPS pin before distance-based pricing is available."
+        : "Add your delivery GPS pin or choose a point on the map to calculate the distance-based fee."
+    };
+  }
+  const straightLineKm = distanceKm(
+    Number(restaurant.latitude), Number(restaurant.longitude),
+    Number(deliveryLatitude), Number(deliveryLongitude)
+  );
+  // Adjust straight-line GPS distance to approximate road travel; this is not turn-by-turn routing.
+  const estimatedRoadDistanceKm = Math.round(straightLineKm * DELIVERY_ROAD_FACTOR * 10) / 10;
+  const deliveryFee = Math.round(DELIVERY_BASE_FEE + Math.ceil(estimatedRoadDistanceKm) * DELIVERY_PER_KM);
+  return {
+    deliveryFee,
+    distanceKm: Math.round(straightLineKm * 10) / 10,
+    estimatedRoadDistanceKm,
+    distanceBased: true,
+    baseFee: Math.round(DELIVERY_BASE_FEE),
+    perKm: Math.round(DELIVERY_PER_KM),
+    message: "Estimated from GPS distance; actual road distance may vary."
+  };
+}
+
 function assignReadyOrders() {
   const records = readAgentRecords();
   const orders = readOrders();
@@ -1798,6 +1861,12 @@ app.patch("/api/admin/agents/:id/availability", requireRole("admin"), (req, res)
     if (!agent) return res.status(404).json({ error: "Delivery agent not found." });
     agent.online = req.body.online;
     agent.availabilityUpdatedAt = new Date().toISOString();
+    // Do not retain a live location after an agent goes offline.
+    if (!agent.online) {
+      agent.latitude = null;
+      agent.longitude = null;
+      agent.locationUpdatedAt = null;
+    }
     saveAgentRecords(records);
     agents = records.map(record => ({ id: record.id, name: record.name, username: record.username, online: Boolean(record.online), activeOrderId: record.activeOrderId || null, createdAt: record.createdAt || null }));
     if (agent.online) assignReadyOrders();

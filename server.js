@@ -2133,7 +2133,7 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
 // while payout records are written only by an administrator and persist in PostgreSQL-backed app storage.
 function normalizeEarningsMonth(value) {
   const input = typeof value === "string" ? value : "";
-  if (!/^\\d{4}-(0[1-9]|1[0-2])$/.test(input)) return null;
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(input)) return null;
   const [year, month] = input.split("-").map(Number);
   if (year < 2020 || year > 2100) return null;
   return { key: input, year, monthIndex: month - 1 };

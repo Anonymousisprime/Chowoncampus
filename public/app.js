@@ -326,9 +326,20 @@ async function refreshDeliveryQuote() {
   }
 }
 
+function isWithinNigeria(latitude, longitude) {
+  const lat = Number(latitude), lon = Number(longitude);
+  // ChowOnCampus is a Nigeria campus-delivery service; reject stale or mislocated pins such as Portugal.
+  return Number.isFinite(lat) && Number.isFinite(lon) && lat >= 4 && lat <= 14 && lon >= 2 && lon <= 15;
+}
+
 function setDeliveryPin(latitude, longitude, zoom = 17, message = "Delivery pin selected.") {
   const lat = Number(latitude), lon = Number(longitude);
   if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return;
+  if (!isWithinNigeria(lat, lon)) {
+    const status = $("#locationMessage");
+    if (status) status.textContent = "That pin is outside Nigeria. Please use GPS again or choose your delivery point on the Nigeria map.";
+    return;
+  }
   $("#deliveryLatitude").value = lat.toFixed(6);
   $("#deliveryLongitude").value = lon.toFixed(6);
   const status = $("#locationMessage");
@@ -345,16 +356,17 @@ function setDeliveryPin(latitude, longitude, zoom = 17, message = "Delivery pin 
 async function initDeliveryMap() {
   const mapElement = $("#deliveryLocationMap");
   if (!mapElement || deliveryMapReady) return;
-  const cartRestaurant = state.restaurants.find(item => item.id === state.cart[0]?.restaurantId);
-  const hasSavedPin = $("#deliveryLatitude").value !== "" && $("#deliveryLongitude").value !== "";
-  const restaurantHasPin = cartRestaurant && cartRestaurant.latitude != null && cartRestaurant.longitude != null &&
-    Number.isFinite(Number(cartRestaurant.latitude)) && Number.isFinite(Number(cartRestaurant.longitude));
-  const start = hasSavedPin
-    ? [Number($("#deliveryLatitude").value), Number($("#deliveryLongitude").value)]
-    : restaurantHasPin
-      ? [Number(cartRestaurant.latitude), Number(cartRestaurant.longitude)]
-      : [9.0820, 8.6753];
-  const zoom = hasSavedPin || restaurantHasPin ? 15 : 6;
+  const savedLat = $("#deliveryLatitude").value;
+  const savedLon = $("#deliveryLongitude").value;
+  const savedPinIsValid = savedLat !== "" && savedLon !== "" && isWithinNigeria(savedLat, savedLon);
+  // Never use restaurant pickup coordinates as the student's delivery location.
+  // Start over Nigeria-wide unless the student has chosen a valid Nigerian delivery pin.
+  if (savedLat !== "" && savedLon !== "" && !savedPinIsValid) {
+    $("#deliveryLatitude").value = "";
+    $("#deliveryLongitude").value = "";
+  }
+  const start = savedPinIsValid ? [Number(savedLat), Number(savedLon)] : [9.0820, 8.6753];
+  const zoom = savedPinIsValid ? 15 : 6;
   try {
     await loadLeaflet();
     if (!$("#deliveryLocationMap")) return;

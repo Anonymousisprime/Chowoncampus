@@ -472,7 +472,7 @@ function requireRole(...roles) {
 }
 
 function publicOrder(order) {
-  const { chatMessages, ...safeOrder } = order;
+  const { chatMessages, paymentEmail, paystackAuthorizationUrl, ...safeOrder } = order;
   return safeOrder;
 }
 
@@ -1188,6 +1188,7 @@ app.post("/api/payments/paystack/webhook", async (req, res) => {
       order.statusHistory.push({ status: "Confirmed", at: changedAt, by: "Paystack webhook" });
       saveOrders(orders);
       notifyOrderParties(order, "Payment verified — new order", order.customerName + " paid for an order at " + order.restaurantName + ".");
+      return res.json({ received: true });
     }
     return res.sendStatus(200);
   } catch (error) {

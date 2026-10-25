@@ -1024,6 +1024,16 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     });
   }
 
+  // Mandatory one-time takeaway packaging fee is server-calculated and cannot be removed by the customer.
+  const takeawayFee = 200;
+  subtotal += takeawayFee;
+  cleanItems.push({
+    id: "takeaway-packaging",
+    name: "Takeaway packaging (required)",
+    price: takeawayFee,
+    qty: 1
+  });
+
   const deliveryQuote = calculateDeliveryQuote(
     restaurant,
     hasCoordinates ? Number(latitude) : null,
@@ -1047,6 +1057,7 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     restaurantId: restaurant.id,
     restaurantName: restaurant.name,
     items: cleanItems,
+    takeawayFee,
     subtotal,
     deliveryFee,
     total: subtotal + deliveryFee,

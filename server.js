@@ -205,7 +205,7 @@ const DELIVERY_BASE_FEE = Math.max(0, Number(process.env.DELIVERY_BASE_FEE || 30
 const DELIVERY_PER_KM = Math.max(0, Number(process.env.DELIVERY_PER_KM || 100));
 const DELIVERY_ROAD_FACTOR = Math.max(1, Number(process.env.DELIVERY_ROAD_FACTOR || 1.3));
 
-app.use(express.json({ limit: "50kb" }));
+app.use(express.json({ limit: "50kb", verify: (req, res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
 app.use(express.static(path.join(__dirname, "public")));
 app.use((req, res, next) => {
   const sendJson = res.json.bind(res);
@@ -1114,6 +1114,9 @@ app.post("/api/orders/:id/paystack/initialize", requireRole("student"), async (r
   if (["Paid — Paystack verified", "Paid — demo verified"].includes(order.paymentStatus)) {
     return res.status(409).json({ error: "This order has already been paid." });
   }
+  if (order.paymentStatus === "Payment pending" && order.paystackReference && order.paystackAuthorizationUrl) {
+    return res.json({ authorizationUrl: order.paystackAuthorizationUrl, reference: order.paystackReference, orderId: order.id });
+  }
   if (order.status === "Cancelled") return res.status(400).json({ error: "This order has been cancelled." });
   if (!Number.isSafeInteger(Number(order.total)) || Number(order.total) <= 0) {
     return res.status(400).json({ error: "The order total is invalid. Please contact support." });
@@ -1134,6 +1137,7 @@ app.post("/api/orders/:id/paystack/initialize", requireRole("student"), async (r
     });
     order.paymentEmail = email;
     order.paystackReference = reference;
+    order.paystackAuthorizationUrl = payment.authorization_url;
     order.paymentInitializationAt = new Date().toISOString();
     order.paymentStatus = "Payment pending";
     order.updatedAt = order.paymentInitializationAt;
@@ -1142,6 +1146,53 @@ app.post("/api/orders/:id/paystack/initialize", requireRole("student"), async (r
   } catch (error) {
     console.error("Paystack initialization failed for order:", order.id, error.message);
     return res.status(502).json({ error: error.message || "Could not start payment. Please try again." });
+  }
+});
+
+app.post("/api/payments/paystack/webhook", async (req, res) => {
+  if (!hasPaystackConfig()) return res.sendStatus(503);
+  const signature = String(req.headers["x-paystack-signature"] || "");
+  const rawBody = req.rawBody;
+  if (!signature || !rawBody) return res.sendStatus(400);
+  const expected = crypto.createHmac("sha512", process.env.PAYSTACK_SECRET_KEY).update(rawBody).digest();
+  let received;
+  try { received = Buffer.from(signature, "hex"); } catch { return res.sendStatus(401); }
+  if (received.length !== expected.length || !crypto.timingSafeEqual(received, expected)) return res.sendStatus(401);
+
+  const event = req.body || {};
+  if (event.event !== "charge.success" || !event.data) return res.sendStatus(200);
+  const payment = event.data;
+  const orderId = String(payment.metadata?.order_id || "");
+  const reference = String(payment.reference || "");
+  if (!orderId || !reference) return res.sendStatus(200);
+  try {
+    const orders = readOrders();
+    const order = orders.find(item => item.id === orderId);
+    if (!order || order.paystackReference !== reference) return res.sendStatus(200);
+    const validPayment = payment.status === "success" &&
+      Number(payment.amount) === Math.round(Number(order.total) * 100) &&
+      payment.currency === "NGN" &&
+      String(payment.customer?.email || "").toLowerCase() === String(order.paymentEmail || "").toLowerCase();
+    if (!validPayment) {
+      console.warn("Paystack webhook did not match order amount or customer:", order.id);
+      return res.sendStatus(200);
+    }
+    if (order.paymentStatus !== "Paid — Paystack verified" && order.status !== "Cancelled") {
+      const changedAt = new Date().toISOString();
+      order.paymentStatus = "Paid — Paystack verified";
+      order.paidAt = changedAt;
+      order.paymentChannel = String(payment.channel || "");
+      order.status = "Confirmed";
+      order.updatedAt = changedAt;
+      order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+      order.statusHistory.push({ status: "Confirmed", at: changedAt, by: "Paystack webhook" });
+      saveOrders(orders);
+      notifyOrderParties(order, "Payment verified — new order", order.customerName + " paid for an order at " + order.restaurantName + ".");
+    }
+    return res.sendStatus(200);
+  } catch (error) {
+    console.error("Paystack webhook processing failed:", error.message);
+    return res.sendStatus(500);
   }
 });
 

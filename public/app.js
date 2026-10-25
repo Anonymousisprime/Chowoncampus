@@ -923,18 +923,95 @@ async function loadDashboard() {
     $("#dashboardContent").appendChild(securityPanel);
 
     if (account.role === "admin" || account.role === "agent") {
-      const result = await api("/api/earnings");
-      $("#earningsPanel").innerHTML = `
-        <div class="earnings-card">
-          <span class="eyebrow">${escapeHtml(result.month)} · COMPLETED DELIVERIES</span>
-          <strong>${money(result.earned)}</strong>
-          <p>${result.completedDeliveries} completed deliveries at ₦100 each</p>
-          <p class="tiny muted">${escapeHtml(result.note)}</p>
-        </div>
-      `;
+      await loadEarningsPanel();
     }
   } catch (error) {
     $("#dashboardContent").innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+async function loadEarningsPanel(selectedMonth = "") {
+  const panel = $("#earningsPanel");
+  if (!panel || !state.account || !["admin", "agent"].includes(state.account.role)) return;
+  panel.innerHTML = '<div class="earnings-card"><p class="loading">Loading monthly earnings and payment records…</p></div>';
+  try {
+    const queryMonth = selectedMonth || "";
+    const result = await api("/api/earnings" + (queryMonth ? "?month=" + encodeURIComponent(queryMonth) : ""));
+    const month = result.month;
+    const paymentRows = (result.payments || []).map(payment => {
+      const paidDate = payment.paidAt ? new Date(payment.paidAt).toLocaleString() : "—";
+      return '<tr><td>' + escapeHtml(paidDate) + '</td>' +
+        (state.account.role === "admin" ? '<td>' + escapeHtml(payment.agentName || "Delivery agent") + '</td>' : '') +
+        '<td><strong>' + money(payment.amount) + '</strong></td>' +
+        '<td>' + escapeHtml(payment.reference || "—") + '</td>' +
+        '<td>' + escapeHtml(payment.note || "—") + '</td>' +
+        (state.account.role === "admin" ? '<td>' + escapeHtml(payment.paidBy || "—") + '</td>' : '') +
+        '</tr>';
+    }).join("");
+    const historyTable = '<div style="overflow-x:auto"><table class="admin-student-table" style="width:100%;border-collapse:collapse;text-align:left"><thead><tr><th style="padding:10px">Paid date</th>' +
+      (state.account.role === "admin" ? '<th style="padding:10px">Agent</th>' : '') +
+      '<th style="padding:10px">Amount</th><th style="padding:10px">Transfer reference</th><th style="padding:10px">Note</th>' +
+      (state.account.role === "admin" ? '<th style="padding:10px">Recorded by</th>' : '') +
+      '</tr></thead><tbody>' + (paymentRows || '<tr><td colspan="' + (state.account.role === "admin" ? 6 : 4) + '" style="padding:12px">No payment records for this month.</td></tr>') + '</tbody></table></div>';
+
+    if (state.account.role === "agent") {
+      const agent = result.agent || { completedDeliveries: 0, earned: 0, paid: 0, outstanding: 0 };
+      panel.innerHTML = `
+        <section class="earnings-card">
+          <div class="dashboard-section-heading"><div><span class="eyebrow">${escapeHtml(month)} · YOUR MONTHLY EARNINGS</span><h2>${money(agent.earned)}</h2><p>${agent.completedDeliveries} completed deliveries × delivery earnings rate</p></div></div>
+          <div class="restaurant-metrics">
+            <article><span>Earned</span><strong>${money(agent.earned)}</strong><small>Completed deliveries</small></article>
+            <article><span>Paid</span><strong>${money(agent.paid)}</strong><small>Recorded payouts</small></article>
+            <article><span>Outstanding</span><strong>${money(agent.outstanding)}</strong><small>Still to be paid</small></article>
+          </div>
+          <div class="order-actions" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-top:14px">
+            <label>View month<input id="agentEarningsMonth" type="month" value="${escapeHtml(month)}" max="${escapeHtml(new Date().toISOString().slice(0,7))}"></label>
+            <button type="button" class="secondary-button" data-refresh-earnings="agent">View month</button>
+          </div>
+          <p class="tiny muted">${escapeHtml(result.note || "Monthly delivery earnings and recorded payouts.")}</p>
+        </section>
+        <section class="dashboard-order-section"><div class="dashboard-section-heading"><div><h3>Monthly payment records</h3><p>Only payments recorded by an administrator appear here.</p></div></div>${historyTable}</section>`;
+      return;
+    }
+
+    const agents = result.agents || [];
+    const agentRows = agents.map(agent => {
+      const noBalance = Number(agent.outstanding) <= 0;
+      return '<tr>' +
+        '<td style="padding:10px"><strong>' + escapeHtml(agent.name) + '</strong><br><small>' + escapeHtml(agent.username || agent.id) + '</small></td>' +
+        '<td style="padding:10px">' + agent.completedDeliveries + '</td>' +
+        '<td style="padding:10px">' + money(agent.earned) + '</td>' +
+        '<td style="padding:10px">' + money(agent.paid) + '</td>' +
+        '<td style="padding:10px"><strong>' + money(agent.outstanding) + '</strong></td>' +
+        '<td style="padding:10px;min-width:260px">' +
+          '<form data-agent-payment-form="' + escapeHtml(agent.id) + '" style="display:grid;gap:7px">' +
+            '<label>Amount (₦)<input name="amount" type="number" min="1" max="' + Math.max(0, Number(agent.outstanding) || 0) + '" step="1" value="' + Math.max(0, Number(agent.outstanding) || 0) + '" required ' + (noBalance ? 'disabled' : '') + '></label>' +
+            '<label>Transfer reference (optional)<input name="reference" maxlength="120" placeholder="Bank transfer reference" ' + (noBalance ? 'disabled' : '') + '></label>' +
+            '<label>Note (optional)<input name="note" maxlength="300" placeholder="Payment note" ' + (noBalance ? 'disabled' : '') + '></label>' +
+            '<button class="primary-button" type="submit" ' + (noBalance ? 'disabled' : '') + '>' + (noBalance ? 'No balance due' : 'Record payment') + '</button>' +
+          '</form></td></tr>';
+    }).join("");
+    panel.innerHTML = `
+      <section class="earnings-card">
+        <div class="dashboard-section-heading"><div><span class="eyebrow">${escapeHtml(month)} · AGENT PAYROLL</span><h2>Monthly earnings &amp; payouts</h2><p>Delivery earnings are calculated at the configured per-delivery rate. Record a payment only after the transfer is actually made.</p></div></div>
+        <div class="restaurant-metrics">
+          <article><span>Deliveries</span><strong>${result.totals.completedDeliveries}</strong><small>Completed this month</small></article>
+          <article><span>Total earned</span><strong>${money(result.totals.earned)}</strong><small>All agents</small></article>
+          <article><span>Recorded as paid</span><strong>${money(result.totals.paid)}</strong><small>Recorded payouts</small></article>
+          <article><span>Outstanding</span><strong>${money(result.totals.outstanding)}</strong><small>Still to be paid</small></article>
+        </div>
+        <div class="order-actions" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-top:14px">
+          <label>Payroll month<input id="adminEarningsMonth" type="month" value="${escapeHtml(month)}" max="${escapeHtml(new Date().toISOString().slice(0,7))}"></label>
+          <button type="button" class="secondary-button" data-refresh-earnings="admin">View month</button>
+        </div>
+        <p class="tiny muted">${escapeHtml(result.note || "")}</p>
+      </section>
+      <section class="dashboard-order-section"><div class="dashboard-section-heading"><div><h3>Agent earnings &amp; payment entry</h3><p>Partial payments are supported. The outstanding balance decreases as payment records are added.</p></div></div>
+        <div style="overflow-x:auto"><table class="admin-student-table" style="width:100%;border-collapse:collapse;text-align:left"><thead><tr><th style="padding:10px">Agent</th><th style="padding:10px">Deliveries</th><th style="padding:10px">Earned</th><th style="padding:10px">Paid</th><th style="padding:10px">Outstanding</th><th style="padding:10px">Record a payout</th></tr></thead><tbody>${agentRows || '<tr><td colspan="6" style="padding:12px">No delivery agents have been added yet.</td></tr>'}</tbody></table></div>
+      </section>
+      <section class="dashboard-order-section"><div class="dashboard-section-heading"><div><h3>Payment history</h3><p>Saved payout records for ${escapeHtml(month)}.</p></div></div>${historyTable}</section>`;
+  } catch (error) {
+    panel.innerHTML = '<div class="empty-state">Could not load earnings records: ' + escapeHtml(error.message) + '</div>';
   }
 }
 
@@ -1032,6 +1109,12 @@ async function initialize() {
   }
 
   document.addEventListener("click", async event => {
+    const earningsRefresh = event.target.closest("[data-refresh-earnings]");
+    if (earningsRefresh) {
+      const monthInput = $("#adminEarningsMonth") || $("#agentEarningsMonth");
+      await loadEarningsPanel(monthInput?.value || "");
+      return;
+    }
     const gpsButton = event.target.closest("#useMyLocation");
     if (gpsButton) {
       const message = $("#locationMessage");
@@ -1249,6 +1332,32 @@ async function initialize() {
   });
   document.addEventListener("submit", async event => {
 
+    const agentPaymentForm = event.target.closest("[data-agent-payment-form]");
+    if (agentPaymentForm) {
+      event.preventDefault();
+      const button = agentPaymentForm.querySelector('button[type="submit"]');
+      const values = new FormData(agentPaymentForm);
+      const month = $("#adminEarningsMonth")?.value || "";
+      const payload = {
+        agentId: agentPaymentForm.dataset.agentPaymentForm,
+        month,
+        amount: Number(values.get("amount")),
+        reference: String(values.get("reference") || "").trim(),
+        note: String(values.get("note") || "").trim()
+      };
+      button.disabled = true;
+      button.textContent = "Saving record…";
+      try {
+        const result = await api("/api/admin/agent-payments", { method: "POST", body: JSON.stringify(payload) });
+        showToast(result.message || "Payment record saved.");
+        await loadEarningsPanel(month);
+      } catch (error) {
+        showToast(error.message);
+        button.disabled = false;
+        button.textContent = "Record payment";
+      }
+      return;
+    }
     const ratingForm = event.target.closest("[data-order-rating]");
     if (ratingForm) {
       event.preventDefault();

@@ -1291,6 +1291,89 @@ function requireSuperAdmin(req, res, next) {
   next();
 }
 
+// Ultimate admin can reset a student, restaurant, or agent password when they lose access.
+app.post("/api/superadmin/reset-password", requireSuperAdmin, (req, res) => {
+  const role = String(req.body.role || "");
+  const id = String(req.body.id || "").trim();
+  const password = String(req.body.password || "");
+  if (!["student", "restaurant", "agent"].includes(role)) {
+    return res.status(400).json({ error: "Choose a student, restaurant, or agent account." });
+  }
+  if (!id) return res.status(400).json({ error: "Choose an account to reset." });
+  if (password.length < 10 || password.length > 128) {
+    return res.status(400).json({ error: "Temporary password must be 10–128 characters." });
+  }
+
+  try {
+    let username = "";
+    let targetName = "";
+    const hashed = hashPassword(password);
+
+    if (role === "student") {
+      const records = readStudents();
+      const student = records.find(item => item.id === id);
+      if (!student) return res.status(404).json({ error: "Student account not found." });
+      student.passwordSalt = hashed.salt;
+      student.passwordHash = hashed.hash;
+      saveStudents(records);
+      username = student.phone;
+      targetName = student.name;
+    } else if (role === "agent") {
+      const records = readAgentRecords();
+      const agent = records.find(item => item.id === id);
+      if (!agent) return res.status(404).json({ error: "Delivery agent not found." });
+      agent.passwordSalt = hashed.salt;
+      agent.passwordHash = hashed.hash;
+      saveAgentRecords(records);
+      username = agent.username;
+      targetName = agent.name;
+      const staffAccount = accounts.find(item => item.role === "agent" && item.agentId === id);
+      if (staffAccount) {
+        staffAccount.passwordSalt = hashed.salt;
+        staffAccount.passwordHash = hashed.hash;
+        staffAccount.password = "";
+      }
+    } else {
+      const restaurant = restaurants.find(item => item.id === id);
+      if (!restaurant) return res.status(404).json({ error: "Restaurant not found." });
+      const staffAccount = accounts.find(item => item.role === "restaurant" && item.restaurantId === id);
+      if (!staffAccount) return res.status(404).json({ error: "Restaurant login account not found." });
+      username = staffAccount.username;
+      targetName = restaurant.name;
+      staffAccount.passwordSalt = hashed.salt;
+      staffAccount.passwordHash = hashed.hash;
+      staffAccount.password = "";
+    }
+
+    if (role !== "student") {
+      const overrides = readAccountPasswords();
+      overrides[role + ":" + username] = {
+        passwordSalt: hashed.salt,
+        passwordHash: hashed.hash,
+        changedAt: new Date().toISOString(),
+        resetBy: req.account.username
+      };
+      saveAccountPasswords(overrides);
+    }
+
+    for (const [token, session] of sessions.entries()) {
+      if (session.role === role && (session.username === username ||
+          (role === "agent" && session.agentId === id) ||
+          (role === "restaurant" && session.restaurantId === id))) {
+        sessions.delete(token);
+      }
+    }
+
+    res.json({
+      ok: true,
+      message: "Password reset for " + targetName + ". Share the temporary password securely and ask them to change it after logging in."
+    });
+  } catch (error) {
+    console.error("Ultimate admin password reset failed:", error.message);
+    res.status(500).json({ error: "Could not reset that password. Please try again." });
+  }
+});
+
 app.get("/api/superadmin/admins", requireSuperAdmin, (req, res) => {
   const disabled = readStoredJson(path.join(__dirname, "disabled-admins.json"), []);
   const managed = readStoredJson(path.join(__dirname, "admin-accounts.json"), []);

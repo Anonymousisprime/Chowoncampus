@@ -1517,6 +1517,10 @@ app.get("/api/admin/restaurants", requireRole("admin"), (req, res) => {
  // agent GPS is shown only while the agent is online; restaurant pins are pickup locations.
 app.get("/api/admin/locations", requireRole("admin"), (req, res) => {
   try {
+    const inNigeria = (latitude, longitude) =>
+      Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude)) &&
+      Number(latitude) >= 4 && Number(latitude) <= 14 &&
+      Number(longitude) >= 2 && Number(longitude) <= 15;
     const orders = readOrders().slice().sort((a, b) =>
       new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
     );
@@ -1530,8 +1534,8 @@ app.get("/api/admin/locations", requireRole("admin"), (req, res) => {
         id: student.id,
         name: student.name,
         username: student.username || student.phone,
-        latitude: pin ? Number(pin.latitude) : null,
-        longitude: pin ? Number(pin.longitude) : null,
+        latitude: pin && inNigeria(pin.latitude, pin.longitude) ? Number(pin.latitude) : null,
+        longitude: pin && inNigeria(pin.latitude, pin.longitude) ? Number(pin.longitude) : null,
         locationLabel: pin ? (latestOrder.hostel || pin.hostel || "Saved delivery point") : "",
         updatedAt: pin ? (latestOrder.updatedAt || latestOrder.createdAt || null) : null,
         locationType: "latest-delivery-pin"
@@ -1542,8 +1546,8 @@ app.get("/api/admin/locations", requireRole("admin"), (req, res) => {
       name: agent.name,
       username: agent.username,
       online: Boolean(agent.online),
-      latitude: agent.online && Number.isFinite(Number(agent.latitude)) ? Number(agent.latitude) : null,
-      longitude: agent.online && Number.isFinite(Number(agent.longitude)) ? Number(agent.longitude) : null,
+      latitude: agent.online && inNigeria(agent.latitude, agent.longitude) ? Number(agent.latitude) : null,
+      longitude: agent.online && inNigeria(agent.latitude, agent.longitude) ? Number(agent.longitude) : null,
       updatedAt: agent.online ? (agent.locationUpdatedAt || null) : null,
       locationType: "agent-gps"
     }));
@@ -1551,8 +1555,8 @@ app.get("/api/admin/locations", requireRole("admin"), (req, res) => {
       id: restaurant.id,
       name: restaurant.name,
       locationLabel: restaurant.location || "",
-      latitude: Number.isFinite(Number(restaurant.latitude)) ? Number(restaurant.latitude) : null,
-      longitude: Number.isFinite(Number(restaurant.longitude)) ? Number(restaurant.longitude) : null,
+      latitude: inNigeria(restaurant.latitude, restaurant.longitude) ? Number(restaurant.latitude) : null,
+      longitude: inNigeria(restaurant.latitude, restaurant.longitude) ? Number(restaurant.longitude) : null,
       updatedAt: restaurantLocationCoordinates[restaurant.id]?.updatedAt || null,
       locationType: "restaurant-pickup"
     }));

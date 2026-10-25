@@ -20,6 +20,7 @@ const storageFiles = {
   "restaurant-locations.json": "restaurantLocations",
   "added-restaurants.json": "addedRestaurants",
   "delivery-agents.json": "deliveryAgents",
+  "agent-payments.json": "agentPayments",
   "notifications.json": "notifications",
   "account-passwords.json": "accountPasswords",
   "admin-accounts.json": "adminAccounts",
@@ -45,6 +46,7 @@ async function initializePersistentStorage() {
     ["restaurant-locations.json", {}],
     ["added-restaurants.json", []],
     ["delivery-agents.json", []],
+    ["agent-payments.json", []],
     ["notifications.json", []],
     ["account-passwords.json", {}],
     ["admin-accounts.json", []],
@@ -365,6 +367,10 @@ function readAgentRecords() {
 function saveAgentRecords(records) {
   saveStoredJson(AGENTS_FILE, records);
 }
+const AGENT_PAYMENTS_FILE = path.join(__dirname, "agent-payments.json");
+function readAgentPayments() { return readStoredJson(AGENT_PAYMENTS_FILE, []); }
+function saveAgentPayments(records) { saveStoredJson(AGENT_PAYMENTS_FILE, records); }
+const AGENT_EARNING_PER_DELIVERY = Math.max(0, Math.round(Number(process.env.AGENT_EARNING_PER_DELIVERY || 100)));
 const agentRecords = readAgentRecords();
 agents = agentRecords.map(record => ({
   id: record.id,
@@ -2100,7 +2106,7 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
     // Record agent earnings only once when the order is completed.
     if (newStatus === "Completed" && !order.agentEarningsRecorded) {
       order.agentEarningsRecorded = true;
-      order.agentEarnings = 100;
+      order.agentEarnings = AGENT_EARNING_PER_DELIVERY;
       order.completedAt = new Date().toISOString();
     }
 
@@ -2123,36 +2129,135 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
   }
 });
 
-// Monthly completed delivery earnings
+// Monthly delivery earnings and payment history. Amounts are calculated from completed deliveries,
+// while payout records are written only by an administrator and persist in PostgreSQL-backed app storage.
+function normalizeEarningsMonth(value) {
+  const input = typeof value === "string" ? value : "";
+  if (!/^\\d{4}-(0[1-9]|1[0-2])$/.test(input)) return null;
+  const [year, month] = input.split("-").map(Number);
+  if (year < 2020 || year > 2100) return null;
+  return { key: input, year, monthIndex: month - 1 };
+}
+
+function monthlyAgentEarnings(orders, agentId, monthInfo) {
+  const completed = orders.filter(order => {
+    if (String(order.assignedAgentId || "") !== String(agentId) || !order.agentEarningsRecorded || !order.completedAt) return false;
+    const date = new Date(order.completedAt);
+    return !Number.isNaN(date.getTime()) && date.getUTCMonth() === monthInfo.monthIndex && date.getUTCFullYear() === monthInfo.year;
+  });
+  return {
+    completedDeliveries: completed.length,
+    earned: completed.reduce((sum, order) => sum + Math.max(0, Number(order.agentEarnings ?? AGENT_EARNING_PER_DELIVERY) || 0), 0)
+  };
+}
+
+function agentPaymentSummary(agentId, monthKey, payments) {
+  return payments.filter(payment => String(payment.agentId) === String(agentId) && payment.month === monthKey)
+    .reduce((sum, payment) => sum + Math.max(0, Number(payment.amount) || 0), 0);
+}
+
 app.get("/api/earnings", requireRole("admin", "agent"), (req, res) => {
   try {
-    const orders = readOrders();
     const now = new Date();
-    const month = now.getMonth();
-    const year = now.getFullYear();
+    const defaultMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+    const monthInfo = normalizeEarningsMonth(req.query.month || defaultMonth);
+    if (!monthInfo) return res.status(400).json({ error: "Choose a valid month in YYYY-MM format." });
+    const orders = readOrders();
+    const payments = readAgentPayments();
+    const monthPayments = payments.filter(payment => payment.month === monthInfo.key)
+      .sort((a, b) => String(b.paidAt).localeCompare(String(a.paidAt)));
 
-    const completed = orders.filter(order => {
-      if (!order.agentEarningsRecorded || !order.completedAt) return false;
+    if (req.account.role === "agent") {
+      const agent = readAgentRecords().find(item => item.id === req.account.agentId);
+      if (!agent) return res.status(404).json({ error: "Agent account not found." });
+      const totals = monthlyAgentEarnings(orders, agent.id, monthInfo);
+      const paid = agentPaymentSummary(agent.id, monthInfo.key, payments);
+      return res.json({
+        month: monthInfo.key,
+        agent: { id: agent.id, name: agent.name, ...totals, paid, outstanding: Math.max(0, totals.earned - paid) },
+        payments: monthPayments.filter(payment => payment.agentId === agent.id).map(payment => ({
+          id: payment.id, month: payment.month, amount: payment.amount, reference: payment.reference || "",
+          note: payment.note || "", paidAt: payment.paidAt, paidBy: payment.paidBy
+        })),
+        note: "Earnings are bookkeeping records. Payments shown here are marked as paid by an administrator."
+      });
+    }
 
-      if (
-        req.account.role === "agent" &&
-        order.assignedAgentId !== req.account.agentId
-      ) {
-        return false;
-      }
+    const agentsForSummary = readAgentRecords().map(agent => {
+      const totals = monthlyAgentEarnings(orders, agent.id, monthInfo);
+      const paid = agentPaymentSummary(agent.id, monthInfo.key, payments);
+      return { id: agent.id, name: agent.name, username: agent.username, ...totals, paid, outstanding: Math.max(0, totals.earned - paid) };
+    }).sort((a, b) => a.name.localeCompare(b.name));
 
-      const date = new Date(order.completedAt);
-      return date.getMonth() === month && date.getFullYear() === year;
-    });
-
+    const paymentRows = monthPayments.map(payment => ({
+      id: payment.id, agentId: payment.agentId, agentName: payment.agentName || "Delivery agent",
+      month: payment.month, amount: payment.amount, reference: payment.reference || "",
+      note: payment.note || "", paidAt: payment.paidAt, paidBy: payment.paidBy
+    }));
     res.json({
-      month: `${year}-${String(month + 1).padStart(2, "0")}`,
-      completedDeliveries: completed.length,
-      earned: completed.length * 100,
-      note: "Demo bookkeeping only. Agent payouts are not automated."
+      month: monthInfo.key,
+      agents: agentsForSummary,
+      payments: paymentRows,
+      totals: {
+        completedDeliveries: agentsForSummary.reduce((sum, agent) => sum + agent.completedDeliveries, 0),
+        earned: agentsForSummary.reduce((sum, agent) => sum + agent.earned, 0),
+        paid: agentsForSummary.reduce((sum, agent) => sum + agent.paid, 0),
+        outstanding: agentsForSummary.reduce((sum, agent) => sum + agent.outstanding, 0)
+      },
+      note: "Record a payout only after the transfer has actually been made. This feature does not send money automatically."
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error.message || "Could not load monthly agent earnings." });
+  }
+});
+
+app.post("/api/admin/agent-payments", requireRole("admin"), (req, res) => {
+  try {
+    const agentId = String(req.body.agentId || "").trim();
+    const monthInfo = normalizeEarningsMonth(req.body.month);
+    if (!agentId) return res.status(400).json({ error: "Choose a delivery agent." });
+    if (!monthInfo) return res.status(400).json({ error: "Choose a valid month in YYYY-MM format." });
+
+    const agent = readAgentRecords().find(item => item.id === agentId);
+    if (!agent) return res.status(404).json({ error: "Delivery agent not found." });
+
+    const orders = readOrders();
+    const payments = readAgentPayments();
+    const totals = monthlyAgentEarnings(orders, agentId, monthInfo);
+    const paid = agentPaymentSummary(agentId, monthInfo.key, payments);
+    const outstanding = Math.max(0, totals.earned - paid);
+    const amount = req.body.amount === undefined || req.body.amount === "" ? outstanding : Number(req.body.amount);
+    const reference = String(req.body.reference || "").trim().slice(0, 120);
+    const note = String(req.body.note || "").trim().slice(0, 300);
+
+    if (!Number.isSafeInteger(amount) || amount <= 0) return res.status(400).json({ error: "Enter a whole-number payout amount greater than ₦0." });
+    if (amount > outstanding) return res.status(400).json({ error: `Payout exceeds the outstanding balance of ₦${outstanding.toLocaleString("en-NG")}.` });
+    if (outstanding <= 0) return res.status(409).json({ error: "There is no unpaid balance for this agent in that month." });
+
+    const payment = {
+      id: "PAY-" + crypto.randomBytes(6).toString("hex").toUpperCase(),
+      agentId: agent.id,
+      agentName: agent.name,
+      month: monthInfo.key,
+      amount,
+      reference,
+      note,
+      paidAt: new Date().toISOString(),
+      paidBy: req.account.username
+    };
+    payments.unshift(payment);
+    saveAgentPayments(payments);
+    createNotification(
+      { role: "agent", agentId: agent.id },
+      "Monthly earnings payment recorded",
+      `An administrator recorded a ₦${amount.toLocaleString("en-NG")} payment for ${monthInfo.key}.${reference ? " Reference: " + reference + "." : ""}`
+    );
+    res.status(201).json({
+      payment: { id: payment.id, agentId: payment.agentId, agentName: payment.agentName, month: payment.month, amount: payment.amount, reference: payment.reference, note: payment.note, paidAt: payment.paidAt, paidBy: payment.paidBy },
+      message: "Payment record saved. This records a payment; it does not transfer money."
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Could not record the agent payment." });
   }
 });
 

@@ -515,11 +515,16 @@ app.post("/api/student/register", (req, res) => {
   if (name.length < 2 || name.length > 100) return res.status(400).json({ error: "Enter your name (2–100 characters)." });
   if (!phone) return res.status(400).json({ error: "Enter a valid phone number, e.g. 08012345678." });
   if (password.length < 10 || password.length > 128) return res.status(400).json({ error: "Use a password between 10 and 128 characters." });
+  const consents = req.body.consents || {};
+  if (consents.terms !== true || consents.privacy !== true || consents.delivery !== true) {
+    return res.status(400).json({ error: "Read and agree to the Terms of Service, Privacy Policy, and Delivery & Cancellation Policy before creating an account." });
+  }
   try {
     const students = readStudents();
     if (students.some(student => student.phone === phone)) return res.status(409).json({ error: "An account already exists for this phone number. Please log in." });
     const passwordData = hashPassword(password);
-    const student = { id: crypto.randomUUID(), name, phone, passwordSalt: passwordData.salt, passwordHash: passwordData.hash, role: "student", verifiedPhone: false, createdAt: new Date().toISOString() };
+    const consentedAt = new Date().toISOString();
+    const student = { id: crypto.randomUUID(), name, phone, passwordSalt: passwordData.salt, passwordHash: passwordData.hash, role: "student", verifiedPhone: false, policyConsent: { termsAcceptedAt: consentedAt, privacyAcceptedAt: consentedAt, deliveryPolicyAcceptedAt: consentedAt }, createdAt: consentedAt };
     students.push(student);
     saveStudents(students);
     const account = { username: student.phone, role: "student", name: student.name };

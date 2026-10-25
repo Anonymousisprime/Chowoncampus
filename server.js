@@ -532,6 +532,105 @@ app.post("/api/student/register", (req, res) => {
   }
 });
 
+// Student self-service password recovery uses Twilio Verify SMS so only the phone holder can reset the account.
+// Configure TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_VERIFY_SERVICE_SID in Render.
+const passwordResetAttempts = new Map();
+function resetRateLimit(key, limit, windowMs) {
+  const now = Date.now();
+  const previous = passwordResetAttempts.get(key) || [];
+  const recent = previous.filter(time => now - time < windowMs);
+  if (recent.length >= limit) {
+    passwordResetAttempts.set(key, recent);
+    return false;
+  }
+  recent.push(now);
+  passwordResetAttempts.set(key, recent);
+  return true;
+}
+function hasTwilioVerifyConfig() {
+  return Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_VERIFY_SERVICE_SID);
+}
+async function twilioVerifyRequest(pathname, values) {
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  const serviceSid = process.env.TWILIO_VERIFY_SERVICE_SID;
+  const response = await fetch("https://verify.twilio.com/v2/Services/" + encodeURIComponent(serviceSid) + pathname, {
+    method: "POST",
+    headers: {
+      "Authorization": "Basic " + Buffer.from(sid + ":" + token).toString("base64"),
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams(values)
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    console.error("Twilio Verify request failed:", response.status, result.code || "unknown");
+    throw new Error("SMS verification is temporarily unavailable. Please try again later.");
+  }
+  return result;
+}
+
+app.post("/api/student/forgot-password/start", async (req, res) => {
+  const phone = normalizeNigerianPhone(req.body.phone);
+  if (!phone) return res.status(400).json({ error: "Enter a valid phone number." });
+  const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
+  if (!resetRateLimit("reset-start:ip:" + ip, 8, 15 * 60 * 1000) ||
+      !resetRateLimit("reset-start:phone:" + phone, 3, 15 * 60 * 1000)) {
+    return res.status(429).json({ error: "Too many attempts. Please wait 15 minutes before trying again." });
+  }
+  if (!hasTwilioVerifyConfig()) {
+    return res.status(503).json({ error: "Password recovery SMS is not configured yet. Please contact ChowOnCampus support for help." });
+  }
+  try {
+    const studentExists = readStudents().some(student => student.phone === phone && !student.banned);
+    // Keep the response the same whether or not the phone belongs to an account.
+    if (studentExists) {
+      await twilioVerifyRequest("/Verifications", { To: phone, Channel: "sms" });
+    }
+    res.json({ ok: true, message: "If an eligible student account exists for that number, a verification code has been sent. Check your SMS." });
+  } catch (error) {
+    res.status(503).json({ error: error.message || "Could not send a verification code. Please try again later." });
+  }
+});
+
+app.post("/api/student/forgot-password/reset", async (req, res) => {
+  const phone = normalizeNigerianPhone(req.body.phone);
+  const code = String(req.body.code || "").trim();
+  const password = String(req.body.password || "");
+  const confirmPassword = String(req.body.confirmPassword || "");
+  if (!phone) return res.status(400).json({ error: "Enter a valid phone number." });
+  if (!/^\d{4,10}$/.test(code)) return res.status(400).json({ error: "Enter the verification code from your SMS." });
+  if (password.length < 10 || password.length > 128) return res.status(400).json({ error: "Use a password between 10 and 128 characters." });
+  if (password !== confirmPassword) return res.status(400).json({ error: "The new passwords do not match." });
+  const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
+  if (!resetRateLimit("reset-check:ip:" + ip, 10, 15 * 60 * 1000) ||
+      !resetRateLimit("reset-check:phone:" + phone, 6, 15 * 60 * 1000)) {
+    return res.status(429).json({ error: "Too many attempts. Please wait 15 minutes before trying again." });
+  }
+  if (!hasTwilioVerifyConfig()) {
+    return res.status(503).json({ error: "Password recovery SMS is not configured yet. Please contact ChowOnCampus support for help." });
+  }
+  try {
+    const students = readStudents();
+    const student = students.find(item => item.phone === phone && !item.banned);
+    if (!student) return res.status(400).json({ error: "We could not verify this reset request. Check the phone number and code, then try again." });
+    const verification = await twilioVerifyRequest("/VerificationCheck", { To: phone, Code: code });
+    if (verification.status !== "approved") {
+      return res.status(400).json({ error: "That code is invalid or expired. Request a new code and try again." });
+    }
+    const hashed = hashPassword(password);
+    student.passwordSalt = hashed.salt;
+    student.passwordHash = hashed.hash;
+    saveStudents(students);
+    for (const [token, session] of sessions.entries()) {
+      if (session.role === "student" && session.username === phone) sessions.delete(token);
+    }
+    res.json({ ok: true, message: "Password reset successfully. You can now log in with your new password." });
+  } catch (error) {
+    res.status(503).json({ error: error.message || "Could not reset your password. Please try again later." });
+  }
+});
+
 // Student login is separate from staff/admin login.
 app.post("/api/student/login", (req, res) => {
   const phone = normalizeNigerianPhone(req.body.phone);

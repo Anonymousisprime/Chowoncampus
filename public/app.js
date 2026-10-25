@@ -80,8 +80,11 @@ function updateNavigation() {
   $("#dashboardNav").classList.toggle("hidden", !state.account);
 }
 
+const TAKEAWAY_FEE = 200;
+
 function cartSubtotal() {
-  return state.cart.reduce((sum, item) => sum + item.price * item.qty, 0);
+  const foodSubtotal = state.cart.reduce((sum, item) => sum + item.price * item.qty, 0);
+  return foodSubtotal + (state.cart.length ? TAKEAWAY_FEE : 0);
 }
 
 function renderRestaurants() {
@@ -250,6 +253,14 @@ function renderCart() {
           </div>
         </div>
       `).join("")}
+      <div class="cart-row mandatory-cart-item">
+        <div>
+          <h4>🛍️ Takeaway packaging <span class="muted">(required)</span></h4>
+          <p>One-time packaging fee</p>
+          <strong>${money(TAKEAWAY_FEE)}</strong>
+        </div>
+        <span class="tiny muted">Required</span>
+      </div>
     `;
   }
   refreshDeliveryQuote();

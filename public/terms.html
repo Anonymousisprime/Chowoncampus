@@ -5,9 +5,9 @@
 <meta name="description" content="Terms for using ChowOnCampus campus food discovery, ordering, restaurant, and delivery services.">
 <title>Terms of Service | ChowOnCampus</title>
 <style>
-:root{font-family:Inter,system-ui,Arial,sans-serif;color:#163426;background:#f2f8f4;line-height:1.65}*{box-sizing:border-box}body{margin:0;padding:24px}.wrap{width:min(100%,850px);margin:auto}.top{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:8px 0 24px}.brand,a{color:#176b45}.brand{font-weight:900;text-decoration:none;font-size:21px}.panel{background:#fff;border:1px solid #dce9df;border-radius:20px;padding:clamp(20px,5vw,36px)}h1{font-size:clamp(30px,6vw,42px);line-height:1.15;margin:8px 0}h2{margin-top:28px;font-size:21px}p,li{color:#4c6254}.note{background:#edf5ef;padding:14px;border-radius:12px}.updated,.foot{font-size:14px;color:#65776b}.foot{text-align:center;margin:22px 0}a:focus-visible{outline:3px solid #8bc7a2;outline-offset:3px}
+:root{font-family:Inter,system-ui,Arial,sans-serif;color:#163426;background:#f2f8f4;line-height:1.65}*{box-sizing:border-box}body{margin:0;padding:24px}.wrap{width:min(100%,850px);margin:auto}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0 24px}.top-actions{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.home-button{display:inline-block;background:#176b45;color:#fff;padding:10px 14px;border-radius:10px;text-decoration:none;font-weight:750}.home-button:hover{background:#105536}.brand,a{color:#176b45}.brand{font-weight:900;text-decoration:none;font-size:21px}.panel{background:#fff;border:1px solid #dce9df;border-radius:20px;padding:clamp(20px,5vw,36px)}h1{font-size:clamp(30px,6vw,42px);line-height:1.15;margin:8px 0}h2{margin-top:28px;font-size:21px}p,li{color:#4c6254}.note{background:#edf5ef;padding:14px;border-radius:12px}.updated,.foot{font-size:14px;color:#65776b}.foot{text-align:center;margin:22px 0}a:focus-visible{outline:3px solid #8bc7a2;outline-offset:3px}
 </style></head>
-<body><main class="wrap"><header class="top"><a class="brand" href="/">ChowOnCampus</a><a href="/support.html">Support</a></header>
+<body><main class="wrap"><header class="top"><a class="brand" href="/">ChowOnCampus</a><nav class="top-actions"><a class="home-button" href="/">← Back to Homepage</a><a href="/support.html">Support</a></nav></header>
 <article class="panel"><p class="updated">Last updated: 25 October 2026</p><h1>Terms of Service</h1>
 <p>These terms apply when you access or use ChowOnCampus. By using the service, you agree to follow these terms and applicable law. If you do not agree, do not use the service.</p>
 <p class="note"><strong>Current checkout notice:</strong> The website currently describes checkout as a demo and states that no real payment is collected through that form. Do not treat an on-screen order as proof that money has been paid.</p>
@@ -25,4 +25,17 @@
 <h2>12. Changes to these terms</h2><p>We may update these terms as the service evolves. We will update the revision date when the terms change. Continued use after an update is subject to applicable law and the updated terms.</p>
 <h2>13. Contact</h2><p>Questions or complaints: <a href="/support.html">ChowOnCampus Support</a>, <a href="tel:+2349131999590">09131999590</a>, or <a href="https://wa.me/2349131999590" target="_blank" rel="noopener noreferrer">WhatsApp</a>.</p>
 <p class="note">These terms are a general starting draft, not legal advice. The operator should obtain local legal review and ensure the wording matches the actual business model before taking real payments or launching commercially.</p>
-</article><footer class="foot">© 2026 ChowOnCampus · <a href="/privacy-policy.html">Privacy Policy</a> · <a href="/delivery-policy.html">Delivery &amp; Cancellation</a> · <a href="/support.html">Support</a></footer></main></body></html>
+</article><footer class="foot">© 2026 ChowOnCampus · <a href="/privacy-policy.html">Privacy Policy</a> · <a href="/delivery-policy.html">Delivery &amp; Cancellation</a> · <a href="/support.html">Support</a></footer></main><script>
+(function(){
+  const key="coc_read_terms_v1";
+  function markReadAtBottom(){
+    if(window.scrollY+window.innerHeight>=document.documentElement.scrollHeight-8){
+      localStorage.setItem(key,"yes");
+    }
+  }
+  window.addEventListener("scroll",markReadAtBottom,{passive:true});
+  window.addEventListener("resize",markReadAtBottom);
+  window.addEventListener("load",markReadAtBottom);
+  markReadAtBottom();
+})();
+</script></body></html>

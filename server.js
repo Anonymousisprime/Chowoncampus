@@ -1103,10 +1103,6 @@ async function paystackRequest(url, options = {}) {
 app.post("/api/orders/:id/paystack/initialize", requireRole("student"), async (req, res) => {
   if (!IS_PRODUCTION) return res.status(400).json({ error: "Use the local demo payment flow outside production." });
   if (!hasPaystackConfig()) return res.status(503).json({ error: "Online payments are not configured yet. Please contact support." });
-  const email = String(req.body.email || "").trim().toLowerCase();
-  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return res.status(400).json({ error: "Enter a valid email address for your payment receipt." });
-  }
   const orders = readOrders();
   const order = orders.find(item => item.id === req.params.id);
   if (!order) return res.status(404).json({ error: "Order not found." });
@@ -1116,6 +1112,10 @@ app.post("/api/orders/:id/paystack/initialize", requireRole("student"), async (r
   }
   if (order.paymentStatus === "Payment pending" && order.paystackReference && order.paystackAuthorizationUrl) {
     return res.json({ authorizationUrl: order.paystackAuthorizationUrl, reference: order.paystackReference, orderId: order.id });
+  }
+  const email = String(req.body.email || order.paymentEmail || "").trim().toLowerCase();
+  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: "Enter a valid email address for your payment receipt." });
   }
   if (order.status === "Cancelled") return res.status(400).json({ error: "This order has been cancelled." });
   if (!Number.isSafeInteger(Number(order.total)) || Number(order.total) <= 0) {

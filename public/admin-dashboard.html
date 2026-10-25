@@ -77,7 +77,7 @@ async function loadEarnings(){
     const agents=data.agents||[];
     $("#earningsAgentsBody").innerHTML=agents.length?agents.map(a=>{
       const none=Number(a.outstanding)<=0;
-      return '<tr><td><strong>'+esc(a.name)+'</strong><br><span class="muted">'+esc(a.username||a.id)+'</span></td><td>'+esc(a.completedDeliveries)+'</td><td>'+money(a.earned)+'</td><td>'+money(a.paid)+'</td><td><strong>'+money(a.outstanding)+'</strong></td><td><form data-agent-payment-form="'+esc(a.id)+'" style="display:grid;gap:7px;min-width:230px"><label>Amount (₦)<input class="search" name="amount" type="number" min="1" max="'+Math.max(0,Number(a.outstanding)||0)+'" step="1" value="'+Math.max(0,Number(a.outstanding)||0)+'" required '+(none?'disabled':'')+'></label><label>Transfer reference<input class="search" name="reference" maxlength="120" placeholder="Optional" '+(none?'disabled':'')+'></label><label>Note<input class="search" name="note" maxlength="300" placeholder="Optional" '+(none?'disabled':'')+'></label><button class="btn primary" type="submit" '+(none?'disabled':'')+'>'+(none?'No balance due':'Record payment')+'</button></form></td></tr>';
+      return '<tr><td><strong>'+esc(a.name)+'</strong><br><span class="muted">'+esc(a.username||a.id)+'</span></td><td>'+esc(a.completedDeliveries)+'</td><td>'+money(a.earned)+'</td><td>'+money(a.paid)+'</td><td><strong>'+money(a.outstanding)+'</strong></td><td><button type="button" class="btn primary" data-toggle-payment="'+esc(a.id)+'" '+(none?'disabled':'')+'>'+(none?'No balance due':'Record payment')+'</button><form data-agent-payment-form="'+esc(a.id)+'" style="display:none;gap:7px;min-width:230px;margin-top:10px"><label>Amount (₦)<input class="search" name="amount" type="number" min="1" max="'+Math.max(0,Number(a.outstanding)||0)+'" step="1" value="'+Math.max(0,Number(a.outstanding)||0)+'" required '+(none?'disabled':'')+'></label><label>Transfer reference<input class="search" name="reference" maxlength="120" placeholder="Optional" '+(none?'disabled':'')+'></label><label>Note<input class="search" name="note" maxlength="300" placeholder="Optional" '+(none?'disabled':'')+'></label><div class="tools"><button class="btn primary" type="submit" '+(none?'disabled':'')+'>Save payment record</button><button class="btn light" type="button" data-cancel-payment="'+esc(a.id)+'">Cancel</button></div></form></td></tr>';
     }).join(""):'<tr><td colspan="6" class="empty">No delivery agents have been added yet.</td></tr>';
     const payments=data.payments||[];
     $("#earningsPaymentsBody").innerHTML=payments.length?payments.map(p=>'<tr><td>'+esc(p.paidAt?date(p.paidAt):"—")+'</td><td>'+esc(p.agentName||"Delivery agent")+'</td><td><strong>'+money(p.amount)+'</strong></td><td>'+esc(p.reference||"—")+'</td><td>'+esc(p.note||"—")+'</td><td>'+esc(p.paidBy||"—")+'</td></tr>').join(""):'<tr><td colspan="6" class="empty">No payment records for this month.</td></tr>';
@@ -85,6 +85,23 @@ async function loadEarnings(){
   }catch(error){status.className="status error";status.textContent=error.message||"Could not load monthly earnings.";}
 }
 $("#refreshEarnings").addEventListener("click",loadEarnings);
+$("#payrollPanel").addEventListener("click",event=>{
+  const openButton=event.target.closest("[data-toggle-payment]");
+  if(openButton){
+    const id=openButton.dataset.togglePayment;
+    const form=$("#earningsAgentsBody").querySelector('[data-agent-payment-form="'+CSS.escape(id)+'"]');
+    if(form){form.style.display="grid";openButton.style.display="none";const amount=form.querySelector('[name="amount"]');if(amount)amount.focus();}
+    return;
+  }
+  const cancelButton=event.target.closest("[data-cancel-payment]");
+  if(cancelButton){
+    const id=cancelButton.dataset.cancelPayment;
+    const form=$("#earningsAgentsBody").querySelector('[data-agent-payment-form="'+CSS.escape(id)+'"]');
+    const openButton=$("#earningsAgentsBody").querySelector('[data-toggle-payment="'+CSS.escape(id)+'"]');
+    if(form){form.reset();form.style.display="none";}
+    if(openButton)openButton.style.display="";
+  }
+});
 $("#earningsMonth").value=currentMonthKey();
 $("#payrollPanel").addEventListener("submit",async event=>{
   const form=event.target.closest("[data-agent-payment-form]");

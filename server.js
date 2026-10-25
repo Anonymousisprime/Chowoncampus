@@ -1513,6 +1513,56 @@ app.get("/api/admin/restaurants", requireRole("admin"), (req, res) => {
 });
 
 // Admin-only restaurant deletion. Completed order history is preserved.
+// Admin-only location overview. Student pins are their latest saved delivery points;
+ // agent GPS is shown only while the agent is online; restaurant pins are pickup locations.
+app.get("/api/admin/locations", requireRole("admin"), (req, res) => {
+  try {
+    const orders = readOrders().slice().sort((a, b) =>
+      new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    );
+    const students = readStudents().map(student => {
+      const latestOrder = orders.find(order => order.customerPhone === student.phone &&
+        Number.isFinite(Number(order.deliveryLocation?.latitude)) &&
+        Number.isFinite(Number(order.deliveryLocation?.longitude)) &&
+        order.deliveryLocation?.latitude !== null && order.deliveryLocation?.longitude !== null);
+      const pin = latestOrder ? latestOrder.deliveryLocation : null;
+      return {
+        id: student.id,
+        name: student.name,
+        username: student.username || student.phone,
+        latitude: pin ? Number(pin.latitude) : null,
+        longitude: pin ? Number(pin.longitude) : null,
+        locationLabel: pin ? (latestOrder.hostel || pin.hostel || "Saved delivery point") : "",
+        updatedAt: pin ? (latestOrder.updatedAt || latestOrder.createdAt || null) : null,
+        locationType: "latest-delivery-pin"
+      };
+    });
+    const agentRows = readAgentRecords().map(agent => ({
+      id: agent.id,
+      name: agent.name,
+      username: agent.username,
+      online: Boolean(agent.online),
+      latitude: agent.online && Number.isFinite(Number(agent.latitude)) ? Number(agent.latitude) : null,
+      longitude: agent.online && Number.isFinite(Number(agent.longitude)) ? Number(agent.longitude) : null,
+      updatedAt: agent.online ? (agent.locationUpdatedAt || null) : null,
+      locationType: "agent-gps"
+    }));
+    const restaurantRows = restaurants.map(restaurant => ({
+      id: restaurant.id,
+      name: restaurant.name,
+      locationLabel: restaurant.location || "",
+      latitude: Number.isFinite(Number(restaurant.latitude)) ? Number(restaurant.latitude) : null,
+      longitude: Number.isFinite(Number(restaurant.longitude)) ? Number(restaurant.longitude) : null,
+      updatedAt: restaurantLocationCoordinates[restaurant.id]?.updatedAt || null,
+      locationType: "restaurant-pickup"
+    }));
+    res.json({ students, agents: agentRows, restaurants: restaurantRows });
+  } catch (error) {
+    console.error("Could not load admin location overview:", error.message);
+    res.status(500).json({ error: "Could not load location data. Please refresh and try again." });
+  }
+});
+
 app.delete("/api/admin/restaurants/:id", requireRole("admin"), (req, res) => {
   const restaurantId = String(req.params.id || "");
   const restaurant = restaurants.find(item => item.id === restaurantId);

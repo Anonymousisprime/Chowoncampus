@@ -462,6 +462,7 @@ function renderTrackedOrder(order) {
       <p>Payment: <strong>${escapeHtml(order.paymentStatus || "Check with the restaurant")}</strong></p>
       <p class="tiny muted">Last updated: ${escapeHtml(new Date(order.updatedAt || order.createdAt).toLocaleString())}</p>
       ${isLocalDemo && order.paymentStatus === "Unpaid — demo only" ? `<button class="primary-button" data-demo-pay="${escapeHtml(order.id)}">Simulate demo payment (no money charged)</button>` : ""}
+      ${state.account?.role === "student" && !isLocalDemo && !["Paid — Paystack verified", "Paid — demo verified"].includes(order.paymentStatus) && order.status !== "Cancelled" ? `<button class="primary-button" data-pay-order="${escapeHtml(order.id)}">Continue secure payment</button>` : ""}
       <p class="tiny muted">Tracking refreshes automatically every 15 seconds while this page is open.</p>
       ${state.account?.role === "student" && ["Ready for pickup", "Out for delivery"].includes(order.status) ? '<section style="margin-top:18px;padding:16px;border:1px solid #dce9df;border-radius:14px;background:#f8fbf8"><h4>Temporary delivery chat</h4><p class="tiny muted">Chat with your assigned delivery agent. Messages are automatically deleted when delivery is completed or cancelled.</p><div id="customerChatMessages" aria-live="polite" style="max-height:240px;overflow:auto;display:grid;gap:8px;margin:12px 0"><p class="tiny muted">Loading chat…</p></div><form id="customerChatForm" data-chat-order="${escapeHtml(order.id)}" style="display:flex;gap:8px;flex-wrap:wrap"><input name="message" maxlength="500" required placeholder="Message your delivery agent…" style="flex:1;min-width:180px;padding:12px;border:1px solid #cbd9cf;border-radius:10px;font:inherit"><button class="primary-button" type="submit">Send</button></form><p id="customerChatStatus" class="tiny muted" role="status"></p></section>' : ""}
     </article>`;
@@ -1318,6 +1319,24 @@ async function initialize() {
 
     const demoPayButton = event.target.closest("[data-demo-pay]");
     if (demoPayButton) await simulatePayment(demoPayButton.dataset.demoPay);
+
+    const payOrderButton = event.target.closest("[data-pay-order]");
+    if (payOrderButton) {
+      payOrderButton.disabled = true;
+      payOrderButton.textContent = "Opening secure checkout…";
+      try {
+        const payment = await api("/api/orders/" + encodeURIComponent(payOrderButton.dataset.payOrder) + "/paystack/initialize", {
+          method: "POST",
+          body: JSON.stringify({ email: $("#paymentEmail")?.value?.trim() || "" })
+        });
+        location.href = payment.authorizationUrl;
+      } catch (error) {
+        showToast(error.message);
+        payOrderButton.disabled = false;
+        payOrderButton.textContent = "Continue secure payment";
+      }
+      return;
+    }
 
     if (event.target.closest("#brandHome")) {
       state.selectedRestaurantId = null;

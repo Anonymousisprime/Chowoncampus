@@ -52,6 +52,52 @@ input,select,textarea,button{max-width:100%}
  .panel-head>.btn,.panel-head .tools>*{width:100%}
 }
 
+
+/* Mobile usability: keep the dashboard scannable and let admins open one workspace at a time. */
+.section-toggle{display:none;border:1px solid #cfe0d3;background:#f3f8f4;color:#176b45;border-radius:9px;padding:9px 12px;font:inherit;font-size:13px;font-weight:750;cursor:pointer;white-space:nowrap}
+.section-toggle:focus-visible{outline:3px solid #78b89a;outline-offset:2px}
+@media(max-width:700px){
+  .top{padding:12px;gap:12px}
+  .brand{font-size:18px}
+  .top-right{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+  .top-right .btn{padding:10px 8px;font-size:13px;line-height:1.25;min-height:42px}
+  .wrap{padding:14px 10px 28px}
+  .heading{gap:6px}
+  .heading .muted{font-size:13px;margin:6px 0}
+  .cards{margin:14px 0;gap:8px}
+  .metric{border-radius:12px;padding:12px}
+  .metric small{font-size:12px;line-height:1.35;display:block}
+  .metric strong{margin-top:5px;font-size:24px}
+  .panel{margin:10px 0;border-radius:13px}
+  .panel-head{padding:12px;gap:8px;align-items:center}
+  .panel-head>div{flex:1 1 100%;min-width:0}
+  .panel-head h2{font-size:16px;line-height:1.3}
+  .panel-head .muted{font-size:12px;margin:5px 0 0}
+  .section-toggle{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+  .panel.mobile-collapsed>:not(.panel-head){display:none!important}
+  .panel.mobile-collapsed{overflow:hidden}
+  .panel .table-wrap{border-top:0}
+  .table-wrap table{min-width:680px}
+  th,td{padding:10px 11px;font-size:13px}
+  .panel>div[style*="padding:18px 20px"]{padding:12px!important}
+  .panel form[style*="padding:18px"]{padding:12px!important}
+  .panel .cards{margin:12px 0}
+  .panel .status{padding:10px 12px;font-size:12px}
+  .location-lists{padding:10px;gap:8px}
+  #locationsMap{height:300px;min-height:250px}
+  .location-legend{font-size:12px}
+  .mobile-note{padding:0 12px 12px;line-height:1.45}
+  .tools .search,.tools select,.tools input{flex:1 1 100%;width:100%}
+  .tools .btn{flex:1 1 auto;min-height:40px}
+}
+@media(max-width:380px){
+  .top-right{grid-template-columns:1fr}
+  .cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .metric strong{font-size:22px}
+  .panel-head{flex-wrap:wrap}
+  .section-toggle{width:100%}
+}
+
 </style>
 </head>
 <body>
@@ -86,7 +132,49 @@ input,select,textarea,button{max-width:100%}
 </main>
 <div class="reset-overlay" id="resetPasswordOverlay" role="dialog" aria-modal="true" aria-labelledby="resetPasswordTitle"><form class="reset-dialog" id="resetPasswordForm"><h2 id="resetPasswordTitle">Reset account password</h2><p class="muted" id="resetPasswordTarget">Set a temporary password for this account.</p><label for="resetPasswordInput">Temporary password</label><input class="search" id="resetPasswordInput" name="password" type="password" required minlength="10" maxlength="128" autocomplete="new-password" placeholder="At least 10 characters"><p class="muted" id="resetPasswordMessage" role="status">The account will be signed out of active sessions.</p><div class="reset-actions"><button class="btn primary" id="confirmPasswordReset" type="submit">Reset password</button><button class="btn light" id="cancelPasswordReset" type="button">Cancel</button></div><input type="hidden" id="resetPasswordRole"><input type="hidden" id="resetPasswordId"></form></div>
 <script>
+
 const $=s=>document.querySelector(s);let orders=[],students=[],restaurants=[],agents=[],admins=[],isSuperAdmin=false;
+
+// On phones, make each dashboard workspace collapsible so the page is not one
+// overwhelming wall of tables. Desktop keeps every panel open as before.
+(function setupMobilePanels(){
+  const mobile=window.matchMedia("(max-width: 700px)");
+  const panels=[...document.querySelectorAll("main.wrap .panel")];
+  panels.forEach((panel,index)=>{
+    const head=panel.querySelector(":scope > .panel-head");
+    if(!head)return;
+    const toggle=document.createElement("button");
+    toggle.type="button";
+    toggle.className="section-toggle";
+    toggle.setAttribute("aria-controls","mobile-panel-"+index);
+    toggle.textContent="Open section";
+    const bodyChildren=[...panel.children].filter(child=>child!==head);
+    bodyChildren.forEach(child=>{if(!child.id)child.dataset.mobilePanelBody=String(index);});
+    panel.id=panel.id||"mobile-panel-"+index;
+    toggle.setAttribute("aria-controls",panel.id);
+    toggle.addEventListener("click",()=>{
+      const collapsed=panel.classList.toggle("mobile-collapsed");
+      toggle.textContent=collapsed?"Open section":"Hide section";
+      toggle.setAttribute("aria-expanded",String(!collapsed));
+    });
+    head.appendChild(toggle);
+    const applyMode=()=>{
+      if(mobile.matches){
+        panel.classList.add("mobile-collapsed");
+        toggle.textContent="Open section";
+        toggle.setAttribute("aria-expanded","false");
+      }else{
+        panel.classList.remove("mobile-collapsed");
+        toggle.textContent="Hide section";
+        toggle.setAttribute("aria-expanded","true");
+      }
+    };
+    applyMode();
+    if(mobile.addEventListener)mobile.addEventListener("change",applyMode);
+    else mobile.addListener(applyMode);
+  });
+})();
+
 const money=n=>new Intl.NumberFormat("en-NG",{style:"currency",currency:"NGN",maximumFractionDigits:0}).format(Number(n)||0);
 const date=v=>v?new Date(v).toLocaleString():"—";
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));

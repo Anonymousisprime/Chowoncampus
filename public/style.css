@@ -644,3 +644,55 @@ button,input,select,textarea{max-width:100%;font:inherit}
  .cart-row{grid-template-columns:minmax(0,1fr);gap:8px}
  .quantity{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 }
+
+
+/* Responsive usability pass: restaurant dashboard and shared ordering views */
+html,body{max-width:100%;overflow-x:hidden}
+body{min-width:0}
+button,input,select,textarea{max-width:100%;min-width:0}
+.restaurant-welcome,.restaurant-metrics,.dashboard-order-section,.dashboard-section-heading,
+.restaurant-menu-manager,.restaurant-location-manager,.rating-panel,.ratings-dashboard{min-width:0;max-width:100%}
+.dashboard-order-section{overflow-wrap:anywhere}
+.dashboard-section-heading>div{min-width:0}
+.dashboard-section-heading p,.restaurant-welcome p{overflow-wrap:anywhere}
+.dashboard-order-section table{width:max-content;min-width:100%}
+.dashboard-order-section .table-wrap,
+.dashboard-order-section [style*="overflow-x:auto"],
+.restaurant-menu-manager [style*="overflow-x:auto"]{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
+.restaurant-menu-manager input,.restaurant-menu-manager select,
+.restaurant-location-manager input,.restaurant-location-manager select{width:100%;max-width:100%;box-sizing:border-box}
+.restaurant-menu-manager form,.restaurant-location-manager form{min-width:0;max-width:100%}
+@media(max-width:760px){
+  .site-header,.navbar{min-width:0;max-width:100%}
+  .navbar{align-items:flex-start;flex-wrap:wrap;gap:10px}
+  .nav-actions{width:100%;max-width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .nav-actions>*{min-width:0;max-width:100%;white-space:normal;text-align:center;justify-content:center;overflow-wrap:anywhere}
+  main,.view,.dashboard-view{min-width:0;max-width:100%}
+  .restaurant-welcome{padding:16px;border-radius:15px;gap:14px}
+  .restaurant-welcome h2{font-size:clamp(1.25rem,5vw,1.7rem);overflow-wrap:anywhere}
+  .restaurant-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .restaurant-metrics article{padding:12px;min-width:0}
+  .restaurant-metrics strong{font-size:clamp(1.1rem,5vw,1.5rem);overflow-wrap:anywhere}
+  .dashboard-order-section{margin:18px 0}
+  .dashboard-section-heading{align-items:flex-start;flex-wrap:wrap}
+  .dashboard-section-heading>*{min-width:0;max-width:100%}
+  .dashboard-section-heading button,.dashboard-section-heading .button{width:100%}
+  .restaurant-menu-manager,.restaurant-location-manager,.rating-panel{padding:12px}
+  .menu-editor-row{grid-template-columns:minmax(0,1fr)!important;align-items:stretch}
+  .menu-editor-row label:first-of-type{grid-column:auto}
+  .menu-editor-row>*{min-width:0;width:100%}
+  .menu-editor-actions{display:flex;flex-wrap:wrap;gap:8px}
+  .menu-editor-actions>*{flex:1 1 140px;min-width:0}
+  .dashboard-chat-form{display:grid;grid-template-columns:minmax(0,1fr)}
+  .dashboard-chat-form input,.dashboard-chat-form button{width:100%;min-width:0}
+  .dashboard-order-section table{min-width:620px}
+  .delivery-location-grid{grid-template-columns:minmax(0,1fr)}
+}
+@media(max-width:420px){
+  .nav-actions{grid-template-columns:minmax(0,1fr)}
+  .restaurant-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .restaurant-metrics article{padding:10px}
+  .restaurant-metrics small{font-size:.75rem}
+  .menu-editor-actions{flex-direction:column;align-items:stretch}
+  .menu-editor-actions>*{width:100%;flex:1 1 auto}
+}

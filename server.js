@@ -1095,7 +1095,9 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
 
 // Paystack checkout is initialized server-side; the secret key is never sent to the browser.
 function hasPaystackConfig() {
-  return Boolean(process.env.PAYSTACK_SECRET_KEY && /^sk_(test|live)_/.test(process.env.PAYSTACK_SECRET_KEY));
+  const key = String(process.env.PAYSTACK_SECRET_KEY || "").trim();
+  // Production checkout must never silently run with a test key.
+  return IS_PRODUCTION ? /^sk_live_/.test(key) : /^sk_test_/.test(key);
 }
 
 // Each restaurant has its own Paystack subaccount. Keep these codes in Render environment

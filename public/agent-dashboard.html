@@ -1,6 +1,48 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#176b45"><title>Delivery dashboard | Chowoncampus</title>
-<style>:root{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#163426;background:#f3f7f4}*{box-sizing:border-box}body{margin:0}.top{background:#fff;border-bottom:1px solid #dfe9e1;padding:16px clamp(16px,4vw,40px);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.brand{font-size:20px;font-weight:900;color:#176b45;text-decoration:none}.btn{border:0;border-radius:10px;padding:12px 16px;font:inherit;font-weight:750;cursor:pointer}.primary{background:#176b45;color:white}.light{background:#eaf3ed;color:#176b45}.wrap{max-width:1000px;margin:auto;padding:28px 16px 60px}h1{margin:6px 0}.muted{color:#687a6e;line-height:1.55}.panel{background:#fff;border:1px solid #e0e9e2;border-radius:16px;padding:20px;margin:16px 0}.row{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}.pill{display:inline-block;border-radius:999px;padding:6px 11px;background:#edf4ef;color:#286542;font-size:13px;font-weight:800}.pill.off{background:#fff3d8;color:#825b12}.order{border-top:1px solid #e8eee9;padding:18px 0}.order:first-child{border-top:0}.order h3{overflow-wrap:anywhere}.details{background:#f8fbf8;border-radius:12px;padding:14px;margin:12px 0;line-height:1.7}.actions{display:flex;gap:10px;flex-wrap:wrap}.actions button{flex:1;min-width:180px}.status{margin-top:12px;min-height:24px}.error{color:#a12c2c}.empty{padding:30px 10px;text-align:center;color:#687a6e}.field{display:grid;gap:7px;margin:12px 0}.field label{font-weight:750}.field input{width:100%;padding:12px;border:1px solid #cbd9cf;border-radius:10px;font:inherit}.stat{display:flex;align-items:center;justify-content:space-between;gap:14px;background:#f4faf5;border:1px solid #dcebe0;border-radius:12px;padding:16px}.stat-number{font-size:30px;font-weight:900;color:#176b45}.form-actions{display:flex;gap:10px;flex-wrap:wrap}.form-actions button{min-width:160px}@media(max-width:480px){.top{align-items:flex-start}.top .btn{width:100%}.panel{padding:16px}}</style></head>
+<style>:root{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#163426;background:#f3f7f4}*{box-sizing:border-box}body{margin:0}.top{background:#fff;border-bottom:1px solid #dfe9e1;padding:16px clamp(16px,4vw,40px);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.brand{font-size:20px;font-weight:900;color:#176b45;text-decoration:none}.btn{border:0;border-radius:10px;padding:12px 16px;font:inherit;font-weight:750;cursor:pointer}.primary{background:#176b45;color:white}.light{background:#eaf3ed;color:#176b45}.wrap{max-width:1000px;margin:auto;padding:28px 16px 60px}h1{margin:6px 0}.muted{color:#687a6e;line-height:1.55}.panel{background:#fff;border:1px solid #e0e9e2;border-radius:16px;padding:20px;margin:16px 0}.row{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}.pill{display:inline-block;border-radius:999px;padding:6px 11px;background:#edf4ef;color:#286542;font-size:13px;font-weight:800}.pill.off{background:#fff3d8;color:#825b12}.order{border-top:1px solid #e8eee9;padding:18px 0}.order:first-child{border-top:0}.order h3{overflow-wrap:anywhere}.details{background:#f8fbf8;border-radius:12px;padding:14px;margin:12px 0;line-height:1.7}.actions{display:flex;gap:10px;flex-wrap:wrap}.actions button{flex:1;min-width:180px}.status{margin-top:12px;min-height:24px}.error{color:#a12c2c}.empty{padding:30px 10px;text-align:center;color:#687a6e}.field{display:grid;gap:7px;margin:12px 0}.field label{font-weight:750}.field input{width:100%;padding:12px;border:1px solid #cbd9cf;border-radius:10px;font:inherit}.stat{display:flex;align-items:center;justify-content:space-between;gap:14px;background:#f4faf5;border:1px solid #dcebe0;border-radius:12px;padding:16px}.stat-number{font-size:30px;font-weight:900;color:#176b45}.form-actions{display:flex;gap:10px;flex-wrap:wrap}.form-actions button{min-width:160px}@media(max-width:480px){.top{align-items:flex-start}.top .btn{width:100%}.panel{padding:16px}}
+/* Mobile dashboard layout fixes */
+html{width:100%;overflow-x:hidden;scroll-padding-top:16px}
+body{width:100%;min-width:0;overflow-x:hidden}
+.top{width:100%;padding:12px;gap:10px}
+.top>a{overflow-wrap:anywhere}
+.top>.row{width:100%;min-width:0;gap:8px}
+.top>.row>*{min-width:0}
+.wrap{width:100%;min-width:0;padding:16px 10px 32px}
+.panel{min-width:0;width:100%;padding:14px;margin:12px 0}
+.row{min-width:0;max-width:100%;gap:10px}
+.row>div{min-width:0;max-width:100%}
+.stat{min-width:0!important;max-width:100%;flex:1 1 100%;flex-wrap:wrap}
+.stat-number{overflow-wrap:anywhere}
+.tools{display:flex;flex-wrap:wrap;gap:8px;min-width:0;max-width:100%}
+.tools>*{min-width:0;max-width:100%}
+input,select,textarea,button{max-width:100%}
+table{width:max-content;min-width:100%}
+@media(max-width:600px){
+ .top{align-items:stretch}
+ .top>.row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+ #agentName{grid-column:1/-1;overflow-wrap:anywhere}
+ .top .btn{width:100%;white-space:normal}
+ .wrap>h1{font-size:clamp(24px,7vw,32px)}
+ .panel>.row{align-items:stretch}
+ .panel>.row>div{flex:1 1 100%}
+ .panel>.row>.stat{flex:1 1 100%}
+ .actions{display:grid;grid-template-columns:minmax(0,1fr)}
+ .actions button{width:100%;min-width:0}
+ .form-actions{display:grid;grid-template-columns:minmax(0,1fr)}
+ .form-actions button{width:100%;min-width:0}
+ .tools>*{flex:1 1 130px}
+ #agentEarningsTotals.cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .panel h2{font-size:18px;overflow-wrap:anywhere}
+ .details{padding:11px;overflow-wrap:anywhere}
+}
+@media(max-width:360px){
+ .top>.row{grid-template-columns:minmax(0,1fr)}
+ #agentName{grid-column:auto}
+ #agentEarningsTotals.cards{grid-template-columns:minmax(0,1fr)}
+}
+
+</style></head>
 <body><header class="top"><a class="brand" href="/">Chowoncampus · Delivery</a><div class="row"><span id="agentName" class="muted">Loading agent…</span><button class="btn light" id="openChangePassword" type="button">Change password</button><button class="btn light" id="logout">Log out</button></div></header>
 <main class="wrap"><h1>Delivery dashboard</h1><p class="muted">Go online when you're ready to receive deliveries. Orders marked ready for pickup are assigned automatically.</p>
 <section class="panel"><div class="row"><div><strong>Your availability</strong><p id="availabilityHelp" class="muted">Loading availability…</p></div><div class="row"><span id="availabilityPill" class="pill off">Offline</span><button class="btn primary" id="toggleOnline">Go online</button></div></div><p id="pageMessage" class="status" role="status"></p></section>

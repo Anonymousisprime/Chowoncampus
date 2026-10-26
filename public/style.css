@@ -610,3 +610,37 @@ button,a{ -webkit-tap-highlight-color:transparent; }
 
 .public-rating{font-size:.9rem;font-weight:700;margin:6px 0;color:#b77908}
 .food-public-rating{font-size:.82rem;font-weight:600;margin:5px 0 8px}
+
+
+/* Mobile usability fixes for restaurant-facing dashboard and campus ordering */
+html{max-width:100%;overflow-x:hidden}
+body{min-width:0;max-width:100%;overflow-x:hidden}
+img,video,iframe,svg,canvas{max-width:100%}
+button,input,select,textarea{max-width:100%;font:inherit}
+.topbar{flex-wrap:wrap;gap:10px}
+.topbar nav{flex-wrap:wrap;min-width:0;max-width:100%}
+.panel,.restaurant-card,.food-card,.order-card,.cart-layout>*,.checkout-form>*{min-width:0}
+@media(max-width:760px){
+ .topbar{position:relative;align-items:flex-start;padding:12px 4%}
+ .topbar nav{width:100%;display:flex;flex-wrap:wrap;gap:6px}
+ .topbar nav>*{flex:1 1 auto;min-width:0;text-align:center}
+ .hero{grid-template-columns:minmax(0,1fr);min-height:0;margin-top:16px;border-radius:18px;padding:24px 18px}
+ .hero-art{min-height:180px}
+ .hero-meta{gap:10px}
+ .restaurant-grid,.food-grid,.cart-layout{grid-template-columns:minmax(0,1fr)}
+ .section-heading{align-items:flex-start;flex-wrap:wrap;gap:10px;margin:28px 0 14px}
+ .panel{padding:15px}
+ .cart-section{margin:32px 0}
+ .food-card,.restaurant-card{min-width:0}
+ .food-card>*{min-width:0}
+ .checkout-form input,.checkout-form select,.checkout-form textarea,.login-form input{width:100%;min-width:0}
+}
+@media(max-width:420px){
+ .topbar nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+ .brand-mark{width:36px;height:36px}
+ .hero{padding:20px 14px}
+ .panel{padding:12px}
+ .restaurant-grid,.food-grid{gap:12px}
+ .cart-row{grid-template-columns:minmax(0,1fr);gap:8px}
+ .quantity{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+}

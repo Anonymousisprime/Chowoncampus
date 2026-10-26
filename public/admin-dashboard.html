@@ -5,6 +5,53 @@
 <meta name="theme-color" content="#176b45"><title>Admin dashboard | Chowoncampus</title><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <style>
 :root{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#163426;background:#f3f7f4}*{box-sizing:border-box}body{margin:0}.top{background:#fff;border-bottom:1px solid #dfe9e1;padding:16px clamp(16px,4vw,48px);display:flex;align-items:center;justify-content:space-between;gap:16px;position:sticky;top:0;z-index:2}.brand{font-size:20px;font-weight:900;color:#176b45;text-decoration:none}.brand span{color:#163426}.top-right{display:flex;gap:10px;align-items:center}.btn{border:0;border-radius:10px;padding:10px 14px;font:inherit;font-weight:700;cursor:pointer}.btn.primary{background:#176b45;color:#fff}.btn.light{background:#eaf3ed;color:#176b45}.wrap{max-width:1400px;margin:auto;padding:28px clamp(14px,3vw,36px) 60px}.heading{display:flex;justify-content:space-between;align-items:end;gap:16px;flex-wrap:wrap}.eyebrow{color:#258257;font-size:12px;font-weight:800;letter-spacing:.12em}h1{margin:6px 0;font-size:clamp(26px,4vw,38px)}.muted{color:#687a6e;line-height:1.5}.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:24px 0}.metric{background:white;border:1px solid #e0e9e2;border-radius:16px;padding:20px}.metric small{color:#687a6e;font-weight:650}.metric strong{display:block;font-size:30px;margin-top:8px}.panel{background:white;border:1px solid #e0e9e2;border-radius:16px;margin:18px 0;overflow:hidden}.panel-head{padding:18px 20px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border-bottom:1px solid #e8eee9}.panel-head h2{font-size:19px;margin:0}.tools{display:flex;gap:8px;flex-wrap:wrap}.search,select{font:inherit;padding:10px 12px;border:1px solid #cfddd2;border-radius:10px;background:#fff;max-width:100%}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:760px}th,td{text-align:left;padding:13px 16px;border-bottom:1px solid #edf1ee;font-size:14px;vertical-align:top}th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#65786b;background:#f9fbf9}tbody tr:hover{background:#fbfdfb}.pill{display:inline-block;border-radius:999px;padding:5px 9px;background:#edf4ef;color:#286542;font-size:12px;font-weight:750;white-space:nowrap}.pill.warn{background:#fff3d8;color:#825b12}.pill.danger{background:#ffeded;color:#9d3333}.empty{padding:26px;text-align:center;color:#687a6e}.status{padding:12px 16px;color:#687a6e}.error{color:#a12c2c}.mobile-note{font-size:12px;color:#687a6e;padding:0 16px 12px}#locationsMap{height:440px;min-height:320px;width:100%;background:#eaf2ed} .location-legend{display:flex;gap:14px;flex-wrap:wrap;padding:0 20px 16px;color:#52675a;font-size:13px}.legend-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}.location-lists{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;padding:18px 20px}.location-list{border:1px solid #e0e9e2;border-radius:12px;padding:12px}.location-list h3{margin:0 0 10px;font-size:15px}.location-item{font-size:13px;line-height:1.45;padding:9px 0;border-top:1px solid #edf1ee}.location-item:first-of-type{border-top:0}.location-item strong{display:block}.reset-overlay{position:fixed;inset:0;background:#10251bc9;display:none;align-items:center;justify-content:center;padding:18px;z-index:20}.reset-dialog{width:min(100%,480px);background:#fff;border-radius:16px;padding:22px;box-shadow:0 24px 80px #0004}.reset-dialog h2{margin:0 0 8px}.reset-dialog label{display:block;font-weight:700;margin-top:14px}.reset-dialog input{display:block;width:100%;margin-top:6px}.reset-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}.reset-actions button{flex:1}@media(max-width:850px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:480px){.cards{gap:8px}.metric{padding:14px}.metric strong{font-size:25px}.top{align-items:flex-start}.top-right{flex-direction:column;align-items:stretch}}
+
+/* Mobile dashboard layout fixes */
+html{width:100%;overflow-x:hidden;scroll-padding-top:90px}
+body{width:100%;min-width:0;overflow-x:hidden}
+.top{padding:12px clamp(12px,3vw,28px);flex-wrap:wrap}
+.brand{min-width:0;overflow-wrap:anywhere}
+.top-right{display:flex;flex-wrap:wrap;gap:8px;max-width:100%}
+.top-right .btn{white-space:normal;max-width:100%;text-align:center}
+.wrap{width:100%;min-width:0;padding:20px clamp(10px,3vw,24px) 40px}
+.panel,.panel-head,.panel-head>div,.heading,.tools{min-width:0;max-width:100%}
+.panel-head{align-items:flex-start}
+.panel-head>div{flex:1 1 220px}
+.tools{flex-wrap:wrap}
+.tools .search,.tools select,.tools input{min-width:0;max-width:100%}
+.table-wrap{width:100%;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.table-wrap table{width:max-content;min-width:100%;white-space:normal}
+input,select,textarea,button{max-width:100%}
+#locationsMap{max-width:100%;height:clamp(260px,55vh,440px)}
+@media(max-width:700px){
+ .top{position:relative;align-items:stretch;gap:10px}
+ .top-right{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch}
+ .top-right>*{width:100%;min-width:0;justify-content:center}
+ .wrap{padding:16px 10px 32px}
+ .heading{align-items:flex-start}
+ .heading h1{font-size:clamp(24px,7vw,32px);overflow-wrap:anywhere}
+ .cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+ .metric{min-width:0;padding:12px}
+ .metric strong{font-size:clamp(21px,6vw,28px);overflow-wrap:anywhere}
+ .panel{border-radius:12px;margin:12px 0}
+ .panel-head{padding:14px;gap:10px}
+ .panel-head h2{font-size:17px;overflow-wrap:anywhere}
+ .panel>div[style*="padding:18px 20px"]{padding:12px!important}
+ .location-lists{grid-template-columns:minmax(0,1fr);padding:12px;gap:10px}
+ .location-legend{padding:0 12px 12px;gap:8px}
+ .reset-dialog{padding:16px}
+ .reset-actions{flex-direction:column}
+ .reset-actions button{width:100%}
+ .tools{width:100%}
+ .tools .btn,.tools input,.tools select{flex:1 1 140px}
+}
+@media(max-width:380px){
+ .top-right{grid-template-columns:minmax(0,1fr)}
+ .cards{grid-template-columns:minmax(0,1fr)}
+ .panel-head{flex-direction:column;align-items:stretch}
+ .panel-head>.btn,.panel-head .tools>*{width:100%}
+}
+
 </style>
 </head>
 <body>

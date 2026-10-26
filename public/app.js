@@ -227,12 +227,14 @@ function renderCart() {
   const quoteMatchesCart = state.deliveryQuote &&
     state.cart.length && state.deliveryQuote.restaurantId === state.cart[0].restaurantId;
   const delivery = state.cart.length ? 300 : 0;
+  const paymentFee = state.cart.length ? Math.round((subtotal + delivery) * 0.01) : 0;
 
   $("#cartCount").textContent = count;
   $("#cartHeadingCount").textContent = `(${count})`;
   $("#subtotal").textContent = money(subtotal);
   $("#deliveryFee").textContent = money(delivery);
-  $("#grandTotal").textContent = money(subtotal + delivery);
+  $("#paymentFee").textContent = money(paymentFee);
+  $("#grandTotal").textContent = money(subtotal + delivery + paymentFee);
 
   if (!state.cart.length) {
     $("#cartItems").innerHTML = `<p class="muted">Your bag is empty. Add something delicious!</p>`;
@@ -277,13 +279,17 @@ function updateDeliveryQuoteDisplay(quote) {
   const estimateElement = $("#deliveryEstimate");
   if (!state.cart.length) {
     if (feeElement) feeElement.textContent = money(0);
+    if ($("#paymentFee")) $("#paymentFee").textContent = money(0);
     if (totalElement) totalElement.textContent = money(0);
     if (estimateElement) estimateElement.textContent = "Add food and set a delivery pin to estimate your delivery fee.";
     return;
   }
   const fee = 300;
+  const subtotal = cartSubtotal();
+  const paymentFee = Math.round((subtotal + fee) * 0.01);
   if (feeElement) feeElement.textContent = money(fee);
-  if (totalElement) totalElement.textContent = money(cartSubtotal() + fee);
+  if ($("#paymentFee")) $("#paymentFee").textContent = money(paymentFee);
+  if (totalElement) totalElement.textContent = money(subtotal + fee + paymentFee);
   if (estimateElement) {
     estimateElement.textContent = "Fixed delivery fee: ₦300 for every order.";
   }
@@ -474,7 +480,7 @@ function renderTrackedOrder(order) {
       </div>
       ${cancelled ? '<p class="tracking-alert">This order has been cancelled. Contact the restaurant if you need help.</p>' : ""}
       <h4>Order updates</h4><ol class="tracking-timeline">${timeline}</ol>
-      <p>Food subtotal: <strong>${money(order.subtotal)}</strong></p><p>Delivery fee: <strong>${money(order.deliveryFee)}</strong></p><p>Total: <strong>${money(order.total)}</strong></p>
+      <p>Food and packaging: <strong>${money(order.subtotal)}</strong></p><p>Delivery fee: <strong>${money(order.deliveryFee)}</strong></p><p>Payment fee (1%): <strong>${money(order.paymentFee || 0)}</strong></p><p>Total paid/payable: <strong>${money(order.total)}</strong></p>
       <p>Payment: <strong>${escapeHtml(order.paymentStatus || "Check with the restaurant")}</strong></p>
       <p class="tiny muted">Last updated: ${escapeHtml(new Date(order.updatedAt || order.createdAt).toLocaleString())}</p>
       ${isLocalDemo && order.paymentStatus === "Unpaid — demo only" ? `<button class="primary-button" data-demo-pay="${escapeHtml(order.id)}">Simulate demo payment (no money charged)</button>` : ""}

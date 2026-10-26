@@ -202,6 +202,7 @@ const PORT = process.env.PORT || 3000;
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 // Fixed delivery fee for every order.
 const FIXED_DELIVERY_FEE = 300;
+const STUDENT_PAYMENT_FEE_RATE = 0.01;
 
 app.use(express.json({ limit: "50kb", verify: (req, res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -1038,6 +1039,8 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     hasCoordinates ? Number(longitude) : null
   );
   const deliveryFee = deliveryQuote.deliveryFee;
+  const baseTotal = subtotal + deliveryFee;
+  const paymentFee = Math.round(baseTotal * STUDENT_PAYMENT_FEE_RATE);
 
   const order = {
     id: `COC-${Date.now()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`,
@@ -1058,7 +1061,10 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     takeawayFee,
     subtotal,
     deliveryFee,
-    total: subtotal + deliveryFee,
+    baseTotal,
+    paymentFeeRate: STUDENT_PAYMENT_FEE_RATE,
+    paymentFee,
+    total: baseTotal + paymentFee,
     status: "Awaiting payment",
     statusHistory: [{ status: "Awaiting payment", at: new Date().toISOString(), by: "system" }],
     updatedAt: new Date().toISOString(),
@@ -1092,6 +1098,14 @@ function hasPaystackConfig() {
   return Boolean(process.env.PAYSTACK_SECRET_KEY && /^sk_(test|live)_/.test(process.env.PAYSTACK_SECRET_KEY));
 }
 
+// Each restaurant has its own Paystack subaccount. Keep these codes in Render environment
+// variables, never in browser code or committed source. Example: PAYSTACK_SUBACCOUNT_CB=ACCT_...
+function getPaystackSubaccountCode(restaurantId) {
+  const suffix = String(restaurantId || "").replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
+  const code = String(process.env["PAYSTACK_SUBACCOUNT_" + suffix] || "").trim();
+  return /^ACCT_[A-Za-z0-9]+$/.test(code) ? code : null;
+}
+
 async function paystackRequest(url, options = {}) {
   const response = await fetch("https://api.paystack.co" + url, {
     ...options,
@@ -1116,11 +1130,21 @@ app.post("/api/orders/:id/paystack/initialize", requireRole("student"), async (r
   const order = orders.find(item => item.id === req.params.id);
   if (!order) return res.status(404).json({ error: "Order not found." });
   if (order.customerPhone !== req.account.username) return res.status(403).json({ error: "You can only pay for your own order." });
+  const subaccountCode = getPaystackSubaccountCode(order.restaurantId);
+  if (!subaccountCode) return res.status(503).json({ error: "This restaurant is not configured for secure split payments yet. Please contact ChowOnCampus support." });
   if (["Paid — Paystack verified", "Paid — demo verified"].includes(order.paymentStatus)) {
     return res.status(409).json({ error: "This order has already been paid." });
   }
-  if (order.paymentStatus === "Payment pending" && order.paystackReference && order.paystackAuthorizationUrl) {
+  if (order.paymentStatus === "Payment pending" && order.paystackReference && order.paystackAuthorizationUrl &&
+      order.paystackSplitConfigured === true && order.paystackSubaccountCode === subaccountCode) {
     return res.json({ authorizationUrl: order.paystackAuthorizationUrl, reference: order.paystackReference, orderId: order.id });
+  }
+  // Do not reuse a checkout link initialized before split payments were enabled or for another subaccount.
+  if (order.paymentStatus === "Payment pending") {
+    order.paymentStatus = "Unpaid";
+    order.paystackReference = null;
+    order.paystackAuthorizationUrl = null;
+    order.paystackSplitConfigured = false;
   }
   const email = String(req.body.email || order.paymentEmail || "").trim().toLowerCase();
   if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -1132,21 +1156,44 @@ app.post("/api/orders/:id/paystack/initialize", requireRole("student"), async (r
   }
   const reference = "COC-" + crypto.randomBytes(16).toString("hex");
   const baseUrl = String(process.env.PUBLIC_APP_URL || ((req.headers["x-forwarded-proto"] || req.protocol) + "://" + req.get("host"))).replace(/\/$/, "");
+  const amountKobo = Math.round(Number(order.total) * 100);
+  const restaurantShareKobo = Math.round(Number(order.subtotal) * 100);
+  const platformShareKobo = Math.round((Number(order.deliveryFee) + Number(order.paymentFee || 0)) * 100);
+  if (!Number.isSafeInteger(amountKobo) || amountKobo <= 0 ||
+      !Number.isSafeInteger(restaurantShareKobo) || restaurantShareKobo < 0 ||
+      !Number.isSafeInteger(platformShareKobo) || platformShareKobo < 0 ||
+      restaurantShareKobo + platformShareKobo !== amountKobo) {
+    return res.status(400).json({ error: "The order payment split does not balance. Please recreate the order or contact support." });
+  }
   try {
     const payment = await paystackRequest("/transaction/initialize", {
       method: "POST",
       body: JSON.stringify({
         email,
-        amount: Math.round(Number(order.total) * 100),
+        amount: amountKobo,
         currency: "NGN",
         reference,
+        subaccount: subaccountCode,
+        transaction_charge: platformShareKobo,
+        bearer: "account",
         callback_url: baseUrl + "/?payment=paystack&orderId=" + encodeURIComponent(order.id),
-        metadata: { order_id: order.id, customer_phone: order.customerPhone, restaurant_id: order.restaurantId }
+        metadata: {
+          order_id: order.id,
+          customer_phone: order.customerPhone,
+          restaurant_id: order.restaurantId,
+          restaurant_share_kobo: restaurantShareKobo,
+          platform_share_kobo: platformShareKobo,
+          payment_fee_kobo: Math.round(Number(order.paymentFee || 0) * 100)
+        }
       })
     });
     order.paymentEmail = email;
     order.paystackReference = reference;
     order.paystackAuthorizationUrl = payment.authorization_url;
+    order.paystackSubaccountCode = subaccountCode;
+    order.paystackSplitConfigured = true;
+    order.restaurantShare = Number(order.subtotal);
+    order.platformShare = Number(order.deliveryFee) + Number(order.paymentFee || 0);
     order.paymentInitializationAt = new Date().toISOString();
     order.paymentStatus = "Payment pending";
     order.updatedAt = order.paymentInitializationAt;
@@ -1181,6 +1228,9 @@ app.post("/api/payments/paystack/webhook", async (req, res) => {
     const validPayment = payment.status === "success" &&
       Number(payment.amount) === Math.round(Number(order.total) * 100) &&
       payment.currency === "NGN" &&
+      String(payment.metadata?.restaurant_id || "") === String(order.restaurantId) &&
+      Number(payment.metadata?.restaurant_share_kobo) === Math.round(Number(order.subtotal) * 100) &&
+      Number(payment.metadata?.platform_share_kobo) === Math.round((Number(order.deliveryFee) + Number(order.paymentFee || 0)) * 100) &&
       String(payment.customer?.email || "").toLowerCase() === String(order.paymentEmail || "").toLowerCase();
     if (!validPayment) {
       console.warn("Paystack webhook did not match order amount or customer:", order.id);
@@ -1226,6 +1276,9 @@ app.post("/api/payments/paystack/verify", requireRole("student"), async (req, re
     if (payment.status !== "success" || payment.reference !== reference ||
         Number(payment.amount) !== expectedAmount || payment.currency !== "NGN" ||
         String(payment.metadata?.order_id || "") !== order.id ||
+        String(payment.metadata?.restaurant_id || "") !== String(order.restaurantId) ||
+        Number(payment.metadata?.restaurant_share_kobo) !== Math.round(Number(order.subtotal) * 100) ||
+        Number(payment.metadata?.platform_share_kobo) !== Math.round((Number(order.deliveryFee) + Number(order.paymentFee || 0)) * 100) ||
         String(payment.customer?.email || "").toLowerCase() !== String(order.paymentEmail || "").toLowerCase()) {
       return res.status(400).json({ error: "Payment could not be verified against this order. If you were charged, contact support with your payment reference." });
     }

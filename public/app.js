@@ -226,7 +226,7 @@ function renderCart() {
   const subtotal = cartSubtotal();
   const quoteMatchesCart = state.deliveryQuote &&
     state.cart.length && state.deliveryQuote.restaurantId === state.cart[0].restaurantId;
-  const delivery = state.cart.length ? (quoteMatchesCart ? state.deliveryQuote.deliveryFee : 300) : 0;
+  const delivery = state.cart.length ? 300 : 0;
 
   $("#cartCount").textContent = count;
   $("#cartHeadingCount").textContent = `(${count})`;
@@ -281,18 +281,11 @@ function updateDeliveryQuoteDisplay(quote) {
     if (estimateElement) estimateElement.textContent = "Add food and set a delivery pin to estimate your delivery fee.";
     return;
   }
-  const fee = quote?.deliveryFee ?? 300;
+  const fee = 300;
   if (feeElement) feeElement.textContent = money(fee);
   if (totalElement) totalElement.textContent = money(cartSubtotal() + fee);
   if (estimateElement) {
-    if (!quote) {
-      estimateElement.textContent = "Calculating delivery fee…";
-    } else if (quote.distanceBased) {
-      estimateElement.textContent = "Estimated road distance: " + quote.estimatedRoadDistanceKm + " km · " +
-        money(quote.baseFee) + " base + " + money(quote.perKm) + " per km. " + quote.message;
-    } else {
-      estimateElement.textContent = quote.message + " The displayed fee is the base fee until both pins are available.";
-    }
+    estimateElement.textContent = "Fixed delivery fee: ₦300 for every order.";
   }
 }
 
@@ -321,7 +314,7 @@ async function refreshDeliveryQuote() {
     updateDeliveryQuoteDisplay(state.deliveryQuote);
   } catch (error) {
     if (requestId !== deliveryQuoteRequestId) return;
-    state.deliveryQuote = { deliveryFee: 300, restaurantId, distanceBased: false, message: "Could not calculate the distance fee. The base fee is shown for now." };
+    state.deliveryQuote = { deliveryFee: 300, restaurantId, distanceBased: false, message: "Fixed delivery fee: ₦300 for every order." };
     updateDeliveryQuoteDisplay(state.deliveryQuote);
   }
 }

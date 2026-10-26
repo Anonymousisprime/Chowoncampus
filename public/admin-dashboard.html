@@ -240,3 +240,38 @@ $("#cancelAgentForm").addEventListener("click",()=>{$("#agentForm").reset();$("#
 $("#agentForm").addEventListener("submit",async e=>{e.preventDefault();const form=e.currentTarget;const msg=$("#agentFormMessage");msg.textContent="Creating agent account…";const data=Object.fromEntries(new FormData(form).entries());try{const r=await fetch("/api/admin/agents",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});const d=await r.json();if(!r.ok)throw Error(d.error||"Could not create agent.");msg.textContent="Agent account created. Username: "+d.agent.username+". Give the password to the agent securely.";form.reset();await load();}catch(err){msg.textContent=err.message||"Could not create agent.";}});
 $("#orderSearch").addEventListener("input",renderOrders);$("#orderStatus").addEventListener("change",renderOrders);$("#studentSearch").addEventListener("input",renderStudents);$("#refresh").addEventListener("click",load);$("#logout").addEventListener("click",async()=>{await fetch("/api/logout",{method:"POST",credentials:"same-origin"});location.href="/admin-login.html"});load();let dashboardRefreshTimer=setInterval(()=>{if(document.visibilityState==="visible")load()},20000);window.addEventListener("beforeunload",()=>clearInterval(dashboardRefreshTimer));
 </script></body></html>
+
+/* Responsive usability pass: admin dashboard */
+html,body{max-width:100%;overflow-x:hidden}
+body{min-width:0}
+.panel,.metric,.location-list,.reset-dialog{min-width:0}
+.table-wrap{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
+.table-wrap table{width:max-content;min-width:100%;table-layout:auto}
+.table-wrap th,.table-wrap td{overflow-wrap:anywhere}
+input,select,textarea{min-width:0}
+@media(max-width:700px){
+  .top{position:relative}
+  .brand{font-size:18px}
+  .wrap{padding-left:10px;padding-right:10px}
+  .heading{gap:8px}
+  .heading>div,.heading>p{min-width:0;max-width:100%;overflow-wrap:anywhere}
+  .cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .metric small{font-size:12px;line-height:1.35}
+  .panel-head{flex-direction:column;align-items:stretch}
+  .panel-head>div{width:100%;min-width:0}
+  .panel-head .tools{width:100%}
+  .panel-head .tools>*{flex:1 1 130px;min-width:0}
+  .panel>div[style*="padding:18px 20px"]{padding:12px!important}
+  .table-wrap{margin-left:0;margin-right:0}
+  .table-wrap table{min-width:680px}
+  #locationsMap{height:300px;min-height:260px}
+  .location-lists{padding:12px}
+  .location-legend{line-height:1.5}
+}
+@media(max-width:380px){
+  .cards{grid-template-columns:minmax(0,1fr)}
+  .top-right{grid-template-columns:minmax(0,1fr)}
+  .metric{padding:12px}
+  .panel-head .tools{display:grid;grid-template-columns:minmax(0,1fr)}
+  .panel-head .tools>*{width:100%}
+}

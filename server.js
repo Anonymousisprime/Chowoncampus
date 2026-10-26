@@ -471,7 +471,7 @@ function requireRole(...roles) {
 }
 
 function publicOrder(order) {
-  const { chatMessages, paymentEmail, paystackAuthorizationUrl, ...safeOrder } = order;
+  const { chatMessages, paymentEmail, paystackAuthorizationUrl, paystackSubaccountCode, ...safeOrder } = order;
   return safeOrder;
 }
 

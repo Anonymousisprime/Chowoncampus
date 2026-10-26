@@ -95,3 +95,37 @@ $("#orders").addEventListener("click",async e=>{const accept=e.target.closest("[
 $("#logout").addEventListener("click",async()=>{try{await fetch("/api/logout",{method:"POST",credentials:"same-origin"})}finally{location.href="/agent-login.html"}});
 load();refreshTimer=setInterval(()=>{if(document.visibilityState==="visible"){load();updateAgentLocation()}},30000);setInterval(()=>{const timer=$("#offerCountdown");if(timer){const left=Math.max(0,Math.ceil((new Date(timer.dataset.expires).getTime()-Date.now())/1000));timer.textContent=left+" second"+(left===1?"":"s");if(left===0)load()}},1000);
 </script></body></html>
+
+/* Responsive usability pass: delivery agent dashboard */
+html,body{max-width:100%;overflow-x:hidden}
+body{min-width:0}
+.wrap,.panel,.row,.details,.order{min-width:0;max-width:100%}
+.panel{overflow-wrap:anywhere}
+table{width:max-content;min-width:100%}
+.panel [style*="overflow-x:auto"]{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
+input,select,textarea{min-width:0}
+@media(max-width:600px){
+  .top{position:relative;padding:12px}
+  .top>.row{width:100%;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .top>.row>*{min-width:0}
+  .wrap{padding:14px 10px 28px}
+  .panel{padding:13px;margin:12px 0;border-radius:13px}
+  .row{align-items:flex-start}
+  .row>div{flex:1 1 100%}
+  .row>.stat{flex:1 1 100%}
+  .stat{width:100%}
+  .tools{width:100%}
+  .tools>*{flex:1 1 130px;width:auto}
+  #agentEarningsMonth{width:100%}
+  #agentEarningsTotals.cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  #agentEarningsTotals .metric{padding:11px;min-width:0}
+  .details{overflow-wrap:anywhere;word-break:normal}
+  .details a{overflow-wrap:anywhere}
+  .order .row{align-items:flex-start}
+  .panel table{min-width:620px}
+}
+@media(max-width:360px){
+  .top>.row{grid-template-columns:minmax(0,1fr)}
+  #agentEarningsTotals.cards{grid-template-columns:minmax(0,1fr)}
+  .tools>*{flex-basis:100%}
+}

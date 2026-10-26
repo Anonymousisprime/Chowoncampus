@@ -200,10 +200,8 @@ async function start() {
 const app = express();
 const PORT = process.env.PORT || 3000;
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
-// Distance-based delivery pricing. Adjust these in Render environment variables.
-const DELIVERY_BASE_FEE = Math.max(0, Number(process.env.DELIVERY_BASE_FEE || 300));
-const DELIVERY_PER_KM = Math.max(0, Number(process.env.DELIVERY_PER_KM || 100));
-const DELIVERY_ROAD_FACTOR = Math.max(1, Number(process.env.DELIVERY_ROAD_FACTOR || 1.3));
+// Fixed delivery fee for every order.
+const FIXED_DELIVERY_FEE = 300;
 
 app.use(express.json({ limit: "50kb", verify: (req, res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -1931,36 +1929,27 @@ function calculateDeliveryQuote(restaurant, deliveryLatitude, deliveryLongitude)
     restaurant.latitude !== null && restaurant.latitude !== undefined &&
     restaurant.longitude !== null && restaurant.longitude !== undefined &&
     Number.isFinite(Number(restaurant.latitude)) && Number.isFinite(Number(restaurant.longitude));
-  const hasDeliveryPin = deliveryLatitude !== null && deliveryLongitude !== null &&
+  const hasDeliveryPin = deliveryLatitude !== null && deliveryLatitude !== undefined &&
+    deliveryLongitude !== null && deliveryLongitude !== undefined &&
     Number.isFinite(Number(deliveryLatitude)) && Number.isFinite(Number(deliveryLongitude));
-  if (!hasRestaurantPin || !hasDeliveryPin) {
-    return {
-      deliveryFee: Math.round(DELIVERY_BASE_FEE),
-      distanceKm: null,
-      estimatedRoadDistanceKm: null,
-      distanceBased: false,
-      baseFee: Math.round(DELIVERY_BASE_FEE),
-      perKm: Math.round(DELIVERY_PER_KM),
-      message: !hasRestaurantPin
-        ? "This restaurant needs to save its pickup GPS pin before distance-based pricing is available."
-        : "Add your delivery GPS pin or choose a point on the map to calculate the distance-based fee."
-    };
+  let distanceKmValue = null;
+  let estimatedRoadDistanceKm = null;
+  if (hasRestaurantPin && hasDeliveryPin) {
+    distanceKmValue = Math.round(distanceKm(
+      Number(restaurant.latitude), Number(restaurant.longitude),
+      Number(deliveryLatitude), Number(deliveryLongitude)
+    ) * 10) / 10;
+    // Distance is informational only; it never changes the delivery fee.
+    estimatedRoadDistanceKm = Math.round(distanceKmValue * 1.3 * 10) / 10;
   }
-  const straightLineKm = distanceKm(
-    Number(restaurant.latitude), Number(restaurant.longitude),
-    Number(deliveryLatitude), Number(deliveryLongitude)
-  );
-  // Adjust straight-line GPS distance to approximate road travel; this is not turn-by-turn routing.
-  const estimatedRoadDistanceKm = Math.round(straightLineKm * DELIVERY_ROAD_FACTOR * 10) / 10;
-  const deliveryFee = Math.round(DELIVERY_BASE_FEE + Math.ceil(estimatedRoadDistanceKm) * DELIVERY_PER_KM);
   return {
-    deliveryFee,
-    distanceKm: Math.round(straightLineKm * 10) / 10,
+    deliveryFee: FIXED_DELIVERY_FEE,
+    distanceKm: distanceKmValue,
     estimatedRoadDistanceKm,
-    distanceBased: true,
-    baseFee: Math.round(DELIVERY_BASE_FEE),
-    perKm: Math.round(DELIVERY_PER_KM),
-    message: "Estimated from GPS distance; actual road distance may vary."
+    distanceBased: false,
+    baseFee: FIXED_DELIVERY_FEE,
+    perKm: 0,
+    message: "Fixed delivery fee: ₦300 for every order."
   };
 }
 

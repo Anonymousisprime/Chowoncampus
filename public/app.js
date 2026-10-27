@@ -518,11 +518,14 @@ async function refreshFullPageChat(orderId = activeFullPageChatOrderId) {
     const note = $("#fullPageChatNotice");
     if (note) note.textContent = result.expiresAt ? "Chat closes at " + new Date(result.expiresAt).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}) + "." : "Messages are available during delivery and for two minutes after completion.";
   } catch (error) {
-    messagesBox.innerHTML = '<p class="full-chat-error">' + escapeHtml(error.message) + '</p>';
+    const isOrderMissing = /could not be found by the chat service|order not found/i.test(error.message);
+    messagesBox.innerHTML = '<div class="full-chat-error"><p>' + escapeHtml(error.message) + '</p>' +
+      (isOrderMissing ? '<button type="button" class="secondary-button" id="retryFullPageChat">↻ Retry chat</button>' : '') +
+      '</div>';
     const input = $("#fullPageChatForm")?.elements.message;
-    if (input) input.disabled = true;
+    if (input) input.disabled = isOrderMissing;
     const send = $("#fullPageChatForm")?.querySelector('button[type="submit"]');
-    if (send) send.disabled = true;
+    if (send) send.disabled = isOrderMissing;
   }
 }
 function openFullPageChat(orderId, title = "Delivery chat") {
@@ -1300,6 +1303,7 @@ async function initialize() {
     }
     const openChatButton = event.target.closest("[data-open-temp-chat]");
     if (openChatButton) { openFullPageChat(openChatButton.dataset.openTempChat, openChatButton.dataset.chatTitle || "Delivery chat"); return; }
+    if (event.target.closest("#retryFullPageChat")) { const input = $("#fullPageChatForm")?.elements.message; if (input) input.disabled = false; const send = $("#fullPageChatForm")?.querySelector('button[type="submit"]'); if (send) send.disabled = false; refreshFullPageChat(); return; }
     if (event.target.closest("#closeFullPageChat")) { closeFullPageChat(); return; }
     if (event.target.closest("#temporaryChatPage") && event.target === $("#temporaryChatPage")) { closeFullPageChat(); return; }
     const viewButton = event.target.closest("[data-view]");

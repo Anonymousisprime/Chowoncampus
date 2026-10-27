@@ -669,26 +669,32 @@ app.post("/api/student/login", (req, res) => {
   }
 });
 
-// Authenticated in-app notifications. Each account only sees notifications addressed to it.
+// Authenticated in-app notifications. Enforce both the role and the account-specific recipient.
+function notificationBelongsToAccount(item, account) {
+  if (!item || !account || typeof item.role !== "string" || item.role !== account.role) return false;
+  if (account.role === "admin") return true;
+  if (account.role === "student") {
+    return Boolean(account.username && item.username && item.username === account.username);
+  }
+  if (account.role === "restaurant") {
+    return Boolean(account.restaurantId && item.restaurantId && item.restaurantId === account.restaurantId);
+  }
+  if (account.role === "agent") {
+    return Boolean(account.agentId && item.agentId && item.agentId === account.agentId);
+  }
+  return false;
+}
 app.get("/api/notifications", requireLogin, (req, res) => {
   const account = req.account;
-  const notifications = readNotifications().filter(item => item.role === account.role && (
-    item.role === "admin" ||
-    (item.role === "student" && item.username === account.username) ||
-    (item.role === "restaurant" && item.restaurantId === account.restaurantId) ||
-    (item.role === "agent" && item.agentId === account.agentId)
-  )).slice(0, 100);
+  const notifications = readNotifications()
+    .filter(item => notificationBelongsToAccount(item, account))
+    .slice(0, 100);
   res.json({ notifications, unreadCount: notifications.filter(item => !item.read).length });
 });
 app.patch("/api/notifications/:id/read", requireLogin, (req, res) => {
   const account = req.account;
   const items = readNotifications();
-  const item = items.find(n => n.id === req.params.id && n.role === account.role && (
-    n.role === "admin" ||
-    (n.role === "student" && n.username === account.username) ||
-    (n.role === "restaurant" && n.restaurantId === account.restaurantId) ||
-    (n.role === "agent" && n.agentId === account.agentId)
-  ));
+  const item = items.find(n => n.id === req.params.id && notificationBelongsToAccount(n, account));
   if (!item) return res.status(404).json({ error: "Notification not found." });
   item.read = true;
   saveNotifications(items);

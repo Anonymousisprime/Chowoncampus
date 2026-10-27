@@ -16,8 +16,17 @@
     try {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       if (AudioContextClass && !audioContext) audioContext = new AudioContextClass();
-      if (audioContext && audioContext.state === "suspended") audioContext.resume();
+      if (audioContext && audioContext.state === "suspended") {
+        audioContext.resume().catch(() => {});
+      }
     } catch {}
+  }
+  async function testNotificationSound() {
+    enableNotificationSound();
+    try {
+      if (audioContext && audioContext.state === "suspended") await audioContext.resume();
+    } catch {}
+    playNotificationDing();
   }
   function playNotificationDing() {
     if (!soundEnabled) return;
@@ -148,7 +157,9 @@
     }
   }
   toggle.addEventListener("click", async () => {
-    enableNotificationSound();
+    // A direct user gesture unlocks audio on mobile browsers; play a test ding
+    // so the user can tell immediately whether this device allows notification sound.
+    await testNotificationSound();
     if ("Notification" in window && Notification.permission === "default") {
       try { await Notification.requestPermission(); } catch {}
     }
@@ -173,5 +184,5 @@
   });
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refresh(); });
   init();
-  setInterval(refresh, 20000);
+  setInterval(refresh, 5000);
 })();

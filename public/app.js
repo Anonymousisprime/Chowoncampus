@@ -805,12 +805,23 @@ async function initRestaurantPickupMap(restaurant) {
   }
 }
 
+function showRestaurantDashboardPanel(targetId) {
+  const dashboard = document.getElementById("dashboardContent");
+  if (!dashboard || state.account?.role !== "restaurant") return;
+  dashboard.querySelectorAll(".restaurant-view-panel").forEach(panel => {
+    panel.hidden = panel.id !== targetId;
+  });
+  const target = document.getElementById(targetId);
+  if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function renderRestaurantMenuManager() {
   if (!state.account || state.account.role !== "restaurant") return;
   const restaurant = state.restaurants.find(item => item.id === state.account.restaurantId);
   if (!restaurant) return;
   const container = document.createElement("section");
-  container.className = "restaurant-menu-manager";
+  container.className = "restaurant-menu-manager restaurant-view-panel";
+  container.hidden = true;
   container.id = "restaurantMenuManager";
   container.innerHTML = `
     <section class="restaurant-location-manager">
@@ -839,7 +850,6 @@ function renderRestaurantMenuManager() {
       </form>
     </div>`;
   $("#dashboardContent").prepend(container);
-  initRestaurantPickupMap(restaurant);
 }
 
 async function loadDashboard() {
@@ -878,7 +888,7 @@ async function loadDashboard() {
       const pickup = orders.filter(order => ["Ready for pickup", "Out for delivery"].includes(order.status));
       const completed = orders.filter(order => ["Completed", "Cancelled"].includes(order.status));
       const section = (title, subtitle, list, key) => `
-        <section class="dashboard-order-section" id="restaurant-section-${key}">
+        <section class="dashboard-order-section restaurant-view-panel" id="restaurant-section-${key}" hidden>
           <div class="dashboard-section-heading"><div><h2>${title}</h2><p>${subtitle}</p></div><span class="count-pill">${list.length}</span></div>
           ${list.length ? `<div class="order-list">${list.map(renderOrderCard).join("")}</div>` : `<div class="empty-state compact-empty">No ${key} orders right now.</div>`}
         </section>`;
@@ -904,7 +914,7 @@ async function loadDashboard() {
         ${section("Incoming orders", "New orders that need your attention", incoming, "incoming")}
         ${section("In the kitchen", "Orders currently being prepared", preparing, "preparing")}
         ${section("Ready for pickup & delivery", "Contact your assigned agent and coordinate handoff", pickup, "pickup")}
-        ${section("Order history", "Completed and cancelled orders", completed, "completed")}<section class="dashboard-order-section" id="restaurantRatingsPanel"><div class="dashboard-section-heading"><div><h2>Customer ratings &amp; feedback</h2><p>Student ratings for your restaurant and delivery experience.</p></div><button class="secondary-button" id="refreshRestaurantRatings" type="button">Refresh ratings</button></div><div id="restaurantRatingsSummary" class="restaurant-metrics"><p class="muted">Loading customer ratings…</p></div><div id="restaurantRecentReviews" class="order-list"></div></section>`;
+        ${section("Order history", "Completed and cancelled orders", completed, "completed")}<section class="dashboard-order-section restaurant-view-panel" id="restaurantRatingsPanel" hidden><div class="dashboard-section-heading"><div><h2>Customer ratings &amp; feedback</h2><p>Student ratings for your restaurant and delivery experience.</p></div><button class="secondary-button" id="refreshRestaurantRatings" type="button">Refresh ratings</button></div><div id="restaurantRatingsSummary" class="restaurant-metrics"><p class="muted">Loading customer ratings…</p></div><div id="restaurantRecentReviews" class="order-list"></div></section>`;
       loadRestaurantRatings();
       renderRestaurantMenuManager();
       document.querySelectorAll("[data-restaurant-chat-order]").forEach(form => loadRestaurantChat(form.dataset.restaurantChatOrder));
@@ -1020,7 +1030,8 @@ async function loadDashboard() {
     }
 
     const securityPanel = document.createElement("section");
-    securityPanel.className = "dashboard-order-section";
+    securityPanel.className = "dashboard-order-section" + (account.role === "restaurant" ? " restaurant-view-panel" : "");
+    securityPanel.hidden = account.role === "restaurant";
     const canTogglePasswordForm = ["student", "restaurant"].includes(account.role);
     securityPanel.id = "accountSecurityPanel";
     securityPanel.innerHTML = `
@@ -1355,6 +1366,7 @@ async function initialize() {
       const form = document.getElementById("changePasswordForm");
       const toggle = document.getElementById("togglePasswordForm");
       const panel = document.getElementById("accountSecurityPanel");
+      if (state.account?.role === "restaurant") showRestaurantDashboardPanel("accountSecurityPanel");
       if (form) {
         form.hidden = false;
         if (toggle) { toggle.setAttribute("aria-expanded", "true"); toggle.textContent = "✕ Close password form"; }
@@ -1378,7 +1390,11 @@ async function initialize() {
 
     const showMenuEditorButton = event.target.closest("[data-show-menu-editor]");
     if (showMenuEditorButton) {
+      const manager = document.getElementById("restaurantMenuManager");
       const editor = document.getElementById("restaurantMenuEditor");
+      const locationPanel = manager?.querySelector(".restaurant-location-manager");
+      if (state.account?.role === "restaurant") showRestaurantDashboardPanel("restaurantMenuManager");
+      if (locationPanel) locationPanel.hidden = true;
       if (editor) {
         editor.hidden = false;
         editor.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1389,7 +1405,25 @@ async function initialize() {
 
     const restaurantJumpButton = event.target.closest("[data-restaurant-jump]");
     if (restaurantJumpButton) {
-      document.getElementById(restaurantJumpButton.dataset.restaurantJump)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      const targetId = restaurantJumpButton.dataset.restaurantJump;
+      if (state.account?.role === "restaurant") {
+        showRestaurantDashboardPanel(targetId);
+        const manager = document.getElementById("restaurantMenuManager");
+        if (targetId === "restaurantMenuManager" && manager) {
+          const locationPanel = manager.querySelector(".restaurant-location-manager");
+          const editor = document.getElementById("restaurantMenuEditor");
+          if (locationPanel) locationPanel.hidden = false;
+          if (editor) editor.hidden = true;
+          if (!restaurantPickupMapReady) {
+            const restaurant = state.restaurants.find(item => item.id === state.account.restaurantId);
+            if (restaurant) initRestaurantPickupMap(restaurant);
+          } else if (restaurantPickupMap) {
+            setTimeout(() => restaurantPickupMap && restaurantPickupMap.invalidateSize(), 100);
+          }
+        }
+      } else {
+        document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
       return;
     }
 

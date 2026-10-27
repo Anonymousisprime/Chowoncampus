@@ -9,9 +9,9 @@
   "theme_color": "#06452e",
   "icons": [
     {
-      "src": "/chowoncampus-mark.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/chowoncampus-icon.png?v=2",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]

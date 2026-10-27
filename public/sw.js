@@ -4,8 +4,8 @@ self.addEventListener("push", event => {
   const title = data.title || "ChowOnCampus update";
   const options = {
     body: data.body || "You have a new order update.",
-    icon: "/chowoncampus-mark.svg",
-    badge: "/chowoncampus-mark.svg",
+    icon: "/chowoncampus-icon.png?v=2",
+    badge: "/chowoncampus-icon.png?v=2",
     tag: data.orderId ? "chowoncampus-order-" + data.orderId : "chowoncampus-update",
     renotify: true,
     data: { url: data.url || "/", orderId: data.orderId || null }

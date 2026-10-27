@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="theme-color" content="#06452e">
+<meta name="description" content="Explore campus restaurants and discover your next favourite meal on Chowoncampus.">
+<title>Explore Restaurants | Chowoncampus</title>
+<link rel="icon" type="image/svg+xml" href="/chowoncampus-mark.svg"><link rel="stylesheet" href="/style.css?v=delivery-location-1">
+<script src="/restaurants.js?v=separate-restaurant-page-1" defer></script>
+</head>
+<body>
+<header class="site-header"><nav class="navbar">
+<a href="/" class="brand" aria-label="Chowoncampus home"><img class="brand-logo" src="/chowoncampus-logo.svg" alt="Chowoncampus Delivery Service"></a>
+<div class="nav-actions"><a class="nav-link" href="/">Home</a><a class="nav-link active" href="/restaurants.html">Explore restaurants</a><a class="nav-link" href="/student-login.html">Log in</a><a class="nav-link" href="/student-signup.html">Create account</a><a class="primary-button" href="/#cartSection">Cart (<span id="restaurantCartCount">0</span>)</a></div>
+</nav></header>
+<main>
+<section class="hero"><div class="hero-content"><span class="eyebrow">MADE FOR YOUR HUNGER</span><h1>Explore campus restaurants.</h1><p>Find a restaurant, discover its menu, and add your favourites to your bag.</p><a class="secondary-button" href="/">← Back home</a></div><div class="hero-art" aria-hidden="true">🍛 🍗 🍚</div></section>
+<section class="content-section">
+<div class="section-heading"><div><span class="eyebrow">YOUR NEXT FAVOURITE MEAL</span><h2>Restaurants near you</h2></div><p>Browse menus and see ratings before you order.</p></div>
+<form id="restaurantSearchForm" class="catalog-search" role="search"><label class="sr-only" for="restaurantSearch">Search restaurants and food</label><input id="restaurantSearch" type="search" maxlength="100" placeholder="Search restaurants or meals…" autocomplete="off"><button type="submit" class="primary-button">Search</button><button type="button" id="clearRestaurantSearch" class="secondary-button">Clear</button></form>
+<p id="restaurantSearchSummary" class="small-note" aria-live="polite"></p><div id="restaurantList" class="restaurant-grid"><p>Loading restaurants…</p></div><div id="restaurantMenuArea"></div>
+</section>
+</main>
+<footer class="site-footer"><a href="/" class="brand footer-brand-logo" aria-label="Chowoncampus home"><img class="brand-logo" src="/chowoncampus-logo.svg" alt="Chowoncampus Delivery Service"></a><p>Good food, closer to you.</p><p><a href="/support.html">Support &amp; Help</a> · <a href="/privacy-policy.html">Privacy Policy</a> · <a href="/terms.html">Terms of Service</a></p><p>© <span id="year"></span> Chowoncampus. Made for campus life.</p></footer>
+</body></html>

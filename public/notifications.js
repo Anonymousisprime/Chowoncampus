@@ -8,6 +8,50 @@
   let busy = false;
   let currentAccount = null;
   let currentAccountKey = "";
+  let knownNotificationIds = null;
+  let audioContext = null;
+  let soundEnabled = false;
+  function enableNotificationSound() {
+    soundEnabled = true;
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (AudioContextClass && !audioContext) audioContext = new AudioContextClass();
+      if (audioContext && audioContext.state === "suspended") audioContext.resume();
+    } catch {}
+  }
+  function playNotificationDing() {
+    if (!soundEnabled) return;
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return;
+      if (!audioContext) audioContext = new AudioContextClass();
+      if (audioContext.state === "suspended") audioContext.resume();
+      const now = audioContext.currentTime;
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(880, now);
+      oscillator.frequency.setValueAtTime(1174.66, now + 0.11);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.16, now + 0.025);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.42);
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+      oscillator.start(now);
+      oscillator.stop(now + 0.44);
+    } catch {}
+  }
+  function showSystemNotification(item) {
+    if (document.visibilityState === "visible" || !("Notification" in window) || Notification.permission !== "granted") return;
+    try {
+      const notice = new Notification(item.title || "ChowOnCampus update", {
+        body: item.message || "You have a new order update.",
+        tag: "chowoncampus-" + String(item.id || ""),
+        icon: "/favicon.svg"
+      });
+      notice.onclick = () => { window.focus(); notice.close(); };
+    } catch {}
+  }
   const accountKey = account => account ? JSON.stringify([
     account.role || "",
     String(account.username || "").trim().toLowerCase(),
@@ -27,6 +71,7 @@
       // Never leave the previous account's notifications visible after an account switch.
       currentAccount = nextAccount;
       currentAccountKey = nextKey;
+      knownNotificationIds = null;
       clearNotifications(nextAccount ? "Loading your notifications…" : "Sign in to see your notifications.");
     }
     loggedIn = Boolean(nextAccount);
@@ -66,6 +111,18 @@
       // The account may have changed while the request was in flight.
       if (key !== currentAccountKey || !loggedIn) return;
       const visibleNotifications = (Array.isArray(data.notifications) ? data.notifications : []).filter(belongsToCurrentAccount);
+      const currentIds = new Set(visibleNotifications.map(item => String(item.id)));
+      if (knownNotificationIds === null) {
+        // Establish a baseline on page load/account switch; don't ding for old notifications.
+        knownNotificationIds = currentIds;
+      } else {
+        const arrived = visibleNotifications.filter(item => !knownNotificationIds.has(String(item.id)));
+        if (arrived.length) {
+          playNotificationDing();
+          showSystemNotification(arrived[0]);
+        }
+        knownNotificationIds = currentIds;
+      }
       count.textContent = visibleNotifications.filter(item => !item.read).length;
       count.classList.toggle("hidden", !visibleNotifications.some(item => !item.read));
       if (!visibleNotifications.length) {
@@ -91,6 +148,10 @@
     }
   }
   toggle.addEventListener("click", async () => {
+    enableNotificationSound();
+    if ("Notification" in window && Notification.permission === "default") {
+      try { await Notification.requestPermission(); } catch {}
+    }
     const open = panel.classList.toggle("hidden") === false;
     toggle.setAttribute("aria-expanded", String(open));
     if (open) await refresh();

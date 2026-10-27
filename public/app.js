@@ -88,6 +88,7 @@ function cartSubtotal() {
 }
 
 function renderRestaurants() {
+  if (!$("#restaurantList")) return;
   const query = state.catalogSearchQuery.trim().toLocaleLowerCase();
   const matches = state.restaurants.map(restaurant => {
     const matchingItems = (restaurant.items || []).filter(item =>
@@ -143,6 +144,7 @@ async function refreshPublicMenu() {
 }
 
 function renderMenu() {
+  if (!$("#menuArea")) return;
   const restaurant = state.restaurants.find(r => r.id === state.selectedRestaurantId);
   if (!restaurant) {
     $("#menuArea").innerHTML = "";
@@ -222,6 +224,7 @@ function changeQuantity(itemId, amount) {
 }
 
 function renderCart() {
+  try { localStorage.setItem("coc_cart", JSON.stringify(state.cart)); } catch {}
   const count = state.cart.reduce((sum, item) => sum + item.qty, 0);
   const subtotal = cartSubtotal();
   const quoteMatchesCart = state.deliveryQuote &&
@@ -1115,14 +1118,15 @@ async function assignAgent(orderId) {
 }
 
 async function initialize() {
-  $("#year").textContent = new Date().getFullYear();
+  if ($("#year")) $("#year").textContent = new Date().getFullYear();
+  try { const savedCart = JSON.parse(localStorage.getItem("coc_cart") || "[]"); if (Array.isArray(savedCart)) state.cart = savedCart.filter(item => item && item.id && item.restaurantId && Number(item.qty) > 0); } catch { state.cart = []; }
 
   try {
     const result = await api("/api/menu");
     state.restaurants = result.restaurants;
     renderRestaurants();
   } catch (error) {
-    $("#restaurantList").innerHTML = `<div class="empty-state">Could not load the menu. Please refresh the page.</div>`;
+    if ($("#restaurantList")) $("#restaurantList").innerHTML = `<div class="empty-state">Could not load the menu. Please refresh the page.</div>`;
   }
 
   renderCart();

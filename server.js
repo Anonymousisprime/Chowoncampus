@@ -7,6 +7,7 @@ const path = require("path");
 const crypto = require("crypto");
 
 const { Pool } = require("pg");
+const webPush = require("web-push");
 const storagePool = process.env.DATABASE_URL
   ? new Pool({ connectionString: process.env.DATABASE_URL, max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 })
   : null;
@@ -22,6 +23,7 @@ const storageFiles = {
   "delivery-agents.json": "deliveryAgents",
   "agent-payments.json": "agentPayments",
   "notifications.json": "notifications",
+  "push-subscriptions.json": "pushSubscriptions",
   "account-passwords.json": "accountPasswords",
   "admin-accounts.json": "adminAccounts",
   "disabled-admins.json": "disabledAdmins"
@@ -48,6 +50,7 @@ async function initializePersistentStorage() {
     ["delivery-agents.json", []],
     ["agent-payments.json", []],
     ["notifications.json", []],
+    ["push-subscriptions.json", []],
     ["account-passwords.json", {}],
     ["admin-accounts.json", []],
     ["disabled-admins.json", []]
@@ -403,10 +406,38 @@ function saveOrders(orders) {
 const NOTIFICATIONS_FILE = path.join(__dirname, "notifications.json");
 function readNotifications() { return readStoredJson(NOTIFICATIONS_FILE, []); }
 function saveNotifications(items) { saveStoredJson(NOTIFICATIONS_FILE, items.slice(0, 2000)); }
+
+const PUSH_SUBSCRIPTIONS_FILE = path.join(__dirname, "push-subscriptions.json");
+function readPushSubscriptions() { return readStoredJson(PUSH_SUBSCRIPTIONS_FILE, []); }
+function savePushSubscriptions(items) { saveStoredJson(PUSH_SUBSCRIPTIONS_FILE, items.slice(-5000)); }
+const PUSH_VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || "";
+const PUSH_VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || "";
+const PUSH_VAPID_CONFIGURED = Boolean(PUSH_VAPID_PUBLIC_KEY && PUSH_VAPID_PRIVATE_KEY);
+if (PUSH_VAPID_CONFIGURED) webPush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:support@chowoncampus.com", PUSH_VAPID_PUBLIC_KEY, PUSH_VAPID_PRIVATE_KEY);
+function pushSubscriptionBelongsToTarget(subscription, target) {
+  if (!subscription || !target || subscription.role !== target.role) return false;
+  if (target.role === "admin") return true;
+  if (target.role === "student") return Boolean(target.username && subscription.username === target.username);
+  if (target.role === "restaurant") return Boolean(target.restaurantId && subscription.restaurantId === target.restaurantId);
+  if (target.role === "agent") return Boolean(target.agentId && subscription.agentId === target.agentId);
+  return false;
+}
+function sendPushToTarget(target, payload) {
+  if (!PUSH_VAPID_CONFIGURED) return;
+  for (const record of readPushSubscriptions().filter(item => pushSubscriptionBelongsToTarget(item, target))) {
+    webPush.sendNotification(record.subscription, JSON.stringify(payload)).catch(error => {
+      if (error.statusCode === 404 || error.statusCode === 410) {
+        savePushSubscriptions(readPushSubscriptions().filter(item => item.endpoint !== record.endpoint));
+      } else console.error("Push notification delivery failed:", error.statusCode || "", error.message || error);
+    });
+  }
+}
+
 function createNotification(target, title, message, orderId = null) {
   const items = readNotifications();
   items.unshift({ id: crypto.randomUUID(), ...target, title, message, orderId, createdAt: new Date().toISOString(), read: false });
   saveNotifications(items);
+  sendPushToTarget(target, { title, body: message, orderId, url: "/" });
 }
 function notifyOrderParties(order, title, message) {
   createNotification({ role: "student", username: order.customerPhone }, title, message, order.id);
@@ -689,6 +720,30 @@ app.post("/api/student/login", (req, res) => {
   } catch (error) {
     res.status(500).json({ error: "Could not sign in. Please try again." });
   }
+});
+
+
+app.get("/api/push/public-key", (req, res) => {
+  res.json({ configured: PUSH_VAPID_CONFIGURED, publicKey: PUSH_VAPID_CONFIGURED ? PUSH_VAPID_PUBLIC_KEY : null });
+});
+app.post("/api/push/subscribe", requireLogin, (req, res) => {
+  if (!PUSH_VAPID_CONFIGURED) return res.status(503).json({ error: "Push notifications need VAPID keys configured on the hosting service." });
+  const subscription = req.body && req.body.subscription;
+  if (!subscription || typeof subscription.endpoint !== "string" || !subscription.keys || !subscription.keys.p256dh || !subscription.keys.auth) {
+    return res.status(400).json({ error: "The browser did not provide a valid push subscription." });
+  }
+  const account = req.account;
+  const record = { endpoint: subscription.endpoint, subscription, role: account.role, username: account.username || null, restaurantId: account.restaurantId || null, agentId: account.agentId || null, updatedAt: new Date().toISOString() };
+  const subscriptions = readPushSubscriptions().filter(item => item.endpoint !== record.endpoint);
+  subscriptions.push(record);
+  savePushSubscriptions(subscriptions);
+  res.json({ ok: true, message: "Push notifications enabled on this device." });
+});
+app.delete("/api/push/subscribe", requireLogin, (req, res) => {
+  const endpoint = String(req.body && req.body.endpoint || "");
+  if (!endpoint) return res.status(400).json({ error: "Push subscription endpoint is required." });
+  savePushSubscriptions(readPushSubscriptions().filter(item => item.endpoint !== endpoint || !pushSubscriptionBelongsToTarget(item, req.account)));
+  res.json({ ok: true });
 });
 
 // Authenticated in-app notifications. Enforce both the role and the account-specific recipient.

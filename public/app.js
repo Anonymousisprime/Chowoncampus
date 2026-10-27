@@ -607,6 +607,7 @@ function renderOrderCard(order) {
       ${order.restaurantLocation ? `<p>Restaurant pickup: ${escapeHtml(order.restaurantLocation)} <a target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.restaurantLocation)}">Open map</a></p>` : ""}
       <p class="order-items">${order.items.map(item => `${item.qty} × ${escapeHtml(item.name)}`).join(", ")}</p>
       <p>Total: <strong>${money(order.total)}</strong> · Payment: ${escapeHtml(order.paymentStatus)}</p>
+      ${order.status === "Completed" ? `<p class="muted">Delivered: ${escapeHtml(order.deliveredAt || order.completedAt ? new Date(order.deliveredAt || order.completedAt).toLocaleString() : "Time not recorded")}</p>` : ""}
       ${order.assignedAgentId ? `<p>Assigned agent: <strong>${escapeHtml(state.agents.find(agent => agent.id === order.assignedAgentId)?.name || order.assignedAgentId)}</strong></p>` : ""}
       ${canShowAvailableAgents ? `
         <section class="agent-contact" aria-live="polite">
@@ -662,6 +663,19 @@ function renderOrderCard(order) {
     </article>
   `;
 }
+
+async function loadRestaurantRatings() {
+  const summary = $("#restaurantRatingsSummary"), reviews = $("#restaurantRecentReviews");
+  if (!summary || !reviews) return;
+  try {
+    const data = await api("/api/ratings/summary");
+    const restaurant = (data.restaurants || [])[0];
+    summary.innerHTML = '<article><span>Restaurant rating</span><strong>' + (restaurant && restaurant.average != null ? '★ ' + Number(restaurant.average).toFixed(1) + '/5' : 'Not rated yet') + '</strong><small>' + Number(restaurant?.count || 0) + ' student review(s)</small></article><article><span>Rated orders</span><strong>' + Number(data.totalReviews || 0) + '</strong><small>Completed orders reviewed</small></article>';
+    const recent = (data.reviews || []).slice(0, 10);
+    reviews.innerHTML = recent.length ? recent.map(review => '<article class="order-card"><strong>' + escapeHtml(review.restaurantName || 'Restaurant') + ' · ' + (review.restaurantRating ? '★ ' + review.restaurantRating + '/5' : 'No restaurant score') + '</strong><p class="muted">Student: ' + escapeHtml(review.studentName || 'Student') + ' · Order ' + escapeHtml(review.orderId || '—') + '</p>' + (review.agentRating ? '<p>Delivery agent rating: ★ ' + escapeHtml(review.agentRating) + '/5</p>' : '') + ((review.foodRatings || []).length ? '<p>Food: ' + review.foodRatings.map(food => escapeHtml(food.itemName) + ' ★ ' + escapeHtml(food.rating) + '/5').join(' · ') + '</p>' : '') + (review.comment ? '<p>' + escapeHtml(review.comment) + '</p>' : '') + '<small class="muted">Delivered: ' + escapeHtml(review.deliveredAt ? new Date(review.deliveredAt).toLocaleString() : 'Time not recorded') + ' · Rated: ' + escapeHtml(review.ratedAt ? new Date(review.ratedAt).toLocaleString() : '—') + '</small></article>').join('') : '<div class="empty-state compact-empty">No student ratings yet. Ratings appear here after students review completed orders.</div>';
+  } catch (error) { summary.innerHTML = '<p class="muted">' + escapeHtml(error.message || 'Could not load ratings.') + '</p>'; }
+}
+document.addEventListener("click", event => { if (event.target.closest("#refreshRestaurantRatings")) loadRestaurantRatings(); });
 
 function renderMenuRow(item = {}) {
   return `<div class="menu-editor-row" data-menu-row>
@@ -832,7 +846,8 @@ async function loadDashboard() {
         ${section("Incoming orders", "New orders that need your attention", incoming, "incoming")}
         ${section("In the kitchen", "Orders currently being prepared", preparing, "preparing")}
         ${section("Ready for pickup & delivery", "Contact your assigned agent and coordinate handoff", pickup, "pickup")}
-        ${section("Order history", "Completed and cancelled orders", completed, "completed")}`;
+        ${section("Order history", "Completed and cancelled orders", completed, "completed")}<section class="dashboard-order-section" id="restaurantRatingsPanel"><div class="dashboard-section-heading"><div><h2>Customer ratings &amp; feedback</h2><p>Student ratings for your restaurant and delivery experience.</p></div><button class="secondary-button" id="refreshRestaurantRatings" type="button">Refresh ratings</button></div><div id="restaurantRatingsSummary" class="restaurant-metrics"><p class="muted">Loading customer ratings…</p></div><div id="restaurantRecentReviews" class="order-list"></div></section>`;
+      loadRestaurantRatings();
       renderRestaurantMenuManager();
       document.querySelectorAll("[data-restaurant-chat-order]").forEach(form => loadRestaurantChat(form.dataset.restaurantChatOrder));
       document.querySelectorAll("[data-agent-chat-order]").forEach(form => loadAgentChat(form.dataset.agentChatOrder));

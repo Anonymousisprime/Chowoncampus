@@ -786,7 +786,7 @@ function renderRestaurantMenuManager() {
       </div>
     </section>
     <div class="dashboard-section-heading"><div><span class="eyebrow">YOUR MENU</span><h2>Manage food and prices</h2><p>Add up to 70 items and mark anything unavailable as sold out.</p></div><span class="count-pill" id="menuItemCount">${restaurant.items.length}/70 items</span></div>
-    <form id="restaurantMenuForm">
+    <form id="restaurantMenuForm" tabindex="-1" aria-label="Add and edit food items">
       <div id="restaurantMenuRows">${restaurant.items.map(item => renderMenuRow(item)).join("")}</div>
       <div class="menu-editor-actions"><button type="button" class="secondary-button" id="addMenuItem" ${restaurant.items.length >= 70 ? "disabled" : ""}>＋ Add item</button><button type="submit" class="primary-button" id="saveRestaurantMenu">Save menu</button></div>
       <p id="restaurantMenuMessage" class="muted" role="status"></p>
@@ -843,7 +843,8 @@ async function loadDashboard() {
           <button type="button" class="secondary-button" data-restaurant-jump="restaurant-section-preparing">🍳 In the kitchen</button>
           <button type="button" class="secondary-button" data-restaurant-jump="restaurant-section-pickup">🛵 Pickup & delivery</button>
           <button type="button" class="secondary-button" data-restaurant-jump="restaurant-section-completed">📋 Order history</button>
-          <button type="button" class="secondary-button" data-restaurant-jump="restaurantMenuManager">🍽️ Manage menu & location</button>
+          <button type="button" class="secondary-button" data-restaurant-jump="restaurantMenuForm">➕ Add / Edit food items</button>
+          <button type="button" class="secondary-button" data-restaurant-jump="restaurantMenuManager">📍 Manage menu & location</button>
           <button type="button" class="secondary-button" data-restaurant-jump="restaurantRatingsPanel">⭐ Customer ratings</button>
           <button type="button" class="secondary-button" data-show-password-form>🔐 Change password</button>
         </nav>

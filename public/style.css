@@ -696,3 +696,75 @@ button,input,select,textarea{max-width:100%;min-width:0}
   .menu-editor-actions{flex-direction:column;align-items:stretch}
   .menu-editor-actions>*{width:100%;flex:1 1 auto}
 }
+
+
+/* Collapsible delivery details: keep the home/cart view compact on mobile */
+.delivery-details-disclosure {
+  margin: 18px 0 26px;
+  min-width: 0;
+}
+.delivery-details-disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  list-style: none;
+  cursor: pointer;
+  padding: 16px 18px;
+  border: 1px solid #dce7dc;
+  border-radius: 16px;
+  background: #fff;
+  color: var(--green);
+  box-shadow: var(--shadow);
+  -webkit-tap-highlight-color: transparent;
+}
+.delivery-details-disclosure > summary::-webkit-details-marker { display: none; }
+.delivery-summary-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+  background: #edf4e9;
+  font-size: 1.35rem;
+}
+.delivery-details-disclosure > summary strong {
+  display: block;
+  font-size: 1rem;
+  line-height: 1.3;
+}
+.delivery-details-disclosure > summary small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: .8rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+.delivery-summary-chevron {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #b35e29;
+}
+.delivery-details-disclosure[open] > summary {
+  border-color: #b7cdb9;
+  border-radius: 16px 16px 0 0;
+}
+.delivery-details-disclosure[open] .delivery-summary-chevron { font-size: 0; }
+.delivery-details-disclosure[open] .delivery-summary-chevron::after { content: "−"; font-size: 1.5rem; }
+.delivery-details-disclosure .form-card {
+  margin-top: 0;
+  border: 1px solid #dce7dc;
+  border-top: 0;
+  border-radius: 0 0 16px 16px;
+  box-shadow: var(--shadow);
+}
+@media(max-width:600px) {
+  .delivery-details-disclosure { margin: 14px 0 22px; }
+  .delivery-details-disclosure > summary { padding: 14px 12px; gap: 10px; }
+  .delivery-summary-icon { flex-basis: 40px; width: 40px; height: 40px; }
+  .delivery-details-disclosure > summary strong { font-size: .98rem; }
+  .delivery-details-disclosure > summary small { font-size: .76rem; }
+}

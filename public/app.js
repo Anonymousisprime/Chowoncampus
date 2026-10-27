@@ -845,6 +845,7 @@ async function loadDashboard() {
           <button type="button" class="secondary-button" data-restaurant-jump="restaurant-section-completed">📋 Order history</button>
           <button type="button" class="secondary-button" data-restaurant-jump="restaurantMenuManager">🍽️ Manage menu & location</button>
           <button type="button" class="secondary-button" data-restaurant-jump="restaurantRatingsPanel">⭐ Customer ratings</button>
+          <button type="button" class="secondary-button" data-show-password-form>🔐 Change password</button>
         </nav>
         <div class="restaurant-metrics">
           <article><span>Incoming</span><strong>${incoming.length}</strong><small>Awaiting action</small></article>
@@ -940,7 +941,7 @@ async function loadDashboard() {
       $("#dashboardContent").innerHTML = `
         <div class="restaurant-welcome">
           <div><span class="eyebrow">STUDENT WORKSPACE</span><h2>Welcome, ${escapeHtml(account.name)}!</h2><p>Ready for your next meal? Check your orders below or head back to the menu to find something delicious.</p></div>
-          <button class="secondary-button" type="button" data-view="home">Browse food</button>
+          <div class="student-dashboard-actions"><button class="secondary-button" type="button" data-view="home">Browse food</button><button class="secondary-button" type="button" data-show-password-form>🔐 Change password</button></div>
         </div>
         ${orders.length
           ? `<div class="order-list">${orders.map(renderOrderCard).join("")}</div>`
@@ -972,9 +973,12 @@ async function loadDashboard() {
 
     const securityPanel = document.createElement("section");
     securityPanel.className = "dashboard-order-section";
+    const canTogglePasswordForm = ["student", "restaurant"].includes(account.role);
+    securityPanel.id = "accountSecurityPanel";
     securityPanel.innerHTML = `
       <div class="dashboard-section-heading"><div><span class="eyebrow">ACCOUNT SECURITY</span><h2>Change password</h2><p>Use your current password to set a new one (10–128 characters). You will need to log in again after changing it.</p></div></div>
-      <form id="changePasswordForm" class="order-card">
+      ${canTogglePasswordForm ? `<button type="button" class="secondary-button password-toggle-button" id="togglePasswordForm" aria-expanded="false">🔐 Change password</button>` : ""}
+      <form id="changePasswordForm" class="order-card" ${canTogglePasswordForm ? "hidden" : ""}>
         <label>Current password<input name="currentPassword" type="password" required autocomplete="current-password"></label>
         <label>New password<input name="newPassword" type="password" required minlength="10" maxlength="128" autocomplete="new-password"></label>
         <label>Confirm new password<input name="confirmPassword" type="password" required minlength="10" maxlength="128" autocomplete="new-password"></label>
@@ -1291,6 +1295,32 @@ async function initialize() {
 
     if (event.target.closest("#refreshRestaurantOrders")) {
       await loadDashboard();
+      return;
+    }
+
+    const showPasswordButton = event.target.closest("[data-show-password-form]");
+    if (showPasswordButton) {
+      const form = document.getElementById("changePasswordForm");
+      const toggle = document.getElementById("togglePasswordForm");
+      const panel = document.getElementById("accountSecurityPanel");
+      if (form) {
+        form.hidden = false;
+        if (toggle) { toggle.setAttribute("aria-expanded", "true"); toggle.textContent = "✕ Close password form"; }
+        panel?.scrollIntoView({ behavior: "smooth", block: "start" });
+        form.querySelector("input[name=currentPassword]")?.focus({ preventScroll: true });
+      }
+      return;
+    }
+
+    if (event.target.closest("#togglePasswordForm")) {
+      const toggle = event.target.closest("#togglePasswordForm");
+      const form = document.getElementById("changePasswordForm");
+      if (form) {
+        form.hidden = !form.hidden;
+        toggle.setAttribute("aria-expanded", String(!form.hidden));
+        toggle.textContent = form.hidden ? "🔐 Change password" : "✕ Close password form";
+        if (!form.hidden) form.querySelector("input[name=currentPassword]")?.focus({ preventScroll: true });
+      }
       return;
     }
 

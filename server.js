@@ -2280,6 +2280,40 @@ app.patch("/api/orders/:id/assign", requireRole("admin"), (req, res) => {
   }
 });
 
+// Admin-only test helper. This never contacts Paystack or moves money.
+app.post("/api/admin/orders/:id/demo-payment", requireRole("admin"), (req, res) => {
+  if (String(process.env.ENABLE_ADMIN_DEMO_PAYMENTS || "").toLowerCase() !== "true") {
+    return res.status(403).json({ error: "Test-payment approval is disabled. Enable ENABLE_ADMIN_DEMO_PAYMENTS only while testing." });
+  }
+  try {
+    const orders = readOrders();
+    const order = orders.find(item => item.id === req.params.id);
+    if (!order) return res.status(404).json({ error: "Order not found." });
+    if (order.status !== "Awaiting payment" || !["Unpaid", "Unpaid — demo only"].includes(order.paymentStatus)) {
+      return res.status(409).json({ error: "Only an unpaid order still awaiting payment can be marked as a test payment." });
+    }
+    const changedAt = new Date().toISOString();
+    const previousStatus = order.status;
+    order.paymentStatus = "Paid — demo verified";
+    order.demoPaymentAt = changedAt;
+    order.paidAt = changedAt;
+    order.paymentChannel = "Admin test override — no money charged";
+    order.status = "Confirmed";
+    order.updatedAt = changedAt;
+    order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+    order.statusHistory.push({ status: "Confirmed", at: changedAt, by: "admin demo payment" });
+    saveOrders(orders);
+    notifyOrderParties(order, "Test payment approved — order confirmed", "An administrator marked this test order as paid for workflow testing. No money was charged.");
+    return res.json({
+      order: publicOrder(order),
+      message: "Test payment recorded. No money was charged. The restaurant can now process this order."
+    });
+  } catch (error) {
+    console.error("Admin demo payment failed:", error.message);
+    return res.status(500).json({ error: "Could not mark this test order as paid." });
+  }
+});
+
 // Role-based order status updates
 app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
   try {

@@ -995,6 +995,24 @@ async function loadDashboard() {
           <div class="dashboard-section-heading"><div><h2>Orders</h2><p>Manage orders and assign delivery agents.</p></div><span class="count-pill">${orders.length}</span></div>
           ${orders.length ? `<div class="order-list">${orders.map(renderOrderCard).join("")}</div>` : '<div class="empty-state">No orders here yet. New orders will appear when customers place them.</div>'}
         </section>`;
+    } else if (account.role === "agent") {
+      const activeDeliveryOrders = orders.filter(order =>
+        order.assignedAgentId === account.agentId && ["Ready for pickup", "Out for delivery"].includes(order.status)
+      );
+      const completedDeliveryOrders = orders.filter(order => order.assignedAgentId === account.agentId && order.status === "Completed");
+      $("#dashboardContent").innerHTML = `
+        <div class="restaurant-welcome">
+          <div><span class="eyebrow">DELIVERY AGENT WORKSPACE</span><h2>Welcome, ${escapeHtml(account.name)}!</h2><p>Manage your assigned deliveries here. Open the full-page student chat on an active order to coordinate pickup and delivery.</p></div>
+          <div class="student-dashboard-actions"><button class="secondary-button" type="button" id="refreshAgentOrders">↻ Refresh deliveries</button></div>
+        </div>
+        <section class="dashboard-order-section">
+          <div class="dashboard-section-heading"><div><h2>Active deliveries</h2><p>Use the full-page chat while the order is ready for pickup or out for delivery.</p></div><span class="count-pill">${activeDeliveryOrders.length}</span></div>
+          ${activeDeliveryOrders.length ? `<div class="order-list">${activeDeliveryOrders.map(renderOrderCard).join("")}</div>` : `<div class="empty-state">You have no active deliveries right now. New assignments will appear here.</div>`}
+        </section>
+        <section class="dashboard-order-section">
+          <div class="dashboard-section-heading"><div><h2>Completed deliveries</h2><p>Your recent completed orders.</p></div><span class="count-pill">${completedDeliveryOrders.length}</span></div>
+          ${completedDeliveryOrders.length ? `<div class="order-list">${completedDeliveryOrders.slice(0,10).map(renderOrderCard).join("")}</div>` : `<div class="empty-state">No completed deliveries yet.</div>`}
+        </section>`;
     } else {
       $("#dashboardContent").innerHTML = `
         <div class="restaurant-welcome">
@@ -1629,6 +1647,7 @@ async function initialize() {
       }
       return;
     }
+    if (event.target.closest("#refreshAgentOrders")) { await loadDashboard(); return; }
     const useRestaurantGps = event.target.closest("#restaurantUseGps");
     if (useRestaurantGps) {
       const message = $("#restaurantPickupMapMessage");

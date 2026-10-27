@@ -1515,8 +1515,12 @@ function removeExpiredDeliveryChat(order) {
 app.get("/api/orders/:id/chat", requireRole("student", "agent", "restaurant"), (req, res) => {
   try {
     const orders = readOrders();
-    const order = orders.find(item => item.id === req.params.id);
-    if (!order) return res.status(404).json({ error: "Order not found." });
+    const requestedOrderId = String(req.params.id || "").trim();
+    const order = orders.find(item => String(item.id || "").trim() === requestedOrderId) || orders.find(item => String(item.id || "").trim().toLowerCase() === requestedOrderId.toLowerCase());
+    if (!order) {
+      console.warn("Delivery chat order lookup failed", { storedOrderCount: orders.length });
+      return res.status(404).json({ error: "This order could not be found by the chat service. Refresh your deliveries and open the chat again." });
+    }
     if (!canUseDeliveryChat(req.account, order)) return res.status(403).json({ error: "Only the ordering student and assigned delivery agent can access this chat." });
     if (removeExpiredDeliveryChat(order)) saveOrders(orders);
     if (!deliveryChatIsOpen(order)) return res.status(410).json({ active: false, messages: [], error: "This temporary chat closed two minutes after delivery." });
@@ -1532,8 +1536,12 @@ app.post("/api/orders/:id/chat", requireRole("student", "agent", "restaurant"), 
   if (!message || message.length > 500) return res.status(400).json({ error: "Message must be between 1 and 500 characters." });
   try {
     const orders = readOrders();
-    const order = orders.find(item => item.id === req.params.id);
-    if (!order) return res.status(404).json({ error: "Order not found." });
+    const requestedOrderId = String(req.params.id || "").trim();
+    const order = orders.find(item => String(item.id || "").trim() === requestedOrderId) || orders.find(item => String(item.id || "").trim().toLowerCase() === requestedOrderId.toLowerCase());
+    if (!order) {
+      console.warn("Delivery chat send lookup failed", { storedOrderCount: orders.length });
+      return res.status(404).json({ error: "This order could not be found by the chat service. Refresh your deliveries and open the chat again." });
+    }
     if (!canUseDeliveryChat(req.account, order)) return res.status(403).json({ error: "Only the ordering student and assigned delivery agent can send messages here." });
     if (removeExpiredDeliveryChat(order)) {
       saveOrders(orders);

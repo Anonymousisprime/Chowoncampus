@@ -766,6 +766,7 @@ function renderRestaurantMenuManager() {
   if (!restaurant) return;
   const container = document.createElement("section");
   container.className = "restaurant-menu-manager";
+  container.id = "restaurantMenuManager";
   container.innerHTML = `
     <section class="restaurant-location-manager">
       <div class="dashboard-section-heading"><div><span class="eyebrow">PICKUP POINT</span><h2>Restaurant location</h2><p>Save written pickup instructions and set the exact GPS pin so the nearest available agent can find your restaurant.</p></div></div>
@@ -830,13 +831,21 @@ async function loadDashboard() {
       const pickup = orders.filter(order => ["Ready for pickup", "Out for delivery"].includes(order.status));
       const completed = orders.filter(order => ["Completed", "Cancelled"].includes(order.status));
       const section = (title, subtitle, list, key) => `
-        <section class="dashboard-order-section">
+        <section class="dashboard-order-section" id="restaurant-section-${key}">
           <div class="dashboard-section-heading"><div><h2>${title}</h2><p>${subtitle}</p></div><span class="count-pill">${list.length}</span></div>
           ${list.length ? `<div class="order-list">${list.map(renderOrderCard).join("")}</div>` : `<div class="empty-state compact-empty">No ${key} orders right now.</div>`}
         </section>`;
       const totalSales = orders.filter(order => order.status === "Completed").reduce((sum, order) => sum + Number(order.total || 0), 0);
       $("#dashboardContent").innerHTML = `
         <div class="restaurant-welcome"><div><span class="eyebrow">RESTAURANT WORKSPACE</span><h2>Welcome, ${escapeHtml(account.name)}!</h2><p>Let's get orders moving. Review incoming orders, prepare meals and coordinate pickup with your delivery agent.</p></div><button class="secondary-button" id="refreshRestaurantOrders" type="button">↻ Refresh orders</button></div>
+        <nav class="restaurant-quick-actions" aria-label="Restaurant dashboard shortcuts">
+          <button type="button" class="secondary-button" data-restaurant-jump="restaurant-section-incoming">📥 Incoming orders</button>
+          <button type="button" class="secondary-button" data-restaurant-jump="restaurant-section-preparing">🍳 In the kitchen</button>
+          <button type="button" class="secondary-button" data-restaurant-jump="restaurant-section-pickup">🛵 Pickup & delivery</button>
+          <button type="button" class="secondary-button" data-restaurant-jump="restaurant-section-completed">📋 Order history</button>
+          <button type="button" class="secondary-button" data-restaurant-jump="restaurantMenuManager">🍽️ Manage menu & location</button>
+          <button type="button" class="secondary-button" data-restaurant-jump="restaurantRatingsPanel">⭐ Customer ratings</button>
+        </nav>
         <div class="restaurant-metrics">
           <article><span>Incoming</span><strong>${incoming.length}</strong><small>Awaiting action</small></article>
           <article><span>Preparing</span><strong>${preparing.length}</strong><small>In the kitchen</small></article>
@@ -1282,6 +1291,12 @@ async function initialize() {
 
     if (event.target.closest("#refreshRestaurantOrders")) {
       await loadDashboard();
+      return;
+    }
+
+    const restaurantJumpButton = event.target.closest("[data-restaurant-jump]");
+    if (restaurantJumpButton) {
+      document.getElementById(restaurantJumpButton.dataset.restaurantJump)?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
 

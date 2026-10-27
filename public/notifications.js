@@ -61,6 +61,24 @@
       notice.onclick = () => { window.focus(); notice.close(); };
     } catch {}
   }
+
+  let serviceWorkerRegistration = null;
+  function urlBase64ToUint8Array(base64String) {
+    const padding = "=".repeat((4 - base64String.length % 4) % 4);
+    const raw = atob((base64String + padding).replace(/-/g, "+").replace(/_/g, "/"));
+    return Uint8Array.from(raw, char => char.charCodeAt(0));
+  }
+  async function enableBackgroundPush() {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) throw new Error("This browser does not support background push. On iPhone, add ChowOnCampus to your Home Screen and open it there.");
+    if (Notification.permission !== "granted") throw new Error("Allow notifications in the browser, then tap Notifications again.");
+    serviceWorkerRegistration = await navigator.serviceWorker.register("/sw.js");
+    const keyResponse = await request("/api/push/public-key");
+    if (!keyResponse.configured || !keyResponse.publicKey) throw new Error("Push code is ready, but VAPID keys still need to be configured on the hosting service.");
+    let subscription = await serviceWorkerRegistration.pushManager.getSubscription();
+    if (!subscription) subscription = await serviceWorkerRegistration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(keyResponse.publicKey) });
+    await request("/api/push/subscribe", { method: "POST", body: JSON.stringify({ subscription: subscription.toJSON() }) });
+  }
+
   const accountKey = account => account ? JSON.stringify([
     account.role || "",
     String(account.username || "").trim().toLowerCase(),
@@ -157,11 +175,22 @@
     }
   }
   toggle.addEventListener("click", async () => {
-    // A direct user gesture unlocks audio on mobile browsers; play a test ding
-    // so the user can tell immediately whether this device allows notification sound.
-    await testNotificationSound();
+    let permissionPromise = null;
     if ("Notification" in window && Notification.permission === "default") {
-      try { await Notification.requestPermission(); } catch {}
+      try { permissionPromise = Notification.requestPermission(); } catch {}
+    }
+    await testNotificationSound();
+    try {
+      if (permissionPromise) await permissionPromise;
+      if ("Notification" in window && Notification.permission === "granted" && loggedIn) await enableBackgroundPush();
+    } catch (error) {
+      console.info("ChowOnCampus push setup:", error.message);
+      const heading = panel.querySelector(".notification-panel-heading");
+      if (heading) {
+        let status = document.getElementById("pushSetupStatus");
+        if (!status) { status = document.createElement("p"); status.id = "pushSetupStatus"; status.className = "small-note"; heading.parentNode.insertBefore(status, heading.nextSibling); }
+        status.textContent = error.message || "Could not enable background notifications.";
+      }
     }
     const open = panel.classList.toggle("hidden") === false;
     toggle.setAttribute("aria-expanded", String(open));

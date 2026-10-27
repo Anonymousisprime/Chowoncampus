@@ -1127,6 +1127,14 @@ async function initialize() {
 
   renderCart();
   updateNavigation();
+
+  // The delivery map starts inside a collapsed disclosure; recalculate its size when opened.
+  const deliveryDisclosure = $("#deliveryDetailsDisclosure");
+  if (deliveryDisclosure) {
+    deliveryDisclosure.addEventListener("toggle", () => {
+      if (deliveryDisclosure.open) setTimeout(() => deliveryMap?.invalidateSize(), 180);
+    });
+  }
   initDeliveryMap();
 
   try {

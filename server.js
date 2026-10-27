@@ -1486,10 +1486,11 @@ function removeExpiredDeliveryChat(order) {
 
 app.get("/api/orders/:id/chat", requireRole("student", "agent", "restaurant"), (req, res) => {
   try {
-    const order = readOrders().find(item => item.id === req.params.id);
+    const orders = readOrders();
+    const order = orders.find(item => item.id === req.params.id);
     if (!order) return res.status(404).json({ error: "Order not found." });
     if (!canUseDeliveryChat(req.account, order)) return res.status(403).json({ error: "Only the ordering student and assigned delivery agent can access this chat." });
-    if (removeExpiredDeliveryChat(order)) saveOrders(readOrders().map(item => item.id === order.id ? order : item));
+    if (removeExpiredDeliveryChat(order)) saveOrders(orders);
     if (!deliveryChatIsOpen(order)) return res.status(410).json({ active: false, messages: [], error: "This temporary chat closed two minutes after delivery." });
     const deliveredAt = new Date(order.deliveredAt || order.completedAt || 0).getTime();
     res.json({ active: true, expiresAt: order.status === "Completed" ? new Date(deliveredAt + DELIVERY_CHAT_GRACE_MS).toISOString() : null, messages: Array.isArray(order.chatMessages) ? order.chatMessages : [] });

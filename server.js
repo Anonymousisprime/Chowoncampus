@@ -1466,8 +1466,22 @@ function canUseDeliveryChat(account, order) {
   ));
 }
 
+const DELIVERY_CHAT_GRACE_MS = 2 * 60 * 1000;
+
 function deliveryChatIsOpen(order) {
-  return ["Ready for pickup", "Out for delivery"].includes(order.status);
+  if (["Ready for pickup", "Out for delivery"].includes(order.status)) return true;
+  if (order.status !== "Completed") return false;
+  const deliveredAt = new Date(order.deliveredAt || order.completedAt || 0).getTime();
+  return Number.isFinite(deliveredAt) && deliveredAt > 0 && Date.now() <= deliveredAt + DELIVERY_CHAT_GRACE_MS;
+}
+
+function removeExpiredDeliveryChat(order) {
+  if (order.status !== "Completed") return false;
+  const deliveredAt = new Date(order.deliveredAt || order.completedAt || 0).getTime();
+  if (!Number.isFinite(deliveredAt) || !deliveredAt || Date.now() <= deliveredAt + DELIVERY_CHAT_GRACE_MS) return false;
+  if (!Object.prototype.hasOwnProperty.call(order, "chatMessages")) return false;
+  delete order.chatMessages;
+  return true;
 }
 
 app.get("/api/orders/:id/chat", requireRole("student", "agent", "restaurant"), (req, res) => {
@@ -1475,8 +1489,10 @@ app.get("/api/orders/:id/chat", requireRole("student", "agent", "restaurant"), (
     const order = readOrders().find(item => item.id === req.params.id);
     if (!order) return res.status(404).json({ error: "Order not found." });
     if (!canUseDeliveryChat(req.account, order)) return res.status(403).json({ error: "Only the ordering student and assigned delivery agent can access this chat." });
-    if (!deliveryChatIsOpen(order)) return res.status(410).json({ active: false, messages: [], error: "Chat is available only while the order is ready for pickup or out for delivery." });
-    res.json({ active: true, messages: Array.isArray(order.chatMessages) ? order.chatMessages : [] });
+    if (removeExpiredDeliveryChat(order)) saveOrders(readOrders().map(item => item.id === order.id ? order : item));
+    if (!deliveryChatIsOpen(order)) return res.status(410).json({ active: false, messages: [], error: "This temporary chat closed two minutes after delivery." });
+    const deliveredAt = new Date(order.deliveredAt || order.completedAt || 0).getTime();
+    res.json({ active: true, expiresAt: order.status === "Completed" ? new Date(deliveredAt + DELIVERY_CHAT_GRACE_MS).toISOString() : null, messages: Array.isArray(order.chatMessages) ? order.chatMessages : [] });
   } catch (error) {
     res.status(500).json({ error: "Could not load delivery chat." });
   }
@@ -1490,6 +1506,10 @@ app.post("/api/orders/:id/chat", requireRole("student", "agent", "restaurant"), 
     const order = orders.find(item => item.id === req.params.id);
     if (!order) return res.status(404).json({ error: "Order not found." });
     if (!canUseDeliveryChat(req.account, order)) return res.status(403).json({ error: "Only the ordering student and assigned delivery agent can send messages here." });
+    if (removeExpiredDeliveryChat(order)) {
+      saveOrders(orders);
+      return res.status(410).json({ error: "This temporary chat closed two minutes after delivery." });
+    }
     if (!deliveryChatIsOpen(order)) return res.status(410).json({ error: "This temporary chat has closed." });
     order.chatMessages = Array.isArray(order.chatMessages) ? order.chatMessages : [];
     if (order.chatMessages.length >= 100) order.chatMessages.shift();
@@ -2393,14 +2413,13 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
       const changedAt = new Date().toISOString();
       order.status = newStatus;
       order.updatedAt = changedAt;
-      order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [{ status: order.status, at: order.createdAt, by: "system" }];
+      order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [{ status: previousStatus, at: order.createdAt, by: "system" }];
       order.statusHistory.push({ status: newStatus, at: changedAt, by: req.account.role });
     }
 
-    // Erase the temporary delivery chat as soon as the order is completed or cancelled.
-    if (newStatus === "Completed" || newStatus === "Cancelled") {
-      delete order.chatMessages;
-    }
+    // Delivery chat stays available for two minutes after successful delivery,
+    // then its messages are removed on the next chat request.
+    if (newStatus === "Cancelled") delete order.chatMessages;
 
     // Starting delivery accepts the 60-second pickup offer.
     if (newStatus === "Out for delivery" && order.assignedAgentId === req.account.agentId) {
@@ -2408,11 +2427,15 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
       order.assignmentExpiresAt = null;
     }
 
-    // Record agent earnings only once when the order is completed.
-    if (newStatus === "Completed" && !order.agentEarningsRecorded) {
-      order.agentEarningsRecorded = true;
-      order.agentEarnings = AGENT_EARNING_PER_DELIVERY;
-      order.completedAt = new Date().toISOString();
+    // Stamp completion once, for restaurant history, ratings and agent earnings.
+    if (newStatus === "Completed" && previousStatus !== "Completed") {
+      const deliveredAt = new Date().toISOString();
+      order.completedAt = deliveredAt;
+      order.deliveredAt = deliveredAt;
+      if (!order.agentEarningsRecorded) {
+        order.agentEarningsRecorded = true;
+        order.agentEarnings = AGENT_EARNING_PER_DELIVERY;
+      }
     }
 
     saveOrders(orders);

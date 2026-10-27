@@ -11,7 +11,7 @@
   <meta property="og:image" content="/chowoncampus-logo.svg">
   <meta name="description" content="Chowoncampus — order your favourite campus meals with ease.">
   <title>Chowoncampus | Campus Food Made Easy</title>
-  <link rel="stylesheet" href="/style.css?v=mobile-nav-1">
+  <link rel="stylesheet" href="/style.css?v=delivery-location-1">
   <script src="/app.js?v=takeaway-fee-1" defer></script>
 </head>
 <body>
@@ -90,7 +90,9 @@
           <div class="grand-total"><span>Total</span><strong id="grandTotal">₦300</strong></div>
         </div>
 
-        <form id="checkoutForm" class="form-card">
+        <details id="deliveryDetailsDisclosure" class="delivery-details-disclosure">
+          <summary><span class="delivery-summary-icon" aria-hidden="true">📍</span><span><strong>Add delivery location</strong><small>Enter your hostel and choose where to deliver your order</small></span><span class="delivery-summary-chevron" aria-hidden="true">＋</span></summary>
+          <form id="checkoutForm" class="form-card">
           <h3>Delivery details</h3>
           <p class="small-note">You must be signed in with a student account to place an order. Your account details will be used automatically.</p>
           <label for="paymentEmail">Email for payment receipt <span class="muted">(required for online payment)</span></label>
@@ -115,6 +117,7 @@
           <button type="submit" id="placeOrderButton" class="primary-button full-width">Continue to secure payment →</button>
           <p class="small-note">Payments are confirmed by the server before your order is sent to the restaurant. Never pay outside the secure checkout.</p>
         </form>
+        </details>
       </section>
 
       <section id="trackingSection" class="content-section">

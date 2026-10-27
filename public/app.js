@@ -1,6 +1,17 @@
 
 const $ = selector => document.querySelector(selector);
 
+function studentOrderIsVisible(order) {
+  const activeStatuses = ["Awaiting payment", "Confirmed", "Preparing", "Ready for pickup", "Out for delivery"];
+  if (activeStatuses.includes(order?.status)) return true;
+  if (order?.status !== "Completed") return false;
+  const history = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+  const completedEvent = [...history].reverse().find(event => event.status === "Completed");
+  const completedAt = order.deliveredAt || order.completedAt || completedEvent?.at;
+  const completedTime = completedAt ? new Date(completedAt).getTime() : NaN;
+  return Number.isFinite(completedTime) && Date.now() - completedTime < 2 * 60 * 1000;
+}
+
 const state = {
   restaurants: [],
   selectedRestaurantId: null,
@@ -570,6 +581,15 @@ async function trackOrder(orderId, quiet = false) {
   if (!quiet) $("#trackResult").innerHTML = `<p class="loading">Looking up your order…</p>`;
   try {
     const result = await api(`/api/orders/${encodeURIComponent(id)}`);
+    if (state.account?.role === "student" && !studentOrderIsVisible(result.order)) {
+      try {
+        if (localStorage.getItem("coc_last_order_id") === id) localStorage.removeItem("coc_last_order_id");
+      } catch {}
+      if ($("#trackId")) $("#trackId").value = "";
+      if ($("#trackResult")) $("#trackResult").innerHTML = '<div class="empty-state">This order is no longer active. Past orders are available to admins only.</div>';
+      if (activeTrackedOrderId === id) activeTrackedOrderId = null;
+      return;
+    }
     renderTrackedOrder(result.order);
   } catch (error) {
     if (!quiet) $("#trackResult").innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
@@ -1017,14 +1037,16 @@ async function loadDashboard() {
           ${completedDeliveryOrders.length ? `<div class="order-list">${completedDeliveryOrders.slice(0,10).map(renderOrderCard).join("")}</div>` : `<div class="empty-state">No completed deliveries yet.</div>`}
         </section>`;
     } else {
+      const studentOrders = orders.filter(studentOrderIsVisible);
       $("#dashboardContent").innerHTML = `
         <div class="restaurant-welcome">
-          <div><span class="eyebrow">STUDENT WORKSPACE</span><h2>Welcome, ${escapeHtml(account.name)}!</h2><p>Ready for your next meal? Check your orders below or head back to the menu to find something delicious.</p></div>
+          <div><span class="eyebrow">STUDENT WORKSPACE</span><h2>Welcome, ${escapeHtml(account.name)}!</h2><p>Track your current orders here. Completed orders remain visible briefly for feedback, then move out of your dashboard. Past orders are available to admins only.</p></div>
           <div class="student-dashboard-actions"><button class="secondary-button" type="button" data-view="home">Browse food</button><button class="secondary-button" type="button" data-show-password-form>🔐 Change password</button></div>
         </div>
-        ${orders.length
-          ? `<div class="order-list">${orders.map(renderOrderCard).join("")}</div>`
-          : `<div class="empty-state">You have no orders yet. Browse the menu and place your first order!</div>`}`;
+        <section class="dashboard-order-section"><div class="dashboard-section-heading"><div><h2>Current orders</h2><p>Only active orders and the brief post-delivery feedback window appear here.</p></div><span class="count-pill">${studentOrders.length}</span></div>
+        ${studentOrders.length
+          ? `<div class="order-list">${studentOrders.map(renderOrderCard).join("")}</div>`
+          : `<div class="empty-state">You have no active orders. Browse the menu and place your next order!</div>`}</section>`;
     }
 
 

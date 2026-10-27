@@ -768,3 +768,35 @@ button,input,select,textarea{max-width:100%;min-width:0}
   .delivery-details-disclosure > summary strong { font-size: .98rem; }
   .delivery-details-disclosure > summary small { font-size: .76rem; }
 }
+
+
+/* Restaurant dashboard: clear navigation, balanced sections, reliable touch buttons */
+.restaurant-quick-actions{
+  display:flex;flex-wrap:wrap;gap:10px;margin:0 0 24px;padding:16px;
+  background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow)
+}
+.restaurant-quick-actions button{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  min-height:44px;padding:11px 14px;border:1px solid #dce7dc;border-radius:11px;
+  background:#f8fbf7;color:var(--green);font-weight:800;line-height:1.25;
+  transition:background .18s,transform .18s,border-color .18s
+}
+.restaurant-quick-actions button:hover{background:#eaf3e9;border-color:#b8d0bc;transform:translateY(-1px)}
+#restaurantMenuManager,#restaurantRatingsPanel,[id^="restaurant-section-"]{scroll-margin-top:22px}
+#dashboardContent>.restaurant-welcome{margin-top:4px}
+#dashboardContent .dashboard-order-section{min-width:0}
+#dashboardContent .order-list{grid-template-columns:minmax(0,1fr);gap:14px}
+#dashboardContent .order-card{padding:clamp(15px,2.5vw,22px)}
+#dashboardContent .order-top{align-items:flex-start}
+#dashboardContent .order-top>div{min-width:0;overflow-wrap:anywhere}
+#dashboardContent .order-actions{display:flex;align-items:flex-end;flex-wrap:wrap;gap:10px}
+#dashboardContent .order-actions label{flex:1 1 210px;min-width:0}
+#dashboardContent .order-actions select{width:100%;min-height:44px;max-width:100%}
+#dashboardContent .order-actions button{min-height:44px}
+@media(max-width:600px){
+  .restaurant-quick-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:12px}
+  .restaurant-quick-actions button{width:100%;min-width:0;padding:10px 8px;font-size:.82rem;overflow-wrap:anywhere}
+  #dashboardContent .order-actions{align-items:stretch;flex-direction:column}
+  #dashboardContent .order-actions label,#dashboardContent .order-actions button{width:100%}
+}
+@media(max-width:360px){.restaurant-quick-actions{grid-template-columns:minmax(0,1fr)}}

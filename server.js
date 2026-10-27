@@ -1441,8 +1441,20 @@ app.get("/api/orders", requireLogin, (req, res) => {
           ["Paid — demo verified", "Paid — Paystack verified"].includes(order.paymentStatus)
       );
     } else if (req.account.role === "student") {
-      // Students may only view orders placed using their verified phone number.
-      orders = orders.filter(order => order.customerPhone === req.account.username);
+      // Students see active orders and a short post-delivery feedback window only.
+      // Older completed/cancelled orders remain available for admin review.
+      const activeStatuses = new Set(["Awaiting payment", "Confirmed", "Preparing", "Ready for pickup", "Out for delivery"]);
+      const feedbackWindowMs = 2 * 60 * 1000;
+      orders = orders.filter(order => {
+        if (order.customerPhone !== req.account.username) return false;
+        if (activeStatuses.has(order.status)) return true;
+        if (order.status !== "Completed") return false;
+        const history = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+        const completedEvent = [...history].reverse().find(event => event.status === "Completed");
+        const completedAt = order.deliveredAt || order.completedAt || completedEvent?.at;
+        const completedTime = completedAt ? new Date(completedAt).getTime() : NaN;
+        return Number.isFinite(completedTime) && Date.now() - completedTime < feedbackWindowMs;
+      });
     } else if (req.account.role !== "admin") {
       return res.status(403).json({ error: "You don't have permission to view orders." });
     }

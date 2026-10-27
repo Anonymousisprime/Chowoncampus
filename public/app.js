@@ -1249,16 +1249,6 @@ async function initialize() {
       renderMenu();
     }
 
-    if (event.target.closest("#exploreButton")) {
-      const restaurantsSection = $("#restaurantsSection");
-      restaurantsSection.classList.remove("hidden");
-      const list = $("#restaurantList");
-      if (!state.restaurants.length && list) {
-        list.innerHTML = '<div class="empty-state">No restaurants are available yet. Please check back soon.</div>';
-      }
-      restaurantsSection.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-
     if (event.target.closest("#cartJump")) {
       $("#cartSection").scrollIntoView({ behavior: "smooth" });
     }

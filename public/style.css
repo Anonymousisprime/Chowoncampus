@@ -815,3 +815,27 @@ button,input,select,textarea{max-width:100%;min-width:0}
 
 /* Keep the restaurant food editor closed until the Add / Edit food items button is clicked */
 #restaurantMenuEditor[hidden]{display:none!important}
+
+
+/* Full-screen temporary delivery chat */
+.temporary-chat-preview{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:16px;padding:16px;background:#f6faf6;border:1px solid #dce9df;border-radius:14px}
+.temporary-chat-preview h4{margin:0 0 4px}.temporary-chat-preview p{margin:0}
+.temporary-chat-page{position:fixed;inset:0;z-index:10000;display:flex;flex-direction:column;width:100%;height:100dvh;min-height:0;background:#f7f8f4;color:var(--ink)}
+.temporary-chat-page.hidden{display:none!important}body.chat-page-open{overflow:hidden}
+.full-chat-header{display:flex;align-items:center;gap:12px;min-height:76px;padding:12px clamp(14px,4vw,36px);background:var(--green);color:#fff;box-shadow:0 3px 14px #102d2420}
+.full-chat-back{width:42px;height:42px;flex:0 0 42px;border:0;border-radius:50%;background:#ffffff18;color:#fff;font-size:27px;line-height:1}
+.full-chat-avatar{display:grid;place-items:center;width:44px;height:44px;flex:0 0 44px;border-radius:50%;background:#ffffff20;font-size:22px}
+.full-chat-heading{display:grid;gap:2px;min-width:0;flex:1}.full-chat-heading strong{font-size:1rem;overflow-wrap:anywhere}.full-chat-heading span{font-size:.78rem;color:#d3e3d9}
+.full-chat-live{display:flex;align-items:center;gap:6px;font-size:.78rem;color:#d9f5df}.full-chat-live span{width:8px;height:8px;border-radius:50%;background:#7be0a0}
+.full-chat-banner{display:flex;gap:9px;align-items:center;padding:10px clamp(14px,4vw,36px);background:#eaf3e9;border-bottom:1px solid #dce9df;color:#53665a;font-size:.78rem}
+.full-chat-messages{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:clamp(14px,3vw,30px);background-image:radial-gradient(#dfe7dc 0.7px,transparent 0.7px);background-size:16px 16px}
+.full-chat-message{width:fit-content;max-width:min(76%,680px);padding:11px 14px;background:#fff;border:1px solid #e2e9e1;border-radius:5px 16px 16px 16px;box-shadow:0 2px 7px #102d2408;overflow-wrap:anywhere}
+.full-chat-message.mine{align-self:flex-end;background:#e0f4df;border-color:#cbe8c9;border-radius:16px 5px 16px 16px}
+.full-chat-message-meta{display:flex;align-items:center;gap:18px;justify-content:space-between;font-size:.78rem;color:var(--green)}.full-chat-message-meta time{font-size:.7rem;color:#778277;white-space:nowrap}
+.full-chat-message p{margin:5px 0 0;white-space:pre-wrap;line-height:1.5}.full-chat-empty{margin:auto;text-align:center;color:#6e7d70;padding:24px}.full-chat-empty>span{font-size:2.5rem}.full-chat-empty strong{display:block;color:var(--green);margin-top:8px}.full-chat-empty p{margin:5px 0}
+.full-chat-error{margin:auto;color:#9b382b;background:#fff;padding:16px;border-radius:12px}
+.full-chat-composer{display:flex;align-items:center;gap:10px;padding:12px clamp(12px,3vw,28px) calc(12px + env(safe-area-inset-bottom));background:#fff;border-top:1px solid var(--line)}
+.full-chat-composer input{min-width:0;flex:1;min-height:48px;padding:12px 16px;border:1px solid #d8e2d8;border-radius:25px;background:#f8faf7;font:inherit;outline:none}
+.full-chat-composer input:focus{border-color:#6a9a78;box-shadow:0 0 0 3px #6a9a781c}
+.full-chat-composer button{display:grid;place-items:center;width:48px;height:48px;flex:0 0 48px;border:0;border-radius:50%;background:var(--green);color:#fff;font-size:22px}.full-chat-composer button:disabled{opacity:.55;cursor:not-allowed}
+@media(max-width:600px){.temporary-chat-preview{align-items:stretch;flex-direction:column}.temporary-chat-preview button{width:100%;min-height:46px}.full-chat-header{min-height:68px}.full-chat-message{max-width:90%}.full-chat-banner{align-items:flex-start}.full-chat-composer{gap:8px}}

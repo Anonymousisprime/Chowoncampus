@@ -7,6 +7,36 @@
   let loggedIn = false;
   let busy = false;
   let currentAccount = null;
+  let currentAccountKey = "";
+  const accountKey = account => account ? JSON.stringify([
+    account.role || "",
+    String(account.username || "").trim().toLowerCase(),
+    String(account.restaurantId || ""),
+    String(account.agentId || "")
+  ]) : "";
+  function clearNotifications(message = "Sign in to see your notifications.") {
+    count.textContent = "0";
+    count.classList.add("hidden");
+    list.innerHTML = '<div class="notification-empty">' + esc(message) + '</div>';
+  }
+  async function syncAccount() {
+    const result = await request("/api/me");
+    const nextAccount = result.account || null;
+    const nextKey = accountKey(nextAccount);
+    if (nextKey !== currentAccountKey) {
+      // Never leave the previous account's notifications visible after an account switch.
+      currentAccount = nextAccount;
+      currentAccountKey = nextKey;
+      clearNotifications(nextAccount ? "Loading your notifications…" : "Sign in to see your notifications.");
+    }
+    loggedIn = Boolean(nextAccount);
+    toggle.classList.toggle("hidden", !loggedIn);
+    if (!loggedIn) {
+      panel.classList.add("hidden");
+      toggle.setAttribute("aria-expanded", "false");
+    }
+    return nextKey;
+  }
   const esc = value => String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
   // Defense in depth: never render a notification for another role or account.
   function belongsToCurrentAccount(item) {
@@ -24,10 +54,17 @@
     return data;
   }
   async function refresh() {
-    if (!loggedIn || busy) return;
+    if (busy) return;
     busy = true;
     try {
+      const key = await syncAccount();
+      if (!key || !loggedIn) {
+        clearNotifications();
+        return;
+      }
       const data = await request("/api/notifications");
+      // The account may have changed while the request was in flight.
+      if (key !== currentAccountKey || !loggedIn) return;
       const visibleNotifications = (Array.isArray(data.notifications) ? data.notifications : []).filter(belongsToCurrentAccount);
       count.textContent = visibleNotifications.filter(item => !item.read).length;
       count.classList.toggle("hidden", !visibleNotifications.some(item => !item.read));
@@ -38,17 +75,20 @@
       }
     } catch (error) {
       if (panel.classList.contains("hidden")) return;
-      list.innerHTML = '<div class="notification-empty">Notifications could not be loaded. Try again shortly.</div>';
+      clearNotifications("Notifications could not be loaded. Try again shortly.");
     } finally { busy = false; }
   }
   async function init() {
     try {
-      const result = await request("/api/me");
-      currentAccount = result.account || null;
-      loggedIn = Boolean(currentAccount);
-      toggle.classList.toggle("hidden", !loggedIn);
+      await syncAccount();
       if (loggedIn) await refresh();
-    } catch {}
+    } catch {
+      currentAccount = null;
+      currentAccountKey = "";
+      loggedIn = false;
+      toggle.classList.add("hidden");
+      clearNotifications();
+    }
   }
   toggle.addEventListener("click", async () => {
     const open = panel.classList.toggle("hidden") === false;

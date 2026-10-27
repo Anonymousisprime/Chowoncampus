@@ -839,3 +839,7 @@ button,input,select,textarea{max-width:100%;min-width:0}
 .full-chat-composer input:focus{border-color:#6a9a78;box-shadow:0 0 0 3px #6a9a781c}
 .full-chat-composer button{display:grid;place-items:center;width:48px;height:48px;flex:0 0 48px;border:0;border-radius:50%;background:var(--green);color:#fff;font-size:22px}.full-chat-composer button:disabled{opacity:.55;cursor:not-allowed}
 @media(max-width:600px){.temporary-chat-preview{align-items:stretch;flex-direction:column}.temporary-chat-preview button{width:100%;min-height:46px}.full-chat-header{min-height:68px}.full-chat-message{max-width:90%}.full-chat-banner{align-items:flex-start}.full-chat-composer{gap:8px}}
+
+
+/* Keep restaurant dashboard panels fully hidden until selected. */
+.restaurant-view-panel[hidden]{display:none!important}

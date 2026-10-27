@@ -6,7 +6,17 @@
   if (!toggle || !panel || !list || !count) return;
   let loggedIn = false;
   let busy = false;
+  let currentAccount = null;
   const esc = value => String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+  // Defense in depth: never render a notification for another role or account.
+  function belongsToCurrentAccount(item) {
+    if (!currentAccount || !item || item.role !== currentAccount.role) return false;
+    if (currentAccount.role === "admin") return true;
+    if (currentAccount.role === "student") return Boolean(currentAccount.username && item.username === currentAccount.username);
+    if (currentAccount.role === "restaurant") return Boolean(currentAccount.restaurantId && item.restaurantId === currentAccount.restaurantId);
+    if (currentAccount.role === "agent") return Boolean(currentAccount.agentId && item.agentId === currentAccount.agentId);
+    return false;
+  }
   async function request(url, options = {}) {
     const response = await fetch(url, { credentials:"same-origin", ...options, headers:{ ...(options.body ? {"Content-Type":"application/json"} : {}), ...(options.headers || {}) } });
     const data = await response.json().catch(() => ({}));
@@ -18,12 +28,13 @@
     busy = true;
     try {
       const data = await request("/api/notifications");
-      count.textContent = data.unreadCount;
-      count.classList.toggle("hidden", !data.unreadCount);
-      if (!data.notifications.length) {
+      const visibleNotifications = (Array.isArray(data.notifications) ? data.notifications : []).filter(belongsToCurrentAccount);
+      count.textContent = visibleNotifications.filter(item => !item.read).length;
+      count.classList.toggle("hidden", !visibleNotifications.some(item => !item.read));
+      if (!visibleNotifications.length) {
         list.innerHTML = '<div class="notification-empty">You’re all caught up. New order updates will appear here.</div>';
       } else {
-        list.innerHTML = data.notifications.map(item => `<article class="notification-item ${item.read ? "" : "unread"}" data-notification-id="${esc(item.id)}" data-order-id="${esc(item.orderId || "")}"><strong>${esc(item.title)}</strong><p>${esc(item.message)}</p><small>${esc(new Date(item.createdAt).toLocaleString())}</small></article>`).join("");
+        list.innerHTML = visibleNotifications.map(item => `<article class="notification-item ${item.read ? "" : "unread"}" data-notification-id="${esc(item.id)}" data-order-id="${esc(item.orderId || "")}"><strong>${esc(item.title)}</strong><p>${esc(item.message)}</p><small>${esc(new Date(item.createdAt).toLocaleString())}</small></article>`).join("");
       }
     } catch (error) {
       if (panel.classList.contains("hidden")) return;
@@ -33,7 +44,8 @@
   async function init() {
     try {
       const result = await request("/api/me");
-      loggedIn = Boolean(result.account);
+      currentAccount = result.account || null;
+      loggedIn = Boolean(currentAccount);
       toggle.classList.toggle("hidden", !loggedIn);
       if (loggedIn) await refresh();
     } catch {}

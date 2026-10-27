@@ -1451,7 +1451,7 @@ app.get("/api/ratings/summary", requireLogin, (req, res) => {
       restaurantName: order.restaurantName, restaurantRating: order.rating.restaurantRating,
       agentId: order.assignedAgentId || null, agentRating: order.rating.agentRating,
       foodRatings: order.rating.foodRatings || [], comment: order.rating.comment || "",
-      ratedAt: order.rating.ratedAt
+      ratedAt: order.rating.ratedAt, deliveredAt: order.deliveredAt || order.completedAt || null
     }))
   });
 });
@@ -2379,6 +2379,10 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
         return res.status(403).json({
           error: "This order is not assigned to you."
         });
+      }
+
+      if (newStatus === "Completed" && order.status !== "Out for delivery") {
+        return res.status(400).json({ error: "Confirm delivery only after the order is marked Out for delivery." });
       }
 
       if (!["Out for delivery", "Completed"].includes(newStatus)) {

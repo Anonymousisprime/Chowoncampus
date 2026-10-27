@@ -415,6 +415,28 @@ function notifyOrderParties(order, title, message) {
   if (order.assignedAgentId) createNotification({ role: "agent", agentId: order.assignedAgentId }, title, `${order.id}: ${message}`, order.id);
 }
 
+function notifyOrderStatusChanged(order, previousStatus, newStatus) {
+  const title = "Order update";
+  let studentMessage = `Your order status is now: ${newStatus}.`;
+  if (newStatus === "Ready for pickup") {
+    studentMessage = "Your order is ready and is being prepared for dispatch.";
+  } else if (newStatus === "Out for delivery") {
+    studentMessage = "Your order is on its way. Please be ready to collect it at the gate.";
+  } else if (newStatus === "Completed") {
+    studentMessage = "Your order has been delivered. Thank you for using ChowOnCampus!";
+  } else if (newStatus === "Cancelled") {
+    studentMessage = "Your order has been cancelled. Open ChowOnCampus for details.";
+  }
+
+  createNotification({ role: "student", username: order.customerPhone }, title, studentMessage, order.id);
+  createNotification({ role: "restaurant", restaurantId: order.restaurantId }, title,
+    `Order ${order.id}: status changed from ${previousStatus} to ${newStatus}.`, order.id);
+  createNotification({ role: "admin" }, title,
+    `Order ${order.id}: status changed from ${previousStatus} to ${newStatus}.`, order.id);
+  if (order.assignedAgentId) createNotification({ role: "agent", agentId: order.assignedAgentId }, title,
+    `Order ${order.id}: status changed from ${previousStatus} to ${newStatus}.`, order.id);
+}
+
 function safeAccount(account) {
   return {
     username: account.username,
@@ -2450,7 +2472,7 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
     }
 
     saveOrders(orders);
-    if (previousStatus !== newStatus) notifyOrderParties(order, "Order status updated", `Status changed from ${previousStatus} to ${newStatus}.`);
+    if (previousStatus !== newStatus) notifyOrderStatusChanged(order, previousStatus, newStatus);
     if (newStatus === "Ready for pickup") assignReadyOrders();
     if (newStatus === "Completed" || newStatus === "Cancelled") {
       const records = readAgentRecords();

@@ -11,8 +11,8 @@
   <meta property="og:image" content="/chowoncampus-logo.svg">
   <meta name="description" content="Chowoncampus — order your favourite campus meals with ease.">
   <title>Chowoncampus | Campus Food Made Easy</title>
-  <link rel="stylesheet" href="/style.css?v=restaurant-food-editor-2">
-  <script src="/app.js?v=restaurant-food-editor-2" defer></script>
+  <link rel="stylesheet" href="/style.css?v=full-page-temp-chat-1">
+  <script src="/app.js?v=full-page-temp-chat-1" defer></script>
 </head>
 <body>
   <header class="site-header">
@@ -137,6 +137,20 @@
     <p>© <span id="year"></span> Chowoncampus. Made for campus life.</p>
   </footer>
 
+  <section id="temporaryChatPage" class="temporary-chat-page hidden" aria-label="Temporary delivery chat" aria-modal="true" role="dialog">
+    <header class="full-chat-header">
+      <button type="button" id="closeFullPageChat" class="full-chat-back" aria-label="Back to order">←</button>
+      <div class="full-chat-avatar" aria-hidden="true">💬</div>
+      <div class="full-chat-heading"><strong id="fullPageChatTitle">Delivery chat</strong><span id="fullPageChatOrderRef">Order</span></div>
+      <span class="full-chat-live"><span></span> Live</span>
+    </header>
+    <div class="full-chat-banner"><span>🔒</span><span>Private order chat · <span id="fullPageChatNotice">Messages refresh automatically.</span></span></div>
+    <div id="fullPageChatMessages" class="full-chat-messages" aria-live="polite"><p class="muted">Loading messages…</p></div>
+    <form id="fullPageChatForm" class="full-chat-composer">
+      <input id="fullPageChatInput" name="message" maxlength="500" required autocomplete="off" placeholder="Write a message…" aria-label="Write a message">
+      <button type="submit" aria-label="Send message"><span>➤</span></button>
+    </form>
+  </section>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <aside id="notificationPanel" class="notification-panel hidden" aria-label="Notifications"><div class="notification-panel-heading"><strong>Notifications</strong><button type="button" id="notificationClose" aria-label="Close notifications">×</button></div><div id="notificationList"><p class="muted">Loading notifications…</p></div></aside>
   <script src="/notifications.js?v=recipient-isolation-1" defer></script>

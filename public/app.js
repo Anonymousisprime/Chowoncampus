@@ -489,9 +489,58 @@ function renderTrackedOrder(order) {
       ${isLocalDemo && order.paymentStatus === "Unpaid — demo only" ? `<button class="primary-button" data-demo-pay="${escapeHtml(order.id)}">Simulate demo payment (no money charged)</button>` : ""}
       ${state.account?.role === "student" && !isLocalDemo && !["Paid — Paystack verified", "Paid — demo verified"].includes(order.paymentStatus) && order.status !== "Cancelled" ? `<button class="primary-button" data-pay-order="${escapeHtml(order.id)}">Continue secure payment</button>` : ""}
       <p class="tiny muted">Tracking refreshes automatically every 15 seconds while this page is open.</p>
-      ${state.account?.role === "student" && (["Ready for pickup", "Out for delivery"].includes(order.status) || (order.status === "Completed" && Date.now() - new Date(order.deliveredAt || order.completedAt || 0).getTime() < 120000)) ? '<section style="margin-top:18px;padding:16px;border:1px solid #dce9df;border-radius:14px;background:#f8fbf8"><h4>Temporary delivery chat</h4><p class="tiny muted">Chat with your assigned delivery agent. Messages are kept for two minutes after delivery, then automatically deleted.</p><div id="customerChatMessages" aria-live="polite" style="max-height:240px;overflow:auto;display:grid;gap:8px;margin:12px 0"><p class="tiny muted">Loading chat…</p></div><form id="customerChatForm" data-chat-order="${escapeHtml(order.id)}" style="display:flex;gap:8px;flex-wrap:wrap"><input name="message" maxlength="500" required placeholder="Message your delivery agent…" style="flex:1;min-width:180px;padding:12px;border:1px solid #cbd9cf;border-radius:10px;font:inherit"><button class="primary-button" type="submit">Send</button></form><p id="customerChatStatus" class="tiny muted" role="status"></p></section>' : ""}
+      ${state.account?.role === "student" && (["Ready for pickup", "Out for delivery"].includes(order.status) || (order.status === "Completed" && Date.now() - new Date(order.deliveredAt || order.completedAt || 0).getTime() < 120000)) ? '<section class="temporary-chat-preview"><div><h4>Temporary delivery chat</h4><p class="tiny muted">Chat with your assigned delivery agent. The chat closes two minutes after delivery.</p></div><button type="button" class="primary-button" data-open-temp-chat="${escapeHtml(order.id)}" data-chat-title="Delivery agent">Open full-page chat ↗</button></section>' : ""}
     </article>`;
   if (state.account?.role === "student" && (["Ready for pickup", "Out for delivery"].includes(order.status) || (order.status === "Completed" && Date.now() - new Date(order.deliveredAt || order.completedAt || 0).getTime() < 120000))) loadCustomerChat(order.id);
+}
+
+let activeFullPageChatOrderId = null;
+let fullPageChatPollTimer = null;
+function closeFullPageChat() {
+  const page = $("#temporaryChatPage");
+  if (page) page.classList.add("hidden");
+  document.body.classList.remove("chat-page-open");
+  activeFullPageChatOrderId = null;
+  if (fullPageChatPollTimer) clearInterval(fullPageChatPollTimer);
+  fullPageChatPollTimer = null;
+}
+async function refreshFullPageChat(orderId = activeFullPageChatOrderId) {
+  if (!orderId || orderId !== activeFullPageChatOrderId) return;
+  const messagesBox = $("#fullPageChatMessages");
+  if (!messagesBox) return;
+  try {
+    const result = await api("/api/orders/" + encodeURIComponent(orderId) + "/chat");
+    if (orderId !== activeFullPageChatOrderId) return;
+    messagesBox.innerHTML = result.messages.length ? result.messages.map(m =>
+      '<article class="full-chat-message ' + (m.senderRole === state.account?.role ? "mine" : "theirs") + '"><div class="full-chat-message-meta"><strong>' + escapeHtml(m.senderName) + '</strong><time>' + escapeHtml(new Date(m.sentAt).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})) + '</time></div><p>' + escapeHtml(m.message) + '</p></article>'
+    ).join("") : '<div class="full-chat-empty"><span>👋</span><strong>Start the conversation</strong><p>Send a message to coordinate this delivery.</p></div>';
+    messagesBox.scrollTop = messagesBox.scrollHeight;
+    const note = $("#fullPageChatNotice");
+    if (note) note.textContent = result.expiresAt ? "Chat closes at " + new Date(result.expiresAt).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}) + "." : "Messages are available during delivery and for two minutes after completion.";
+  } catch (error) {
+    messagesBox.innerHTML = '<p class="full-chat-error">' + escapeHtml(error.message) + '</p>';
+    const input = $("#fullPageChatForm")?.elements.message;
+    if (input) input.disabled = true;
+    const send = $("#fullPageChatForm")?.querySelector('button[type="submit"]');
+    if (send) send.disabled = true;
+  }
+}
+function openFullPageChat(orderId, title = "Delivery chat") {
+  const page = $("#temporaryChatPage");
+  if (!page) return showToast("Chat screen is unavailable. Refresh the page and try again.");
+  activeFullPageChatOrderId = orderId;
+  $("#fullPageChatTitle").textContent = title;
+  $("#fullPageChatOrderRef").textContent = "Order " + orderId;
+  $("#fullPageChatMessages").innerHTML = '<p class="muted">Loading messages…</p>';
+  $("#fullPageChatNotice").textContent = "Connecting to your delivery chat…";
+  $("#fullPageChatForm").elements.message.disabled = false;
+  $("#fullPageChatForm").querySelector('button[type="submit"]').disabled = false;
+  page.classList.remove("hidden");
+  document.body.classList.add("chat-page-open");
+  refreshFullPageChat(orderId);
+  if (fullPageChatPollTimer) clearInterval(fullPageChatPollTimer);
+  fullPageChatPollTimer = setInterval(() => refreshFullPageChat(orderId), 4000);
+  $("#fullPageChatInput").focus({preventScroll:true});
 }
 
 async function loadCustomerChat(orderId) {
@@ -631,18 +680,14 @@ function renderOrderCard(order) {
       ` : ""}
       ${canContactAgent ? `
         <section class="agent-contact">
-          <div><span class="eyebrow">PICKUP COORDINATION</span><strong>Assigned delivery agent: ${escapeHtml(order.assignedAgentId)}</strong><p class="tiny muted">Use this temporary chat to tell the agent when the order is ready. Messages are deleted when the order is completed or cancelled.</p></div>
-          <div id="restaurantChatMessages-${escapeHtml(order.id)}" class="dashboard-chat-messages" aria-live="polite">Loading messages…</div>
-          <form class="dashboard-chat-form" data-restaurant-chat-order="${escapeHtml(order.id)}"><input name="message" maxlength="500" required placeholder="Message the delivery agent…"><button class="primary-button" type="submit">Send</button></form>
-          <p class="tiny muted" data-restaurant-chat-status="${escapeHtml(order.id)}" role="status"></p>
+          <div><span class="eyebrow">PICKUP COORDINATION</span><strong>Assigned delivery agent: ${escapeHtml(order.assignedAgentId)}</strong><p class="tiny muted">Open a dedicated full-page chat to coordinate pickup and delivery.</p></div>
+          <button type="button" class="primary-button" data-open-temp-chat="${escapeHtml(order.id)}" data-chat-title="Delivery agent">Open full-page chat ↗</button>
         </section>
       ` : ""}
       ${canDeliveryChat && state.account.role === "agent" ? `
         <section class="agent-contact">
-          <div><span class="eyebrow">TEMPORARY DELIVERY CHAT</span><strong>Student order conversation</strong><p class="tiny muted">Coordinate pickup and delivery with the student. Messages are removed when the order is completed or cancelled.</p></div>
-          <div id="agentChatMessages-${escapeHtml(order.id)}" class="dashboard-chat-messages" aria-live="polite">Loading messages…</div>
-          <form class="dashboard-chat-form" data-agent-chat-order="${escapeHtml(order.id)}"><input name="message" maxlength="500" required placeholder="Message the student…"><button class="primary-button" type="submit">Send</button></form>
-          <p class="tiny muted" data-agent-chat-status="${escapeHtml(order.id)}" role="status"></p>
+          <div><span class="eyebrow">TEMPORARY DELIVERY CHAT</span><strong>Student order conversation</strong><p class="tiny muted">Coordinate pickup and delivery with the student in a dedicated full-page chat.</p></div>
+          <button type="button" class="primary-button" data-open-temp-chat="${escapeHtml(order.id)}" data-chat-title="Student">Open full-page chat ↗</button>
         </section>
       ` : ""}
       ${canChangeStatus ? `
@@ -1224,6 +1269,10 @@ async function initialize() {
       }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 });
       return;
     }
+    const openChatButton = event.target.closest("[data-open-temp-chat]");
+    if (openChatButton) { openFullPageChat(openChatButton.dataset.openTempChat, openChatButton.dataset.chatTitle || "Delivery chat"); return; }
+    if (event.target.closest("#closeFullPageChat")) { closeFullPageChat(); return; }
+    if (event.target.closest("#temporaryChatPage") && event.target === $("#temporaryChatPage")) { closeFullPageChat(); return; }
     const viewButton = event.target.closest("[data-view]");
     if (viewButton && viewButton.dataset.view !== "login") setView(viewButton.dataset.view);
 
@@ -1460,6 +1509,24 @@ async function initialize() {
   });
   document.addEventListener("submit", async event => {
 
+    const fullChatForm = event.target.closest("#fullPageChatForm");
+    if (fullChatForm) {
+      event.preventDefault();
+      const input = fullChatForm.elements.message;
+      const message = input.value.trim();
+      const orderId = activeFullPageChatOrderId;
+      if (!message || !orderId) return;
+      const button = fullChatForm.querySelector('button[type="submit"]');
+      button.disabled = true;
+      try {
+        await api("/api/orders/" + encodeURIComponent(orderId) + "/chat", {method:"POST", body:JSON.stringify({message})});
+        input.value = "";
+        await refreshFullPageChat(orderId);
+        input.focus({preventScroll:true});
+      } catch (error) { $("#fullPageChatNotice").textContent = error.message; }
+      finally { if (orderId === activeFullPageChatOrderId && input.isConnected && !input.disabled) button.disabled = false; }
+      return;
+    }
     const agentPaymentForm = event.target.closest("[data-agent-payment-form]");
     if (agentPaymentForm) {
       event.preventDefault();

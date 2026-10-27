@@ -665,8 +665,8 @@ button,input,select,textarea{max-width:100%;min-width:0}
 @media(max-width:760px){
   .site-header,.navbar{min-width:0;max-width:100%}
   .navbar{align-items:flex-start;flex-wrap:wrap;gap:10px}
-  .nav-actions{width:100%;max-width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-  .nav-actions>*{min-width:0;max-width:100%;white-space:normal;text-align:center;justify-content:center;overflow-wrap:anywhere}
+  .nav-actions{width:100%;max-width:100%;display:flex;flex-wrap:nowrap;align-items:center;gap:8px;overflow-x:auto;overflow-y:hidden;padding:2px 0 8px;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+  .nav-actions>*{flex:0 0 auto;min-width:max-content;max-width:none;white-space:nowrap;text-align:center;justify-content:center;overflow-wrap:normal}
   main,.view,.dashboard-view{min-width:0;max-width:100%}
   .restaurant-welcome{padding:16px;border-radius:15px;gap:14px}
   .restaurant-welcome h2{font-size:clamp(1.25rem,5vw,1.7rem);overflow-wrap:anywhere}
@@ -689,7 +689,7 @@ button,input,select,textarea{max-width:100%;min-width:0}
   .delivery-location-grid{grid-template-columns:minmax(0,1fr)}
 }
 @media(max-width:420px){
-  .nav-actions{grid-template-columns:minmax(0,1fr)}
+  .nav-actions{display:flex;flex-wrap:nowrap}
   .restaurant-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
   .restaurant-metrics article{padding:10px}
   .restaurant-metrics small{font-size:.75rem}

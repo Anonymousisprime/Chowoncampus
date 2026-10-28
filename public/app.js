@@ -996,8 +996,24 @@ async function setAgentAvailability(online) {
   }
 }
 
-async function loadDashboard() {
+let dashboardLoadInProgress = false;
+let dashboardInteractionUntil = 0;
+
+// Pause background dashboard rebuilds briefly after a staff member interacts with an order.
+// This prevents a timer/focus refresh from replacing the order card they are handling.
+function noteDashboardInteraction(event) {
+  if (!event.target.closest?.("#dashboardContent")) return;
+  dashboardInteractionUntil = Date.now() + 30000;
+}
+document.addEventListener("pointerdown", noteDashboardInteraction, true);
+document.addEventListener("keydown", noteDashboardInteraction, true);
+document.addEventListener("input", noteDashboardInteraction, true);
+
+async function loadDashboard(automatic = false) {
   if (!state.account) { location.href = "/student-login.html"; return; }
+  if (automatic && Date.now() < dashboardInteractionUntil) return;
+  if (dashboardLoadInProgress) return;
+  dashboardLoadInProgress = true;
 
   const account = state.account;
   $("#dashboardTitle").textContent = ({
@@ -1034,6 +1050,8 @@ async function loadDashboard() {
     }
 
     const { orders } = await api("/api/orders");
+    // The staff member may have started handling an order while the request was in flight.
+    if (automatic && Date.now() < dashboardInteractionUntil) return;
     if (account.role === "restaurant") {
       const incoming = orders.filter(order => ["Awaiting payment", "Confirmed"].includes(order.status));
       const preparing = orders.filter(order => order.status === "Preparing");
@@ -1231,6 +1249,8 @@ async function loadDashboard() {
     }
   } catch (error) {
     $("#dashboardContent").innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+  } finally {
+    dashboardLoadInProgress = false;
   }
 }
 
@@ -2073,14 +2093,17 @@ async function initialize() {
     }
   } catch {}
   startTrackingRefresh();
-  // Keep the restaurant dashboard in sync when an agent completes a delivery.
+  // Keep orders current without interrupting staff while they handle an order.
   window.setInterval(() => {
     if (!["restaurant", "agent"].includes(state.account?.role) || document.visibilityState !== "visible") return;
+    if (Date.now() < dashboardInteractionUntil) return;
     if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) return;
-    loadDashboard();
+    loadDashboard(true);
   }, 15000);
   window.addEventListener("focus", () => {
-    if (["restaurant", "agent"].includes(state.account?.role)) loadDashboard();
+    if (!["restaurant", "agent"].includes(state.account?.role)) return;
+    if (Date.now() < dashboardInteractionUntil) return;
+    loadDashboard(true);
   });
   // Keep student prices and sold-out status current even when the portal stays open.
   window.addEventListener("focus", refreshPublicMenu);

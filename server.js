@@ -2397,6 +2397,12 @@ app.patch("/api/agent/availability", requireRole("agent"), (req, res) => {
     if (!agent) return res.status(404).json({ error: "Agent account not found." });
     agent.online = req.body.online;
     agent.availabilityUpdatedAt = new Date().toISOString();
+    // Do not keep or expose a live GPS fix after the agent goes offline.
+    if (!agent.online) {
+      agent.latitude = null;
+      agent.longitude = null;
+      agent.locationUpdatedAt = null;
+    }
     saveAgentRecords(records);
     agents = records.map(record => ({ id: record.id, name: record.name, username: record.username, online: Boolean(record.online), activeOrderId: record.activeOrderId || null, createdAt: record.createdAt || null }));
     if (agent.online) assignReadyOrders();

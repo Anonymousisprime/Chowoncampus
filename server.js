@@ -2766,7 +2766,7 @@ app.listen(PORT, () => {
 async function runIsolatedOrderLifecycleTest() {
   const base = `http://127.0.0.1:${PORT}`;
   const startedAt = Date.now();
-  const suffix = String(Date.now()).slice(-7);
+  const suffix = String(Date.now()).slice(-8);
   const results = { target: "isolated ChowOnCampus QA service", checks: {}, errors: [], elapsedMs: 0 };
   const assert = (condition, message) => { if (!condition) throw new Error(message); };
   async function request(pathname, options = {}) {
@@ -2801,7 +2801,7 @@ async function runIsolatedOrderLifecycleTest() {
         consents: { terms: true, privacy: true, delivery: true }
       }
     });
-    check("2. Student order account", student.status === 201 && Boolean(student.cookie), "test-only student registered");
+    check("2. Student order account", student.status === 201 && Boolean(student.cookie), "HTTP " + student.status + " " + JSON.stringify(student.data));
     const studentCookie = student.cookie;
 
     const restaurantLogin = await request("/api/login", {

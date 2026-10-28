@@ -2171,8 +2171,9 @@ function assignReadyOrders() {
     // to claim that an agent is the nearest one.
     const locationFreshMs = 2 * 60 * 1000;
     const nowMs = Date.now();
-    const targetLatitude = order.restaurantLatitude;
-    const targetLongitude = order.restaurantLongitude;
+    const pinnedRestaurant = restaurants.find(item => item.id === order.restaurantId);
+    const targetLatitude = order.restaurantLatitude ?? pinnedRestaurant?.latitude;
+    const targetLongitude = order.restaurantLongitude ?? pinnedRestaurant?.longitude;
     const hasTargetCoords = targetLatitude !== null && targetLatitude !== undefined &&
       targetLongitude !== null && targetLongitude !== undefined &&
       Number.isFinite(Number(targetLatitude)) && Number.isFinite(Number(targetLongitude));

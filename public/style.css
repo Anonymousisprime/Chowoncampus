@@ -970,3 +970,19 @@ button,input,select,textarea{max-width:100%;min-width:0}
 .stall-food-art .stall-sold-out,.stall-food-art .stall-fresh-tag{z-index:1}
 @media(max-width:720px){.menu-editor-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.menu-item-photo-field{grid-column:1/-1}.menu-item-image-preview{height:160px}.menu-editor-row .menu-available,.menu-editor-row .menu-remove{grid-column:1/-1}}
 @media(max-width:520px){.stall-food-art.has-food-image{height:220px}}
+
+
+/* Mobile navigation menu button */
+.mobile-menu-toggle{display:none;flex:0 0 46px;width:46px;height:44px;padding:9px;border:1px solid #dce6dd;border-radius:12px;background:#fff;align-items:center;justify-content:center;flex-direction:column;gap:5px;cursor:pointer}
+.mobile-menu-toggle span{display:block;width:22px;height:2px;border-radius:2px;background:#102d24;transition:transform .18s,opacity .18s}
+.mobile-menu-toggle[aria-expanded="true"] span:first-child{transform:translateY(7px) rotate(45deg)}
+.mobile-menu-toggle[aria-expanded="true"] span:nth-child(2){opacity:0}
+.mobile-menu-toggle[aria-expanded="true"] span:last-child{transform:translateY(-7px) rotate(-45deg)}
+@media(max-width:760px){
+  .food-home-page .navbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+  .food-home-page .mobile-menu-toggle{display:flex;margin-left:auto}
+  .food-home-page .nav-actions{display:none;width:100%;order:3;flex-direction:column;align-items:stretch;gap:7px;padding:10px 0 4px;overflow:visible}
+  .food-home-page .nav-actions.mobile-menu-open{display:flex}
+  .food-home-page .nav-actions>*{width:100%;min-width:0;max-width:100%;text-align:left;justify-content:flex-start;white-space:normal}
+  .food-home-page .nav-actions .primary-button{justify-content:center}
+}

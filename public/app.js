@@ -798,15 +798,39 @@ async function loadRestaurantRatings() {
 document.addEventListener("click", event => { if (event.target.closest("#refreshRestaurantRatings")) loadRestaurantRatings(); });
 
 function renderMenuRow(item = {}) {
+  const image = typeof item.image === "string" && item.image.startsWith("data:image/") ? item.image : "";
   return `<div class="menu-editor-row" data-menu-row>
     <input type="hidden" name="id" value="${escapeHtml(item.id || "")}">
     <label>Item name<input name="name" required minlength="2" maxlength="80" value="${escapeHtml(item.name || "")}" placeholder="e.g. Jollof rice"></label>
     <label>Price (₦)<input name="price" required type="number" min="1" max="1000000" step="1" value="${Number(item.price) || ""}" placeholder="2500"></label>
     <label>Category<input name="category" maxlength="40" value="${escapeHtml(item.category || "Meals")}" placeholder="Meals, Drinks…"></label>
+    <div class="menu-item-photo-field"><label>Food picture <span class="muted">(optional)</span><input name="imageFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif" data-menu-image-file aria-label="Upload a picture for ${escapeHtml(item.name || "this food item")}"></label><input type="hidden" name="image" value="${escapeHtml(image)}"><div class="menu-item-image-preview ${image ? "has-image" : ""}" data-menu-image-preview>${image ? `<img src="${escapeHtml(image)}" alt="Food item preview">` : '<span>📷 No picture yet</span>'}</div><button type="button" class="menu-remove-photo" data-remove-menu-image ${image ? "" : "hidden"}>Remove picture</button></div>
     <label class="menu-available"><input name="available" type="checkbox" ${item.available === false ? "" : "checked"}> Available</label>
-    <button class="menu-remove" type="button" data-remove-menu-item aria-label="Remove item">Remove</button>
+    <button class="menu-remove" type="button" data-remove-menu-item aria-label="Remove item">Remove item</button>
   </div>`;
 }
+async function compressMenuImage(file) {
+  if (!file || !["image/jpeg","image/png","image/webp","image/gif"].includes(file.type)) throw new Error("Choose a JPG, PNG, WEBP, or GIF image.");
+  if (file.size > 12*1024*1024) throw new Error("Choose an image smaller than 12 MB.");
+  const source = await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(new Error("Could not read this picture."));r.readAsDataURL(file);});
+  const pic = await new Promise((resolve,reject)=>{const im=new Image();im.onload=()=>resolve(im);im.onerror=()=>reject(new Error("This picture could not be opened. Try a JPG or PNG."));im.src=source;});
+  const scale=Math.min(1,900/Math.max(pic.naturalWidth,pic.naturalHeight)), canvas=document.createElement("canvas");
+  canvas.width=Math.max(1,Math.round(pic.naturalWidth*scale));canvas.height=Math.max(1,Math.round(pic.naturalHeight*scale));
+  const ctx=canvas.getContext("2d");if(!ctx)throw new Error("Image editing is not supported in this browser.");
+  ctx.fillStyle="#fff";ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(pic,0,0,canvas.width,canvas.height);
+  let quality=.78,data=canvas.toDataURL("image/jpeg",quality);
+  while(data.length>420000&&quality>.42){quality-=.08;data=canvas.toDataURL("image/jpeg",quality);}
+  if(data.length>420000)throw new Error("Please choose a smaller image.");return data;
+}
+document.addEventListener("change",async event=>{
+  const picker=event.target.closest("[data-menu-image-file]");if(!picker)return;
+  const row=picker.closest("[data-menu-row]"),preview=row?.querySelector("[data-menu-image-preview]"),hidden=row?.querySelector('[name="image"]'),remove=row?.querySelector("[data-remove-menu-image]"),file=picker.files?.[0];
+  if(!file||!row||!preview||!hidden)return;
+  preview.innerHTML="<span>Preparing picture…</span>";preview.classList.remove("has-image");picker.disabled=true;
+  try{const data=await compressMenuImage(file);hidden.value=data;preview.innerHTML='<img alt="Food item preview">';preview.querySelector("img").src=data;preview.classList.add("has-image");if(remove)remove.hidden=false;}
+  catch(error){picker.value="";preview.innerHTML="<span>📷 No picture yet</span>";hidden.value="";if(remove)remove.hidden=true;showToast(error.message||"Could not add this picture.");}
+  finally{picker.disabled=false;}
+});
 
 function renderMenuManagerAfterSave() {
   const old = document.querySelector(".restaurant-menu-manager");
@@ -1554,6 +1578,8 @@ async function initialize() {
         $("#addMenuItem").disabled = count >= 70;
       }
     }
+    const removeMenuImage = event.target.closest("[data-remove-menu-image]");
+    if (removeMenuImage) { const row=removeMenuImage.closest("[data-menu-row]"); const hidden=row?.querySelector('[name="image"]'); const picker=row?.querySelector('[name="imageFile"]'); const preview=row?.querySelector("[data-menu-image-preview]"); if(hidden)hidden.value="";if(picker)picker.value="";if(preview){preview.classList.remove("has-image");preview.innerHTML="<span>📷 No picture yet</span>";}removeMenuImage.hidden=true;return; }
     const removeMenuItem = event.target.closest("[data-remove-menu-item]");
     if (removeMenuItem) {
       const rows = $("#restaurantMenuRows");
@@ -1976,6 +2002,7 @@ async function initialize() {
         name: row.querySelector('[name="name"]').value.trim(),
         price: Number(row.querySelector('[name="price"]').value),
         category: row.querySelector('[name="category"]').value.trim() || "Meals",
+        image: row.querySelector('[name="image"]')?.value || "",
         available: row.querySelector('[name="available"]').checked
       }));
       saveButton.disabled = true;

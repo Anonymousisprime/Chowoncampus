@@ -602,12 +602,13 @@ function awardFoodBackForCompletedOrder(order) {
   const now = new Date(order.deliveredAt || order.completedAt || order.updatedAt || Date.now());
   const eligibleFoodSubtotal = Math.max(0, Number(order.foodSubtotal ?? (Number(order.subtotal || 0) - Number(order.takeawayFee || 200))) || 0);
   expireFoodBackCredits(customer, now.getTime());
+
   const ownReward = Math.floor(eligibleFoodSubtotal * 0.03);
   if (ownReward > 0) addFoodBackCredit(customer, ownReward, "3% cashback on your order", order.id, "own-order");
+
   let referralReward = 0;
-  let referrer = null;
-  if (customer.referredByPhone && !customer.referralRewardOrderIds?.includes(order.id)) {
-    referrer = students.find(student => student.phone === customer.referredByPhone);
+  if (customer.referredByPhone && !(customer.referralRewardOrderIds || []).includes(order.id)) {
+    const referrer = students.find(student => student.phone === customer.referredByPhone);
     const qualifying = Array.isArray(customer.referralQualifyingOrderIds) ? customer.referralQualifyingOrderIds : [];
     if (referrer && qualifying.length < 2) {
       const config = readFoodBackConfig();
@@ -619,15 +620,38 @@ function awardFoodBackForCompletedOrder(order) {
       const launchEnd = launchStart + 7 * 24 * 60 * 60 * 1000;
       const orderTime = now.getTime();
       const registeredAt = new Date(customer.createdAt || 0).getTime();
-      const qualifiesForLaunchRate = orderTime >= launchStart && orderTime < launchEnd && registeredAt >= launchStart && registeredAt < launchEnd;
-      const rate = qualifiesForLaunchRate ? 0.07 : 0.05;
-      referralReward = Math.floor(eligibleFoodSubtotal * rate);
-      if (referralReward > 0) {
+      const registeredDuringLaunch = registeredAt >= launchStart && registeredAt < launchEnd;
+      const orderDuringLaunch = orderTime >= launchStart && orderTime < launchEnd;
+      const details = Array.isArray(customer.referralOrderRewardDetails) ? customer.referralOrderRewardDetails : [];
+      const baseReward = Math.floor(eligibleFoodSubtotal * 0.05);
+      if (baseReward > 0) {
         expireFoodBackCredits(referrer, now.getTime());
-        addFoodBackCredit(referrer, referralReward, `${Math.round(rate * 100)}% referral reward from a friend's order`, order.id, "referral");
+        addFoodBackCredit(referrer, baseReward, "5% referral reward from a friend's order", order.id, "referral");
+        referralReward += baseReward;
         qualifying.push(order.id);
         customer.referralQualifyingOrderIds = qualifying;
         customer.referralRewardOrderIds = [...(customer.referralRewardOrderIds || []), order.id];
+        details.push({ orderId: order.id, foodSubtotal: eligibleFoodSubtotal, completedAt: now.toISOString(), launchEligible: registeredDuringLaunch && orderDuringLaunch, launchBonusPaid: false });
+        customer.referralOrderRewardDetails = details;
+
+        // Pay the extra 2% on both orders only when both complete within the launch week.
+        if (qualifying.length === 2 && registeredDuringLaunch && orderDuringLaunch) {
+          const first = details.find(item => item.orderId === qualifying[0]);
+          const second = details.find(item => item.orderId === qualifying[1]);
+          if (first && second && first.launchEligible && second.launchEligible &&
+              new Date(first.completedAt).getTime() >= launchStart &&
+              new Date(first.completedAt).getTime() < launchEnd) {
+            for (const detail of [first, second]) {
+              if (detail.launchBonusPaid) continue;
+              const bonus = Math.floor(Number(detail.foodSubtotal || 0) * 0.02);
+              if (bonus > 0) {
+                addFoodBackCredit(referrer, bonus, "Launch-week referral bonus (extra 2%)", detail.orderId, "referral-launch-bonus");
+                referralReward += bonus;
+              }
+              detail.launchBonusPaid = true;
+            }
+          }
+        }
       }
     }
   }
@@ -687,6 +711,11 @@ app.post("/api/student/register", (req, res) => {
       if (!referrer) return res.status(400).json({ error: "That referral ID is not valid. Check the code and try again." });
       const successfulReferrals = students.filter(student => student.referredByPhone === referrer.phone).length;
       if (successfulReferrals >= 10) return res.status(400).json({ error: "This referral ID has reached its current limit of 10 referred accounts." });
+      const config = readFoodBackConfig();
+      if (!config.launchStartAt) {
+        config.launchStartAt = process.env.FOODBACK_LAUNCH_START || new Date().toISOString();
+        saveFoodBackConfig(config);
+      }
     }
     const passwordData = hashPassword(password);
     const consentedAt = new Date().toISOString();

@@ -118,7 +118,7 @@
     try {
       const status = await request("/api/push/status");
       if (!status.configured) setPushStatus("The server's background notification keys are missing.", true);
-      else if (Notification.permission === "denied") setPushStatus("Notifications are blocked in this browser. Allow them in site settings, then enable alerts again.", true);
+      else if ("Notification" in window && Notification.permission === "denied") setPushStatus("Notifications are blocked in this browser. Allow them in site settings, then enable alerts again.", true);
       else if (status.subscribedDevices > 0) setPushStatus("Background alerts are registered for " + status.subscribedDevices + " device(s). Send a test alert to confirm delivery.");
       else setPushStatus("This account has no registered devices. Tap Enable background alerts on this device.");
     } catch (error) {
@@ -239,7 +239,9 @@
     } catch (error) {
       console.info("ChowOnCampus push setup:", error.message);
       setPushStatus(error.message || "Could not enable background notifications.", true);
+      return false;
     }
+    return true;
   }
   toggle.addEventListener("click", async () => {
     await testNotificationSound();
@@ -259,7 +261,8 @@
     button.disabled = true;
     button.textContent = "Sending test…";
     try {
-      await requestPushPermissionAndSubscribe();
+      const ready = await requestPushPermissionAndSubscribe();
+      if (!ready) return;
       const result = await request("/api/push/test", { method: "POST", body: "{}" });
       setPushStatus(result.message + " Check the notification shade. If the site is open, you may also need to minimize it to see the system alert.");
     } catch (error) {

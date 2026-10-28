@@ -1086,7 +1086,7 @@ async function loadDashboard(automatic = false) {
         } catch (error) { metrics.innerHTML = '<p class="muted">' + escapeHtml(error.message) + '</p>'; }
       };
       refreshFoodBackAdmin();
-      document.addEventListener("click", event => { if (event.target.closest("#refreshAdminFoodBack")) refreshFoodBackAdmin(); }, { once: true });
+      $("#refreshAdminFoodBack")?.addEventListener("click", refreshFoodBackAdmin);
       } else if (account.role === "agent") {
       state.agents = [];
       state.availableAgents = [];

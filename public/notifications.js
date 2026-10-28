@@ -272,6 +272,25 @@
       button.textContent = "Send test alert";
     }
   });
+  document.getElementById("notificationClear")?.addEventListener("click", async event => {
+    const button = event.currentTarget;
+    if (!loggedIn) return;
+    if (!window.confirm("Clear all notifications for this account? This will not affect anyone else.")) return;
+    button.disabled = true;
+    const oldLabel = button.textContent;
+    button.textContent = "Clearing…";
+    try {
+      await request("/api/notifications", { method: "DELETE" });
+      knownNotificationIds = new Set();
+      clearNotifications("Your notifications have been cleared.");
+    } catch (error) {
+      clearNotifications(error.message || "Could not clear notifications. Please try again.");
+    } finally {
+      button.disabled = false;
+      button.textContent = oldLabel;
+      await refresh();
+    }
+  });
   document.getElementById("notificationClose")?.addEventListener("click", () => {
     panel.classList.add("hidden"); toggle.setAttribute("aria-expanded", "false");
   });

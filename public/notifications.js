@@ -93,7 +93,7 @@
       const existingKey = subscription.options?.applicationServerKey;
       if (existingKey) {
         const bytes = new Uint8Array(existingKey);
-        const existingBase64 = btoa(String.fromCharCode(...bytes)).replace(/=/g, "").replace(/\\+/g, "-").replace(/\\//g, "_");
+        const existingBase64 = btoa(String.fromCharCode(...bytes)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
         if (existingBase64 !== keyResponse.publicKey.replace(/=/g, "")) {
           await subscription.unsubscribe();
           subscription = null;

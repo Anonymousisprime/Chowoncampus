@@ -612,16 +612,13 @@ function awardFoodBackForCompletedOrder(order) {
     const qualifying = Array.isArray(customer.referralQualifyingOrderIds) ? customer.referralQualifyingOrderIds : [];
     if (referrer && qualifying.length < 2) {
       const config = readFoodBackConfig();
-      if (!config.launchStartAt) {
-        config.launchStartAt = process.env.FOODBACK_LAUNCH_START || order.createdAt || now.toISOString();
-        saveFoodBackConfig(config);
-      }
-      const launchStart = new Date(config.launchStartAt).getTime();
+      const launchStart = config.launchStartAt ? new Date(config.launchStartAt).getTime() : NaN;
+      const launchConfigured = Number.isFinite(launchStart);
       const launchEnd = launchStart + 7 * 24 * 60 * 60 * 1000;
       const orderTime = now.getTime();
       const registeredAt = new Date(customer.createdAt || 0).getTime();
-      const registeredDuringLaunch = registeredAt >= launchStart && registeredAt < launchEnd;
-      const orderDuringLaunch = orderTime >= launchStart && orderTime < launchEnd;
+      const registeredDuringLaunch = launchConfigured && registeredAt >= launchStart && registeredAt < launchEnd;
+      const orderDuringLaunch = launchConfigured && orderTime >= launchStart && orderTime < launchEnd;
       const details = Array.isArray(customer.referralOrderRewardDetails) ? customer.referralOrderRewardDetails : [];
       const baseReward = Math.floor(eligibleFoodSubtotal * 0.05);
       if (baseReward > 0) {
@@ -711,11 +708,6 @@ app.post("/api/student/register", (req, res) => {
       if (!referrer) return res.status(400).json({ error: "That referral ID is not valid. Check the code and try again." });
       const successfulReferrals = students.filter(student => student.referredByPhone === referrer.phone).length;
       if (successfulReferrals >= 10) return res.status(400).json({ error: "This referral ID has reached its current limit of 10 referred accounts." });
-      const config = readFoodBackConfig();
-      if (!config.launchStartAt) {
-        config.launchStartAt = process.env.FOODBACK_LAUNCH_START || new Date().toISOString();
-        saveFoodBackConfig(config);
-      }
     }
     const passwordData = hashPassword(password);
     const consentedAt = new Date().toISOString();
@@ -1872,6 +1864,15 @@ app.get("/api/orders/:id", (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+app.post("/api/admin/foodback-config", requireRole("admin"), (req, res) => {
+  const raw = String(req.body.launchStartAt || "").trim();
+  const start = new Date(raw);
+  if (!raw || !Number.isFinite(start.getTime())) return res.status(400).json({ error: "Choose a valid official launch date and time." });
+  const config = { ...readFoodBackConfig(), launchStartAt: start.toISOString(), updatedAt: new Date().toISOString(), updatedBy: req.account.username };
+  saveFoodBackConfig(config);
+  res.json({ ok: true, launchStartAt: config.launchStartAt, message: "FoodBack launch window saved. The 7-day launch bonus starts at the selected time." });
 });
 
 app.get("/api/admin/foodback-summary", requireRole("admin"), (req, res) => {

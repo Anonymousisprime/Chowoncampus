@@ -1929,7 +1929,7 @@ app.get("/api/superadmin/foodback-summary", requireSuperAdmin, (req, res) => {
       name: student.name, referralCode: student.referralCode || "",
       referredCount: referrals.filter(item => item.referredByPhone === student.phone).length,
       balance: Math.max(0, Number(student.foodbackBalance) || 0)
-    })).filter(item => item.referredCount > 0).sort((a, b) => b.referredCount - a.referredCount).slice(0, 10);
+    })).filter(item => item.referredCount > 0).sort((a, b) => b.referredCount - a.referredCount);
     res.json({ studentCount: students.length, referredAccountCount: referrals.length, totalOutstanding, totalCreditsIssued, totalUsed, totalExpired, ownOrderCredits, referralCredits, foodbackOrderCount: foodbackOrders.length, pendingFoodbackOrders, ledgerCount: ledger.length, referrers, ledger: ledger.slice(0, 300), launchStartAt: readFoodBackConfig().launchStartAt || null });
   } catch (error) {
     res.status(500).json({ error: "Could not load FoodBack administration summary." });

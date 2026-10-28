@@ -470,8 +470,9 @@ async function placeOrder(event) {
     return;
   }
   if (!state.cart.length) return showMessage("#checkoutMessage", "Add food to your bag first.");
+  const paymentMethod = $("#paymentMethod")?.value || "paystack";
   const emailInput = $("#paymentEmail");
-  if (!isLocalDemo && (!emailInput || !emailInput.value.trim() || !emailInput.validity.valid)) {
+  if (paymentMethod === "paystack" && !isLocalDemo && (!emailInput || !emailInput.value.trim() || !emailInput.validity.valid)) {
     emailInput?.focus();
     return showMessage("#checkoutMessage", "Enter a valid email address to receive your payment receipt.");
   }
@@ -496,7 +497,7 @@ async function placeOrder(event) {
         restaurantId: state.cart[0].restaurantId,
         items: state.cart.map(item => ({ id: item.id, qty: item.qty })),
         requestId: state.pendingOrderRequestId,
-        paymentMethod: $("#paymentMethod")?.value || "paystack"
+        paymentMethod
       })
     });
     const order = result.order;

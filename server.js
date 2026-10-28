@@ -207,7 +207,7 @@ const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const FIXED_DELIVERY_FEE = 300;
 const STUDENT_PAYMENT_FEE_RATE = 0.01;
 
-app.use(express.json({ limit: "50kb", verify: (req, res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
+app.use(express.json({ limit: "24mb", verify: (req, res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
 app.use(express.static(path.join(__dirname, "public")));
 app.use((req, res, next) => {
   const sendJson = res.json.bind(res);
@@ -955,7 +955,9 @@ app.put("/api/restaurant/menu", requireRole("restaurant"), (req, res) => {
     let id = String(source.id || "").trim();
     if (!id || ids.has(id)) id = "m" + crypto.randomBytes(8).toString("hex");
     ids.add(id);
-    items.push({ id, name, price: Math.round(price), category: category.slice(0, 40), emoji: String(source.emoji || "🍽️").slice(0, 8), available: source.available !== false });
+    const image = typeof source.image === "string" ? source.image : "";
+    if (image && (!/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(image) || image.length > 420000)) return res.status(400).json({ error: "Each food picture must be a valid compressed image under 315 KB. Please upload it again." });
+    items.push({ id, name, price: Math.round(price), category: category.slice(0, 40), emoji: String(source.emoji || "🍽️").slice(0, 8), image, available: source.available !== false });
   }
   try {
     const restaurant = restaurants.find(item => item.id === req.account.restaurantId);

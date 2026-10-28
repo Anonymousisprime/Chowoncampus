@@ -1874,6 +1874,28 @@ app.get("/api/orders/:id", (req, res) => {
   }
 });
 
+app.get("/api/admin/foodback-summary", requireRole("admin"), (req, res) => {
+  try {
+    const students = readStudents();
+    let changed = false;
+    for (const student of students) if (expireFoodBackCredits(student)) changed = true;
+    if (changed) saveStudents(students);
+    const ledger = students.flatMap(student => (student.foodbackLedger || []).map(entry => ({ ...entry, studentPhone: student.phone })));
+    const totalOutstanding = students.reduce((sum, student) => sum + Math.max(0, Number(student.foodbackBalance) || 0), 0);
+    const totalCreditsIssued = ledger.filter(entry => entry.type === "credit").reduce((sum, entry) => sum + Math.max(0, Number(entry.amount) || 0), 0);
+    const totalExpired = ledger.filter(entry => entry.type === "expired").reduce((sum, entry) => sum + Math.abs(Number(entry.amount) || 0), 0);
+    const referrals = students.filter(student => student.referredByPhone);
+    const referrers = students.map(student => ({
+      name: student.name, referralCode: student.referralCode || "",
+      referredCount: referrals.filter(item => item.referredByPhone === student.phone).length,
+      balance: Math.max(0, Number(student.foodbackBalance) || 0)
+    })).filter(item => item.referredCount > 0).sort((a, b) => b.referredCount - a.referredCount).slice(0, 10);
+    res.json({ studentCount: students.length, referredAccountCount: referrals.length, totalOutstanding, totalCreditsIssued, totalExpired, ledgerCount: ledger.length, referrers, launchStartAt: readFoodBackConfig().launchStartAt || null });
+  } catch (error) {
+    res.status(500).json({ error: "Could not load FoodBack administration summary." });
+  }
+});
+
 // Admin-only restaurant creation. New partner passwords are hashed before storage.
 app.get("/api/admin/restaurants", requireRole("admin"), (req, res) => {
   res.json({

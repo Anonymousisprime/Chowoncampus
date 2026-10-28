@@ -495,10 +495,24 @@ async function placeOrder(event) {
         longitude: $("#deliveryLongitude").value === "" ? undefined : Number($("#deliveryLongitude").value),
         restaurantId: state.cart[0].restaurantId,
         items: state.cart.map(item => ({ id: item.id, qty: item.qty })),
-        requestId: state.pendingOrderRequestId
+        requestId: state.pendingOrderRequestId,
+        paymentMethod: $("#paymentMethod")?.value || "paystack"
       })
     });
     const order = result.order;
+    if (order.paymentMethod === "foodback") {
+      state.lastOrderId = order.id;
+      try { localStorage.setItem("coc_last_order_id", order.id); } catch {}
+      state.cart = [];
+      renderCart();
+      const checkoutForm = $("#checkoutForm");
+      if (checkoutForm) checkoutForm.reset();
+      showMessage("#checkoutMessage", "Order " + order.id + " was sent to the ultimate admin for FoodBack approval. Your credits are reserved while it is reviewed.", true);
+      showToast("FoodBack order submitted for admin approval.");
+      await trackOrder(order.id);
+      $("#trackingSection")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
     if (!isLocalDemo) {
       const payment = await api("/api/orders/" + encodeURIComponent(order.id) + "/paystack/initialize", {
         method: "POST",
@@ -714,6 +728,7 @@ function renderStudentRating(order) {
 function renderOrderCard(order) {
   const statuses = availableStatuses(order);
   const canAssign = state.account.role === "admin" && order.status !== "Completed";
+  const canReviewFoodBack = state.account.role === "admin" && state.account.isSuperAdmin && order.paymentMethod === "foodback" && order.status === "Awaiting admin approval";
   const canShowAvailableAgents = state.account.role === "restaurant" && order.status === "Ready for pickup" && !order.assignedAgentId;
   const canChangeStatus = statuses.length > 0 && !(order.status === "Completed");
   const canContactAgent = state.account.role === "restaurant" && order.assignedAgentId && ["Ready for pickup", "Out for delivery"].includes(order.status);
@@ -731,6 +746,8 @@ function renderOrderCard(order) {
       ${order.restaurantLocation ? `<p>Restaurant pickup: ${escapeHtml(order.restaurantLocation)} <a target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.restaurantLocation)}">Open map</a></p>` : ""}
       <p class="order-items">${order.items.map(item => `${item.qty} × ${escapeHtml(item.name)}`).join(", ")}</p>
       <p>Total: <strong>${money(order.total)}</strong> · Payment: ${escapeHtml(order.paymentStatus)}</p>
+      ${order.paymentMethod === "foodback" ? `<p><strong>FoodBack redemption</strong> · ${canReviewFoodBack ? "Needs ultimate admin review" : escapeHtml(order.approvedAt ? "Approved by ultimate admin" : order.refundedAt ? "Credits refunded" : "Under review")}</p>` : "" }
+      ${canReviewFoodBack ? `<div class="order-actions"><button type="button" class="primary-button" data-foodback-review="approve" data-foodback-order="${escapeHtml(order.id)}">Approve FoodBack order</button><button type="button" class="danger-button" data-foodback-review="reject" data-foodback-order="${escapeHtml(order.id)}">Reject &amp; refund credits</button></div>` : ""}
       ${order.status === "Completed" ? `<p class="muted">Delivered: ${escapeHtml(order.deliveredAt || order.completedAt ? new Date(order.deliveredAt || order.completedAt).toLocaleString() : "Time not recorded")}</p>` : ""}
       ${order.assignedAgentId ? `<p>Assigned agent: <strong>${escapeHtml(state.agents.find(agent => agent.id === order.assignedAgentId)?.name || order.assignedAgentId)}</strong></p>` : ""}
       ${canShowAvailableAgents ? `
@@ -1162,11 +1179,11 @@ async function loadDashboard(automatic = false) {
         </section>
         <section class="dashboard-order-section" id="adminFoodBackPanel">
           <div class="dashboard-section-heading"><div><span class="eyebrow">REWARDS CONTROL</span><h2>FoodBack overview</h2><p>Track credits issued and referral activity. This panel is reporting-only; reward percentages are enforced server-side.</p></div><button type="button" class="secondary-button" id="refreshAdminFoodBack">↻ Refresh</button></div>
-          <div class="student-foodback-metrics" id="adminFoodBackMetrics"><article><span>Outstanding credits</span><strong>Loading…</strong></article><article><span>Credits issued</span><strong>Loading…</strong></article><article><span>Referred accounts</span><strong>Loading…</strong></article></div>
+          <div class="student-foodback-metrics" id="adminFoodBackMetrics"><article><span>Outstanding credits</span><strong>Loading…</strong></article><article><span>Credits issued</span><strong>Loading…</strong></article><article><span>Credits redeemed</span><strong>Loading…</strong></article><article><span>Referral accounts</span><strong>Loading…</strong></article><article><span>Referral rewards issued</span><strong>Loading…</strong></article><article><span>Own-order cashback issued</span><strong>Loading…</strong></article><article><span>FoodBack orders awaiting review</span><strong>Loading…</strong></article></div>
           <div id="adminFoodBackReferrers" class="muted">Loading top referrers…</div>
           <form id="adminFoodBackConfigForm" class="order-card" style="margin-top:16px">
             <h3>Official launch date</h3>
-            <p class="muted">Set this before launch. The 7% referral bonus applies only when a friend registers and completes both qualifying orders within the first seven days from this date.</p>
+            <p class="muted">Set this before launch. The launch-week referral rate is 4% on the first two successfully delivered orders; the ongoing referral rate is 2%.</p>
             <label>Launch date and time<input id="foodBackLaunchStart" name="launchStartAt" type="datetime-local" required></label>
             <button class="primary-button" type="submit">Save launch window</button>
             <p id="foodBackLaunchStatus" class="muted" role="status"></p>
@@ -1221,9 +1238,19 @@ async function loadDashboard(automatic = false) {
         const list = $("#adminFoodBackReferrers");
         if (!metrics || !list) return;
         try {
-          const data = await api("/api/admin/foodback-summary");
-          metrics.innerHTML = '<article><span>Outstanding credits</span><strong>' + money(data.totalOutstanding) + '</strong></article><article><span>Total credits issued</span><strong>' + money(data.totalCreditsIssued) + '</strong></article><article><span>Referred accounts</span><strong>' + (data.referredAccountCount || 0) + '</strong></article>';
-          list.innerHTML = '<h3>Top referrers</h3>' + (data.referrers.length ? data.referrers.map(item => '<p><strong>' + escapeHtml(item.name) + '</strong> · ' + item.referredCount + ' friend(s) · ' + escapeHtml(item.referralCode) + '</p>').join('') : '<p>No referrals yet.</p>');
+          const data = await api("/api/superadmin/foodback-summary");
+          metrics.innerHTML = [
+            ["Outstanding credits", money(data.totalOutstanding)],
+            ["Total credits issued", money(data.totalCreditsIssued)],
+            ["Credits redeemed", money(data.totalUsed)],
+            ["Referral accounts", data.referredAccountCount || 0],
+            ["Referral rewards issued", money(data.referralCredits)],
+            ["Own-order cashback issued", money(data.ownOrderCredits)],
+            ["FoodBack orders awaiting review", data.pendingFoodbackOrders || 0]
+          ].map(([label,value]) => '<article><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(value) + '</strong></article>').join("");
+          const topReferrers = data.referrers.length ? data.referrers.map(item => '<p><strong>' + escapeHtml(item.name) + '</strong> · ' + item.referredCount + ' / 5 friends · ' + escapeHtml(item.referralCode) + ' · Wallet ' + money(item.balance) + '</p>').join('') : '<p>No referrals yet.</p>';
+          const ledgerRows = (data.ledger || []).slice(0, 100).map(item => '<tr><td>' + escapeHtml(item.studentName || "Student") + '<br><small>' + escapeHtml(item.studentPhone || "") + '</small></td><td>' + escapeHtml(item.kind || item.type || "transaction") + '</td><td>' + escapeHtml(item.description || "") + '</td><td>' + escapeHtml(item.orderId || "—") + '</td><td>' + money(item.amount) + '</td><td>' + escapeHtml(item.createdAt ? new Date(item.createdAt).toLocaleString() : "—") + '</td></tr>').join("");
+          list.innerHTML = '<h3>Top referrers</h3>' + topReferrers + '<h3 style="margin-top:18px">FoodBack transaction ledger</h3><p class="muted">Recent rewards, redemptions, expiry and refunds across all student wallets.</p><div style="overflow-x:auto"><table style="width:100%;min-width:760px;border-collapse:collapse;text-align:left"><thead><tr><th>Student</th><th>Type</th><th>Description</th><th>Order</th><th>Amount</th><th>Date</th></tr></thead><tbody>' + (ledgerRows || '<tr><td colspan="6">No FoodBack transactions yet.</td></tr>') + '</tbody></table></div>';
           const launchInput = $("#foodBackLaunchStart");
           const launchStatus = $("#foodBackLaunchStatus");
           if (launchInput && data.launchStartAt && !launchInput.value) {
@@ -1231,10 +1258,11 @@ async function loadDashboard(automatic = false) {
             const pad = number => String(number).padStart(2, "0");
             launchInput.value = date.getFullYear() + "-" + pad(date.getMonth()+1) + "-" + pad(date.getDate()) + "T" + pad(date.getHours()) + ":" + pad(date.getMinutes());
           }
-          if (launchStatus) launchStatus.textContent = data.launchStartAt ? "Launch window starts " + new Date(data.launchStartAt).toLocaleString() + "." : "Launch date is not set. The ongoing 5% referral rate applies until you configure it.";
+          if (launchStatus) launchStatus.textContent = data.launchStartAt ? "Launch window starts " + new Date(data.launchStartAt).toLocaleString() + "." : "Launch date is not set. The ongoing 2% referral rate applies until you configure it.";
         } catch (error) { metrics.innerHTML = '<p class="muted">' + escapeHtml(error.message) + '</p>'; }
       };
-      refreshFoodBackAdmin();
+      if (account.isSuperAdmin) refreshFoodBackAdmin();
+      else $("#adminFoodBackPanel")?.remove();
       $("#refreshAdminFoodBack")?.addEventListener("click", refreshFoodBackAdmin);
       $("#adminFoodBackConfigForm")?.addEventListener("submit", async event => {
         event.preventDefault();
@@ -1561,6 +1589,24 @@ async function initialize() {
   }
 
   document.addEventListener("click", async event => {
+    const foodBackReview = event.target.closest("[data-foodback-review]");
+    if (foodBackReview) {
+      if (!state.account?.isSuperAdmin) return showToast("Only the ultimate admin can review FoodBack orders.");
+      const orderId = foodBackReview.dataset.foodbackOrder;
+      const decision = foodBackReview.dataset.foodbackReview;
+      const actionLabel = decision === "approve" ? "approve this order and notify the restaurant" : "reject this order and refund the student's FoodBack credits";
+      if (!window.confirm("Are you sure you want to " + actionLabel + "?")) return;
+      foodBackReview.disabled = true;
+      try {
+        const result = await api("/api/superadmin/foodback-orders/" + encodeURIComponent(orderId) + "/review", { method: "POST", body: JSON.stringify({ decision }) });
+        showToast(result.message || "FoodBack order reviewed.");
+        await loadDashboard();
+      } catch (error) {
+        showToast(error.message || "Could not review FoodBack order.");
+        foodBackReview.disabled = false;
+      }
+      return;
+    }
     const earningsRefresh = event.target.closest("[data-refresh-earnings]");
     if (earningsRefresh) {
       const monthInput = $("#adminEarningsMonth") || $("#agentEarningsMonth");

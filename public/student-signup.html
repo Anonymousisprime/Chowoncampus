@@ -33,7 +33,7 @@ $("#signup").addEventListener("submit",async e=>{
       name:$("#name").value.trim(),phone:$("#phone").value.trim(),password:$("#password").value,
       consents:{terms:$("#agreeTerms").checked,privacy:$("#agreePrivacy").checked,delivery:$("#agreeDelivery").checked}
     });
-    $("#msg").textContent=d.message+" Redirecting…";location.href="/";
+    $("#msg").textContent=d.message+" Redirecting…";location.href="/student-dashboard.html";
   }catch(err){$("#msg").textContent=err.message}
   finally{refreshPolicies()}
 });

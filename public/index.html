@@ -15,10 +15,10 @@
   <meta property="og:image" content="/chowoncampus-logo.svg">
   <meta name="description" content="Chowoncampus — order your favourite campus meals with ease.">
   <title>Chowoncampus | Campus Food Made Easy</title>
-  <link rel="stylesheet" href="/style.css?v=homepage-redesign-1">
-  <script src="/app.js?v=homepage-redesign-1" defer></script>
+  <link rel="stylesheet" href="/style.css?v=homepage-food-catalog-2">
+  <script src="/app.js?v=homepage-food-catalog-2" defer></script>
 </head>
-<body>
+<body class="food-home-page">
   <header class="site-header">
     <nav class="navbar">
       <a href="#" id="brandHome" class="brand" aria-label="Chowoncampus home"><img class="brand-logo" src="/chowoncampus-logo.svg" alt="Chowoncampus Delivery Service"></a>
@@ -31,122 +31,22 @@
          <a class="nav-link" href="/agent-login.html">Delivery agent login</a>
         <button type="button" class="nav-link hidden" id="dashboardNav" data-view="dashboard">Dashboard</button>
         <button type="button" class="nav-link hidden" id="notificationToggle" aria-expanded="false">🔔 Notifications <span id="notificationCount" class="notification-count hidden">0</span></button>
-        <button type="button" class="primary-button" id="cartJump">
-          Cart (<span id="cartCount">0</span>)
-        </button>
+        <a class="primary-button" id="cartJump" href="/checkout.html">Cart (<span id="cartCount">0</span>)</a>
       </div>
     </nav>
   </header>
 
   <main>
     <section id="homeView" class="view">
-      <section class="hero">
-        <div class="hero-content">
-          <span class="eyebrow">YOUR CAMPUS. YOUR CRAVINGS.</span>
-          <h1>Good food.<br>Right on campus.</h1>
-          <p>Your favourite meals, from campus kitchens to your doorstep. Easy ordering, simple tracking, less stress.</p>
-          <a class="primary-button" id="exploreButton" href="/restaurants.html">View restaurants →</a>
-        </div>
-        <div class="hero-art" aria-hidden="true">🍛 🍗 🍚</div>
+      <section class="food-home-hero">
+        <div class="food-home-copy"><span class="eyebrow">CHOWONCAMPUS · MADE FOR CAMPUS LIFE</span><h1>Good food.<br><span>Good mood.</span></h1><p>Discover meals from your favourite campus restaurants and get your cravings sorted.</p><a class="primary-button" href="#restaurantsSection">Explore food ↓</a></div>
+        <div class="food-home-hero-image"><img src="https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=1100&q=85" alt="Fresh colourful meal bowl"></div>
+        <div class="food-home-floating food-home-floating-one">🍗 <span>Fresh meals</span></div><div class="food-home-floating food-home-floating-two">🛵 <span>Campus delivery</span></div>
       </section>
-
-      <section class="home-intro-strip" aria-label="ChowOnCampus benefits">
-        <div><span class="intro-icon">🍲</span><span><strong>Campus favourites</strong><small>Meals from your campus restaurants</small></span></div>
-        <div><span class="intro-icon">🛵</span><span><strong>Delivered to you</strong><small>Choose your hostel or delivery point</small></span></div>
-        <div><span class="intro-icon">📍</span><span><strong>Order tracking</strong><small>Follow progress from kitchen to you</small></span></div>
-      </section>
-
-      <section class="home-discover-section">
-        <div class="home-discover-copy">
-          <span class="eyebrow">GOOD FOOD IS CLOSER THAN YOU THINK</span>
-          <h2>What are you craving today?</h2>
-          <p>Find your next favourite meal, explore menus and order from participating campus restaurants — all in one place.</p>
-          <a class="primary-button" href="/restaurants.html">Explore restaurants <span aria-hidden="true">→</span></a>
-        </div>
-        <div class="home-food-tiles" aria-hidden="true">
-          <div class="home-food-tile home-food-tile-main"><span>🍛</span><strong>Rice bowls</strong></div>
-          <div class="home-food-tile"><span>🍗</span><strong>Chicken meals</strong></div>
-          <div class="home-food-tile"><span>🍔</span><strong>Quick bites</strong></div>
-        </div>
-      </section>
-
-      <section class="home-how-section">
-        <div class="home-section-title"><span class="eyebrow">SIMPLE. QUICK. CONVENIENT.</span><h2>Your next meal in 3 steps</h2></div>
-        <div class="home-how-grid">
-          <article><span class="home-step-number">01</span><span class="home-step-icon">🔎</span><h3>Choose a restaurant</h3><p>Explore available campus kitchens and browse their menus.</p></article>
-          <article><span class="home-step-number">02</span><span class="home-step-icon">🛍️</span><h3>Place your order</h3><p>Add your favourites, enter delivery details and complete secure checkout.</p></article>
-          <article><span class="home-step-number">03</span><span class="home-step-icon">🛵</span><h3>Track and enjoy</h3><p>Follow your order updates and get ready to enjoy your meal.</p></article>
-        </div>
-      </section>
-
-      <section class="home-cta-band">
-        <div><span class="eyebrow">YOUR CAMPUS. YOUR CRAVINGS.</span><h2>Hungry? Let's sort that out.</h2><p>Start with the restaurants and menus available on ChowOnCampus.</p></div>
-        <a class="primary-button" href="/restaurants.html">Browse food now →</a>
-      </section>
-
-      <section id="cartSection" class="content-section">
-        <div class="section-heading">
-          <div>
-            <span class="eyebrow">YOUR SELECTION</span>
-            <h2 id="cartHeadingCount">Your cart</h2>
-          </div>
-          <button type="button" id="clearCart" class="text-button">Clear cart</button>
-        </div>
-        <div id="cartItems">
-          <p>Your cart is empty. Explore the restaurants to get started!</p>
-        </div>
-
-        <div class="cart-summary">
-          <div><span>Subtotal</span><strong id="subtotal">₦0</strong></div>
-          <div><span>Delivery fee</span><strong id="deliveryFee">₦300</strong></div>
-          <div><span>Payment fee (1%)</span><strong id="paymentFee">₦0</strong></div>
-          <p id="deliveryEstimate" class="small-note" aria-live="polite">Add food and set a delivery pin to estimate your delivery fee.</p>
-          <div class="grand-total"><span>Total</span><strong id="grandTotal">₦300</strong></div>
-        </div>
-
-        <details id="deliveryDetailsDisclosure" class="delivery-details-disclosure">
-          <summary><span class="delivery-summary-icon" aria-hidden="true">📍</span><span><strong>Add delivery location</strong><small>Enter your hostel and choose where to deliver your order</small></span><span class="delivery-summary-chevron" aria-hidden="true">＋</span></summary>
-          <form id="checkoutForm" class="form-card">
-          <h3>Delivery details</h3>
-          <p class="small-note">You must be signed in with a student account to place an order. Your account details will be used automatically.</p>
-          <label for="paymentEmail">Email for payment receipt <span class="muted">(required for online payment)</span></label>
-          <input id="paymentEmail" name="paymentEmail" type="email" maxlength="254" autocomplete="email" placeholder="you@example.com">
-          <label for="hostel">Hostel / residence <span class="muted">(required)</span></label>
-          <input id="hostel" name="hostel" type="text" placeholder="e.g. Hall 2, campus" maxlength="150" required>
-          <div class="delivery-location-grid">
-            <label for="deliveryBlock">Block / building<input id="deliveryBlock" name="block" type="text" maxlength="100" placeholder="e.g. Block C"></label>
-            <label for="deliveryRoom">Room number<input id="deliveryRoom" name="room" type="text" maxlength="40" placeholder="e.g. Room 12"></label>
-          </div>
-          <label for="deliveryLandmark">Nearby landmark / gate<input id="deliveryLandmark" name="landmark" type="text" maxlength="150" placeholder="e.g. near the main gate"></label>
-          <input id="deliveryLatitude" type="hidden" name="latitude">
-          <input id="deliveryLongitude" type="hidden" name="longitude">
-          <div class="delivery-pin-tools">
-            <p class="small-note"><strong>Set your exact delivery point</strong><br>Allow GPS or click the map to place the pin where your order should arrive.</p>
-            <button type="button" id="deliveryMapPickGps" class="secondary-button full-width">📍 Use current GPS location</button>
-            <div id="deliveryLocationMap" class="restaurant-pickup-map" role="application" aria-label="Choose your delivery location on the map"></div>
-          </div>
-          <p id="locationMessage" class="small-note" aria-live="polite">No delivery pin selected yet. You can enter your address manually, use GPS, or click the map.</p>
-
-          <p id="checkoutMessage" class="form-message" aria-live="polite"></p>
-          <button type="submit" id="placeOrderButton" class="primary-button full-width">Continue to secure payment →</button>
-          <p class="small-note">Payments are confirmed by the server before your order is sent to the restaurant. Never pay outside the secure checkout.</p>
-        </form>
-        </details>
-      </section>
-
-      <section id="trackingSection" class="content-section">
-        <div class="section-heading">
-          <div>
-            <span class="eyebrow">ORDER UPDATES</span>
-            <h2>Track your order</h2>
-          </div>
-        </div>
-        <form id="trackForm" class="form-card">
-          <label for="trackId">Order ID</label>
-          <input id="trackId" name="trackId" type="text" placeholder="Enter your order ID" required>
-          <button type="submit" class="secondary-button">Track order</button>
-          <div id="trackResult" aria-live="polite"></div>
-        </form>
+      <section id="restaurantsSection" class="food-catalog-section">
+        <div class="food-catalog-heading"><div><span class="eyebrow">FIND YOUR NEXT FAVOURITE</span><h2>Restaurants on campus</h2><p>Pick a restaurant, explore the menu, and find something delicious.</p></div></div>
+        <form id="catalogSearchForm" class="catalog-search" role="search"><label class="sr-only" for="catalogSearchInput">Search restaurants and food</label><input id="catalogSearchInput" type="search" maxlength="100" placeholder="Search restaurant, jollof rice, chicken…" autocomplete="off"><button type="submit" class="primary-button">Search</button></form>
+        <p id="catalogSearchSummary" class="small-note" aria-live="polite">Loading campus restaurants…</p><div id="restaurantList" class="restaurant-grid"><p>Loading restaurants…</p></div><div id="menuArea"></div>
       </section>
     </section>
 

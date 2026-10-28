@@ -1718,6 +1718,34 @@ async function initialize() {
       return;
     }
     if (event.target.closest("#refreshAgentOrders")) { await loadDashboard(); return; }
+    if (event.target.closest("#toggleAgentOnline")) {
+      const button = event.target.closest("#toggleAgentOnline");
+      const wantsOnline = !Boolean(state.agentProfile?.online);
+      button.disabled = true;
+      try {
+        if (wantsOnline && !navigator.geolocation) throw new Error("This browser does not support GPS. Use a browser with location support.");
+        await api("/api/agent/availability", {
+          method: "PATCH",
+          body: JSON.stringify({ online: wantsOnline })
+        });
+        state.agentProfile = { ...(state.agentProfile || {}), online: wantsOnline };
+        if (!wantsOnline) stopAgentGps();
+        await loadDashboard();
+        if (wantsOnline && navigator.geolocation) {
+          startAgentGps();
+          navigator.geolocation.getCurrentPosition(publishAgentGps, error => {
+            const status = $("#agentGpsStatus");
+            if (status) status.textContent = error.code === 1
+              ? "Location permission denied. Allow location access in browser settings, then try again."
+              : "GPS unavailable. Check device location services and try again.";
+          }, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+        }
+      } catch (error) {
+        showToast(error.message);
+        button.disabled = false;
+      }
+      return;
+    }
     const useRestaurantGps = event.target.closest("#restaurantUseGps");
     if (useRestaurantGps) {
       const message = $("#restaurantPickupMapMessage");

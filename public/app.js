@@ -1973,12 +1973,12 @@ async function initialize() {
   startTrackingRefresh();
   // Keep the restaurant dashboard in sync when an agent completes a delivery.
   window.setInterval(() => {
-    if (state.account?.role !== "restaurant" || document.visibilityState !== "visible") return;
+    if (!["restaurant", "agent"].includes(state.account?.role) || document.visibilityState !== "visible") return;
     if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) return;
     loadDashboard();
   }, 15000);
   window.addEventListener("focus", () => {
-    if (state.account?.role === "restaurant") loadDashboard();
+    if (["restaurant", "agent"].includes(state.account?.role)) loadDashboard();
   });
   // Keep student prices and sold-out status current even when the portal stays open.
   window.addEventListener("focus", refreshPublicMenu);

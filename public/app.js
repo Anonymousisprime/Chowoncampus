@@ -1617,7 +1617,7 @@ async function initialize() {
       renderCart();
     }
 
-    if (event.target.closest("#logoutButton")) await logout();
+    if (event.target.closest("#logoutButton") || event.target.closest("#sideLogoutButton")) await logout();
 
     if (event.target.closest("#refreshAdminStudents")) {
       await loadDashboard();

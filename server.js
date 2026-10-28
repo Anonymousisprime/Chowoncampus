@@ -210,11 +210,21 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const LOAD_TEST_MODE = process.env.LOAD_TEST_MODE === "true";
+const LOAD_TEST_ACCESS_KEY = process.env.LOAD_TEST_ACCESS_KEY || "";
 // Fixed delivery fee for every order.
 const FIXED_DELIVERY_FEE = 300;
 const STUDENT_PAYMENT_FEE_RATE = 0.01;
 
 app.use(express.json({ limit: "50kb", verify: (req, res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
+if (LOAD_TEST_MODE) {
+  app.use((req, res, next) => {
+    if (req.method === "GET" && req.path === "/api/health") return next();
+    if (!LOAD_TEST_ACCESS_KEY || req.get("x-qa-access-key") !== LOAD_TEST_ACCESS_KEY) {
+      return res.status(404).json({ error: "Not found." });
+    }
+    next();
+  });
+}
 app.use(express.static(path.join(__dirname, "public")));
 app.use((req, res, next) => {
   const sendJson = res.json.bind(res);
@@ -2759,7 +2769,7 @@ app.use("/api", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Chowoncampus running at http://localhost:${PORT}`);
-  if (LOAD_TEST_MODE) setTimeout(() => runIsolatedOrderLifecycleTest().catch(error => console.error("QA runner failed:", error)), 1500);
+  if (LOAD_TEST_MODE && process.env.LOAD_TEST_RUN_ON_START === "true") setTimeout(() => runIsolatedOrderLifecycleTest().catch(error => console.error("QA runner failed:", error)), 1500);
 });
 
 
@@ -2771,6 +2781,7 @@ async function runIsolatedOrderLifecycleTest() {
   const assert = (condition, message) => { if (!condition) throw new Error(message); };
   async function request(pathname, options = {}) {
     const headers = { ...(options.cookie ? { cookie: options.cookie } : {}) };
+    if (LOAD_TEST_ACCESS_KEY) headers["x-qa-access-key"] = LOAD_TEST_ACCESS_KEY;
     if (options.body !== undefined) headers["content-type"] = "application/json";
     const response = await fetch(base + pathname, {
       method: options.method || "GET",

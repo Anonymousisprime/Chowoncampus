@@ -68,15 +68,62 @@
     const raw = atob((base64String + padding).replace(/-/g, "+").replace(/_/g, "/"));
     return Uint8Array.from(raw, char => char.charCodeAt(0));
   }
+  function setPushStatus(message, isError = false) {
+    const status = document.getElementById("pushSetupStatus");
+    if (!status) return;
+    status.textContent = message;
+    status.classList.toggle("error", isError);
+  }
   async function enableBackgroundPush() {
-    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) throw new Error("This browser does not support background push. On iPhone, add ChowOnCampus to your Home Screen and open it there.");
-    if (Notification.permission !== "granted") throw new Error("Allow notifications in the browser, then tap Notifications again.");
-    serviceWorkerRegistration = await navigator.serviceWorker.register("/sw.js");
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+      throw new Error("This browser does not support background push. On iPhone, use Safari and add ChowOnCampus to your Home Screen first.");
+    }
+    if (Notification.permission !== "granted") {
+      throw new Error(Notification.permission === "denied"
+        ? "Notifications are blocked for this site in your browser settings. Allow them there, then try again."
+        : "Tap Enable background alerts and allow notifications when your browser asks.");
+    }
+    serviceWorkerRegistration = await navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" });
+    await serviceWorkerRegistration.update().catch(() => {});
+    await navigator.serviceWorker.ready;
     const keyResponse = await request("/api/push/public-key");
-    if (!keyResponse.configured || !keyResponse.publicKey) throw new Error("Push code is ready, but VAPID keys still need to be configured on the hosting service.");
+    if (!keyResponse.configured || !keyResponse.publicKey) throw new Error("Background push is not configured on the server. Contact ChowOnCampus support.");
     let subscription = await serviceWorkerRegistration.pushManager.getSubscription();
-    if (!subscription) subscription = await serviceWorkerRegistration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(keyResponse.publicKey) });
-    await request("/api/push/subscribe", { method: "POST", body: JSON.stringify({ subscription: subscription.toJSON() }) });
+    if (subscription) {
+      const existingKey = subscription.options?.applicationServerKey;
+      if (existingKey) {
+        const bytes = new Uint8Array(existingKey);
+        const existingBase64 = btoa(String.fromCharCode(...bytes)).replace(/=/g, "").replace(/\\+/g, "-").replace(/\\//g, "_");
+        if (existingBase64 !== keyResponse.publicKey.replace(/=/g, "")) {
+          await subscription.unsubscribe();
+          subscription = null;
+        }
+      }
+    }
+    if (!subscription) {
+      subscription = await serviceWorkerRegistration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(keyResponse.publicKey)
+      });
+    }
+    await request("/api/push/subscribe", {
+      method: "POST",
+      body: JSON.stringify({ subscription: subscription.toJSON() })
+    });
+    const status = await request("/api/push/status");
+    setPushStatus("Background alerts are enabled on this device. Registered device(s): " + status.subscribedDevices + ".");
+    return status;
+  }
+  async function refreshPushStatus() {
+    try {
+      const status = await request("/api/push/status");
+      if (!status.configured) setPushStatus("The server's background notification keys are missing.", true);
+      else if (Notification.permission === "denied") setPushStatus("Notifications are blocked in this browser. Allow them in site settings, then enable alerts again.", true);
+      else if (status.subscribedDevices > 0) setPushStatus("Background alerts are registered for " + status.subscribedDevices + " device(s). Send a test alert to confirm delivery.");
+      else setPushStatus("This account has no registered devices. Tap Enable background alerts on this device.");
+    } catch (error) {
+      setPushStatus(error.message || "Could not check notification setup.", true);
+    }
   }
 
   const accountKey = account => account ? JSON.stringify([
@@ -174,27 +221,53 @@
       clearNotifications();
     }
   }
-  toggle.addEventListener("click", async () => {
-    let permissionPromise = null;
-    if ("Notification" in window && Notification.permission === "default") {
-      try { permissionPromise = Notification.requestPermission(); } catch {}
+  async function requestPushPermissionAndSubscribe() {
+    if (!loggedIn) {
+      setPushStatus("Sign in with your restaurant or delivery-agent account first.", true);
+      return;
     }
-    await testNotificationSound();
     try {
-      if (permissionPromise) await permissionPromise;
-      if ("Notification" in window && Notification.permission === "granted" && loggedIn) await enableBackgroundPush();
+      if (!("Notification" in window)) throw new Error("This browser does not support system notifications.");
+      if (Notification.permission === "default") {
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") throw new Error("Notification permission was not granted. Allow notifications in your browser settings and try again.");
+      }
+      if (Notification.permission !== "granted") {
+        throw new Error("Notifications are blocked for this site. Change the permission in your browser/site settings, then try again.");
+      }
+      await enableBackgroundPush();
     } catch (error) {
       console.info("ChowOnCampus push setup:", error.message);
-      const heading = panel.querySelector(".notification-panel-heading");
-      if (heading) {
-        let status = document.getElementById("pushSetupStatus");
-        if (!status) { status = document.createElement("p"); status.id = "pushSetupStatus"; status.className = "small-note"; heading.parentNode.insertBefore(status, heading.nextSibling); }
-        status.textContent = error.message || "Could not enable background notifications.";
-      }
+      setPushStatus(error.message || "Could not enable background notifications.", true);
     }
+  }
+  toggle.addEventListener("click", async () => {
+    await testNotificationSound();
     const open = panel.classList.toggle("hidden") === false;
     toggle.setAttribute("aria-expanded", String(open));
-    if (open) await refresh();
+    if (open) {
+      await refresh();
+      await refreshPushStatus();
+      if ("Notification" in window && Notification.permission === "granted" && loggedIn) {
+        try { await enableBackgroundPush(); } catch (error) { setPushStatus(error.message || "Could not enable background notifications.", true); }
+      }
+    }
+  });
+  document.getElementById("notificationEnablePush")?.addEventListener("click", requestPushPermissionAndSubscribe);
+  document.getElementById("notificationPushTest")?.addEventListener("click", async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    button.textContent = "Sending test…";
+    try {
+      await requestPushPermissionAndSubscribe();
+      const result = await request("/api/push/test", { method: "POST", body: "{}" });
+      setPushStatus(result.message + " Check the notification shade. If the site is open, you may also need to minimize it to see the system alert.");
+    } catch (error) {
+      setPushStatus(error.message || "The test notification failed.", true);
+    } finally {
+      button.disabled = false;
+      button.textContent = "Send test alert";
+    }
   });
   document.getElementById("notificationClose")?.addEventListener("click", () => {
     panel.classList.add("hidden"); toggle.setAttribute("aria-expanded", "false");

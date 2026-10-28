@@ -26,7 +26,8 @@ const storageFiles = {
   "push-subscriptions.json": "pushSubscriptions",
   "account-passwords.json": "accountPasswords",
   "admin-accounts.json": "adminAccounts",
-  "disabled-admins.json": "disabledAdmins"
+  "disabled-admins.json": "disabledAdmins",
+  "foodback-config.json": "foodbackConfig"
 };
 
 function readLocalJson(filename, fallback) {
@@ -53,7 +54,8 @@ async function initializePersistentStorage() {
     ["push-subscriptions.json", []],
     ["account-passwords.json", {}],
     ["admin-accounts.json", []],
-    ["disabled-admins.json", []]
+    ["disabled-admins.json", []],
+    ["foodback-config.json", { launchStartAt: null }]
   ];
   if (!storagePool) {
     for (const [filename, fallback] of definitions) {
@@ -549,6 +551,90 @@ function saveStudents(students) {
   saveStoredJson(STUDENTS_FILE, students);
 }
 
+const FOODBACK_CONFIG_FILE = path.join(__dirname, "foodback-config.json");
+function readFoodBackConfig() {
+  return readStoredJson(FOODBACK_CONFIG_FILE, { launchStartAt: process.env.FOODBACK_LAUNCH_START || null });
+}
+function saveFoodBackConfig(config) {
+  saveStoredJson(FOODBACK_CONFIG_FILE, config);
+}
+function createReferralCode(students) {
+  let code = "";
+  do { code = "COC-" + crypto.randomBytes(3).toString("hex").toUpperCase(); }
+  while (students.some(student => student.referralCode === code));
+  return code;
+}
+function expireFoodBackCredits(student, now = Date.now()) {
+  if (!Array.isArray(student.foodbackLedger)) student.foodbackLedger = [];
+  let expiredAmount = 0;
+  for (const entry of student.foodbackLedger) {
+    if (entry.type === "credit" && entry.expiresAt && !entry.expiredAt && new Date(entry.expiresAt).getTime() <= now) {
+      entry.expiredAt = new Date(now).toISOString();
+      expiredAmount += Number(entry.amount) || 0;
+    }
+  }
+  if (expiredAmount > 0) {
+    student.foodbackBalance = Math.max(0, (Number(student.foodbackBalance) || 0) - expiredAmount);
+    student.foodbackLedger.unshift({ id: crypto.randomUUID(), type: "expired", amount: -expiredAmount, description: "FoodBack credits expired", createdAt: new Date(now).toISOString() });
+  }
+  student.foodbackBalance = Math.max(0, Number(student.foodbackBalance) || 0);
+  return expiredAmount;
+}
+function addFoodBackCredit(student, amount, description, orderId, kind) {
+  const value = Math.max(0, Math.floor(Number(amount) || 0));
+  if (!value) return;
+  if (!Array.isArray(student.foodbackLedger)) student.foodbackLedger = [];
+  student.foodbackBalance = Math.max(0, Number(student.foodbackBalance) || 0) + value;
+  student.foodbackLedger.unshift({
+    id: crypto.randomUUID(), type: "credit", kind, amount: value, description,
+    orderId: orderId || null, createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString()
+  });
+  student.foodbackLedger = student.foodbackLedger.slice(0, 500);
+}
+function awardFoodBackForCompletedOrder(order) {
+  if (!order || order.status !== "Completed" || order.foodbackRewardsProcessedAt) return;
+  const students = readStudents();
+  const customer = students.find(student => student.phone === order.customerPhone);
+  if (!customer) return;
+  const now = new Date(order.deliveredAt || order.completedAt || order.updatedAt || Date.now());
+  const eligibleFoodSubtotal = Math.max(0, Number(order.foodSubtotal ?? (Number(order.subtotal || 0) - Number(order.takeawayFee || 200))) || 0);
+  expireFoodBackCredits(customer, now.getTime());
+  const ownReward = Math.floor(eligibleFoodSubtotal * 0.03);
+  if (ownReward > 0) addFoodBackCredit(customer, ownReward, "3% cashback on your order", order.id, "own-order");
+  let referralReward = 0;
+  let referrer = null;
+  if (customer.referredByPhone && !customer.referralRewardOrderIds?.includes(order.id)) {
+    referrer = students.find(student => student.phone === customer.referredByPhone);
+    const qualifying = Array.isArray(customer.referralQualifyingOrderIds) ? customer.referralQualifyingOrderIds : [];
+    if (referrer && qualifying.length < 2) {
+      const config = readFoodBackConfig();
+      if (!config.launchStartAt) {
+        config.launchStartAt = process.env.FOODBACK_LAUNCH_START || order.createdAt || now.toISOString();
+        saveFoodBackConfig(config);
+      }
+      const launchStart = new Date(config.launchStartAt).getTime();
+      const launchEnd = launchStart + 7 * 24 * 60 * 60 * 1000;
+      const orderTime = now.getTime();
+      const registeredAt = new Date(customer.createdAt || 0).getTime();
+      const qualifiesForLaunchRate = orderTime >= launchStart && orderTime < launchEnd && registeredAt >= launchStart && registeredAt < launchEnd;
+      const rate = qualifiesForLaunchRate ? 0.07 : 0.05;
+      referralReward = Math.floor(eligibleFoodSubtotal * rate);
+      if (referralReward > 0) {
+        expireFoodBackCredits(referrer, now.getTime());
+        addFoodBackCredit(referrer, referralReward, `${Math.round(rate * 100)}% referral reward from a friend's order`, order.id, "referral");
+        qualifying.push(order.id);
+        customer.referralQualifyingOrderIds = qualifying;
+        customer.referralRewardOrderIds = [...(customer.referralRewardOrderIds || []), order.id];
+      }
+    }
+  }
+  order.foodbackRewardsProcessedAt = now.toISOString();
+  order.foodbackOwnReward = ownReward;
+  order.foodbackReferralReward = referralReward;
+  saveStudents(students);
+}
+
 function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
   const hash = crypto.scryptSync(password, salt, 64).toString("hex");
   return { salt, hash };
@@ -582,6 +668,7 @@ app.post("/api/student/register", (req, res) => {
   const name = String(req.body.name || "").trim();
   const phone = normalizeNigerianPhone(req.body.phone);
   const password = String(req.body.password || "");
+  const referralCodeInput = String(req.body.referralCode || "").trim().toUpperCase();
   if (name.length < 2 || name.length > 100) return res.status(400).json({ error: "Enter your name (2–100 characters)." });
   if (!phone) return res.status(400).json({ error: "Enter a valid phone number, e.g. 08012345678." });
   if (password.length < 10 || password.length > 128) return res.status(400).json({ error: "Use a password between 10 and 128 characters." });
@@ -592,9 +679,16 @@ app.post("/api/student/register", (req, res) => {
   try {
     const students = readStudents();
     if (students.some(student => student.phone === phone)) return res.status(409).json({ error: "An account already exists for this phone number. Please log in." });
+    let referrer = null;
+    if (referralCodeInput) {
+      referrer = students.find(student => String(student.referralCode || "").toUpperCase() === referralCodeInput);
+      if (!referrer) return res.status(400).json({ error: "That referral ID is not valid. Check the code and try again." });
+      const successfulReferrals = students.filter(student => student.referredByPhone === referrer.phone).length;
+      if (successfulReferrals >= 10) return res.status(400).json({ error: "This referral ID has reached its current limit of 10 referred accounts." });
+    }
     const passwordData = hashPassword(password);
     const consentedAt = new Date().toISOString();
-    const student = { id: crypto.randomUUID(), name, phone, passwordSalt: passwordData.salt, passwordHash: passwordData.hash, role: "student", verifiedPhone: false, policyConsent: { termsAcceptedAt: consentedAt, privacyAcceptedAt: consentedAt, deliveryPolicyAcceptedAt: consentedAt }, createdAt: consentedAt };
+    const student = { id: crypto.randomUUID(), name, phone, passwordSalt: passwordData.salt, passwordHash: passwordData.hash, role: "student", verifiedPhone: false, referralCode: createReferralCode(students), referredByPhone: referrer ? referrer.phone : null, referralQualifyingOrderIds: [], referralRewardOrderIds: [], foodbackBalance: 0, foodbackLedger: [], policyConsent: { termsAcceptedAt: consentedAt, privacyAcceptedAt: consentedAt, deliveryPolicyAcceptedAt: consentedAt }, createdAt: consentedAt };
     students.push(student);
     saveStudents(students);
     const account = { username: student.phone, role: "student", name: student.name };
@@ -604,6 +698,39 @@ app.post("/api/student/register", (req, res) => {
     res.status(201).json({ account, message: "Account created. Your phone number has not been verified." });
   } catch (error) {
     res.status(500).json({ error: error.message || "Could not create your account." });
+  }
+});
+
+// Student FoodBack wallet and referral summary.
+app.get("/api/foodback", requireRole("student"), (req, res) => {
+  try {
+    const students = readStudents();
+    const student = students.find(item => item.phone === req.account.username);
+    if (!student) return res.status(404).json({ error: "Student account not found." });
+    const expired = expireFoodBackCredits(student);
+    if (expired) saveStudents(students);
+    const referredStudents = students.filter(item => item.referredByPhone === student.phone);
+    const earned = (student.foodbackLedger || []).filter(item => item.type === "credit").reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    const used = (student.foodbackLedger || []).filter(item => item.type === "debit").reduce((sum, item) => sum + Math.abs(Number(item.amount) || 0), 0);
+    const config = readFoodBackConfig();
+    const launchStart = config.launchStartAt ? new Date(config.launchStartAt).getTime() : null;
+    const launchActive = launchStart !== null && Number.isFinite(launchStart) && Date.now() >= launchStart && Date.now() < launchStart + 7 * 24 * 60 * 60 * 1000;
+    res.json({
+      referralCode: student.referralCode || null,
+      referralLink: "https://chowoncampus.onrender.com/student-signup.html?ref=" + encodeURIComponent(student.referralCode || ""),
+      referredCount: referredStudents.length,
+      referralLimit: 10,
+      availableBalance: Math.max(0, Number(student.foodbackBalance) || 0),
+      totalEarned: earned,
+      totalUsed: used,
+      referralQualifyingOrderCount: (student.referralQualifyingOrderIds || []).length,
+      launchRate: launchActive ? 7 : 5,
+      launchActive,
+      launchStartAt: config.launchStartAt || null,
+      ledger: (student.foodbackLedger || []).slice(0, 100)
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Could not load your FoodBack wallet." });
   }
 });
 
@@ -1184,6 +1311,7 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
   }
 
   // Mandatory one-time takeaway packaging fee is server-calculated and cannot be removed by the customer.
+  const foodSubtotal = subtotal;
   const takeawayFee = 200;
   subtotal += takeawayFee;
   cleanItems.push({
@@ -1219,6 +1347,7 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     restaurantName: restaurant.name,
     items: cleanItems,
     takeawayFee,
+    foodSubtotal,
     subtotal,
     deliveryFee,
     baseTotal,
@@ -2550,6 +2679,12 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
       order.updatedAt = changedAt;
       order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [{ status: previousStatus, at: order.createdAt, by: "system" }];
       order.statusHistory.push({ status: newStatus, at: changedAt, by: req.account.role });
+    }
+
+    if (newStatus === "Completed" && !order.foodbackRewardsProcessedAt) {
+      order.deliveredAt = order.deliveredAt || new Date().toISOString();
+      order.completedAt = order.completedAt || order.deliveredAt;
+      awardFoodBackForCompletedOrder(order);
     }
 
     // Delivery chat stays available for two minutes after successful delivery,

@@ -109,7 +109,13 @@
           <form id="checkoutForm" class="form-card">
           <h3>Delivery details</h3>
           <p class="small-note">You must be signed in with a student account to place an order. Your account details will be used automatically.</p>
-          <label for="paymentEmail">Email for payment receipt <span class="muted">(required for online payment)</span></label>
+          <label for="paymentMethod">Payment method</label>
+          <select id="paymentMethod" name="paymentMethod" required>
+            <option value="paystack">Pay online with Paystack</option>
+            <option value="foodback">Pay with FoodBack credits</option>
+          </select>
+          <p class="small-note">FoodBack can cover the full order total only. FoodBack orders go to the ultimate admin for review; the restaurant is notified after approval. <a href="/foodback.html">Check your FoodBack balance</a>.</p>
+          <label for="paymentEmail">Email for payment receipt <span class="muted">(required for Paystack)</span></label>
           <input id="paymentEmail" name="paymentEmail" type="email" maxlength="254" autocomplete="email" placeholder="you@example.com">
           <label for="hostel">Hostel / residence <span class="muted">(required)</span></label>
           <input id="hostel" name="hostel" type="text" placeholder="e.g. Hall 2, campus" maxlength="150" required>

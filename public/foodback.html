@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#073b2b">
+<title>FoodBack & Referrals | ChowOnCampus</title>
+<link rel="stylesheet" href="/style.css?v=foodback-ui-1">
+<style>
+:root{--fb-green:#073b2b;--fb-mid:#176b45;--fb-pale:#eaf5ed;--fb-line:#dce9df;--fb-ink:#173b2b}
+*{box-sizing:border-box}body.foodback-page{margin:0;background:#f3f7f4;color:var(--fb-ink);font-family:Inter,system-ui,-apple-system,sans-serif;min-height:100vh}
+.fb-sidebar{position:fixed;inset:0 auto 0 0;width:218px;background:linear-gradient(180deg,#052f23,#06452e);color:#fff;padding:22px 14px;display:flex;flex-direction:column;z-index:20}
+.fb-brand{display:flex;align-items:center;gap:9px;color:#fff;text-decoration:none;font-weight:900;font-size:17px;margin:0 4px 30px}.fb-brand-mark{display:grid;place-items:center;width:36px;height:36px;background:#fff;border-radius:10px;color:#176b45}
+.fb-nav{display:grid;gap:6px}.fb-nav a{display:flex;gap:10px;align-items:center;padding:12px 13px;border-radius:10px;color:#dceee4;text-decoration:none;font-weight:700;font-size:14px}.fb-nav a.active,.fb-nav a:hover{background:#16764e;color:#fff}.fb-nav .fb-spacer{height:1px;background:#ffffff20;margin:12px 6px}
+.fb-side-note{margin-top:auto;color:#b9d4c4;font-size:12px;line-height:1.5;padding:10px}
+.fb-main{margin-left:218px;padding:28px;max-width:1500px}.fb-topbar{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:22px}.fb-topbar h1{margin:0;font-size:28px;letter-spacing:-.7px}.fb-topbar p{margin:5px 0 0;color:#61766a}.fb-topbar a{color:var(--fb-mid);font-weight:800;text-decoration:none}
+.fb-hero{background:linear-gradient(120deg,#0c452f,#19764d);color:white;border-radius:22px;padding:28px;display:grid;grid-template-columns:1.3fr .7fr;gap:20px;align-items:center;overflow:hidden;box-shadow:0 14px 32px #0b452515}.fb-hero .eyebrow{color:#bce5c9;font-weight:800;letter-spacing:1.5px;font-size:11px}.fb-hero h2{font-size:clamp(26px,3vw,38px);line-height:1.1;margin:10px 0}.fb-hero p{color:#e0f1e6;max-width:540px;line-height:1.55}.fb-hero-art{font-size:80px;text-align:center;filter:drop-shadow(0 12px 12px #001c12aa)}
+.fb-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:18px 0}.fb-stat,.fb-card{background:#fff;border:1px solid var(--fb-line);border-radius:16px;padding:19px;box-shadow:0 6px 18px #183e2706;min-width:0}.fb-stat span{display:block;color:#6a7e71;font-size:13px;margin-bottom:10px}.fb-stat strong{font-size:clamp(20px,2vw,27px);overflow-wrap:anywhere}.fb-stat small{display:block;color:#748579;margin-top:7px}.fb-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:18px}.fb-card h3{margin:0 0 7px;font-size:18px}.fb-muted{color:#687c70;font-size:14px;line-height:1.55}.fb-code{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#eef8f0;border:1px dashed #8ec5a1;border-radius:13px;padding:16px;margin:15px 0}.fb-code strong{font-size:22px;letter-spacing:1px;overflow-wrap:anywhere}.fb-actions{display:flex;flex-wrap:wrap;gap:10px}.fb-button{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:10px;padding:12px 16px;background:var(--fb-mid);color:white;text-decoration:none;font-weight:800;cursor:pointer;font:inherit;font-weight:800}.fb-button.secondary{background:#edf5ef;color:var(--fb-mid);border:1px solid #d4e5d9}.fb-rules{display:grid;gap:12px;margin-top:16px}.fb-rule{display:flex;gap:12px;align-items:flex-start}.fb-rule b{display:grid;place-items:center;flex:0 0 32px;height:32px;border-radius:50%;background:#e0f3e5;color:#176b45}.fb-rule p{margin:2px 0 0;font-size:14px;line-height:1.5}.fb-rate{display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px;padding:14px;border-radius:12px;background:#f0f7f1;margin-top:10px}.fb-rate strong{font-size:24px;color:var(--fb-mid)}.fb-ledger{margin-top:18px}.fb-ledger-head{display:flex;justify-content:space-between;gap:12px;align-items:center}.fb-ledger-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid #e9efea}.fb-ledger-row:last-child{border-bottom:0}.fb-ledger-row p{margin:0 0 4px;font-weight:750}.fb-ledger-row small{color:#7b8c80}.fb-positive{color:#17824f;font-weight:900;white-space:nowrap}.fb-negative{color:#9b5141;font-weight:900;white-space:nowrap}.fb-notice{background:#fff7df;border:1px solid #f1dda0;border-radius:12px;padding:14px;font-size:13px;line-height:1.5;color:#725a19;margin-top:16px}.fb-empty{padding:20px;text-align:center;color:#738579}.fb-status{min-height:20px;color:#176b45;font-size:13px;margin-top:10px}
+@media(max-width:1000px){.fb-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.fb-grid{grid-template-columns:1fr}.fb-main{padding:22px}}
+@media(max-width:650px){.fb-sidebar{position:sticky;top:0;width:100%;height:auto;padding:10px 10px;display:block}.fb-brand{margin:0 4px 9px;font-size:15px}.fb-brand-mark{width:30px;height:30px}.fb-nav{display:flex;overflow-x:auto;gap:5px}.fb-nav a{white-space:nowrap;padding:10px;font-size:12px}.fb-nav .fb-spacer,.fb-side-note{display:none}.fb-main{margin-left:0;padding:16px 12px 40px}.fb-topbar h1{font-size:23px}.fb-hero{grid-template-columns:1fr;padding:22px}.fb-hero-art{display:none}.fb-stats{gap:9px}.fb-stat,.fb-card{padding:15px}.fb-code{align-items:flex-start;flex-direction:column}.fb-actions .fb-button{flex:1}}
+</style>
+</head>
+<body class="foodback-page">
+<aside class="fb-sidebar">
+<a class="fb-brand" href="/student-dashboard.html"><span class="fb-brand-mark">🍽️</span><span>ChowOnCampus</span></a>
+<nav class="fb-nav" aria-label="Student navigation">
+<a href="/student-dashboard.html">⌂ <span>Home / Orders</span></a>
+<a href="/restaurants.html">▦ <span>Browse Restaurants</span></a>
+<a href="/foodback.html" class="active">▣ <span>FoodBack Wallet</span></a>
+<a href="/foodback.html?view=refer" id="referNav">♧ <span>Refer & Earn</span></a>
+<a href="/student-dashboard.html#reviews">☆ <span>Reviews</span></a>
+<div class="fb-spacer"></div><a href="/student-dashboard.html">⚙ <span>Account</span></a>
+<a href="/support.html">ⓘ <span>Support</span></a>
+</nav>
+<div class="fb-side-note">Good food. Great rewards. Campus vibes!<br>FoodBack credits are not cash and cannot be withdrawn.</div>
+</aside>
+<main class="fb-main">
+<header class="fb-topbar"><div><h1 id="pageTitle">My FoodBack Wallet</h1><p id="pageSubtitle">Your rewards, all in one place.</p></div><a href="/restaurants.html">Browse food →</a></header>
+<section class="fb-hero"><div><span class="eyebrow">CHOWONCAMPUS FOODBACK</span><h2 id="heroTitle">Order food. Earn 3% back.</h2><p id="heroText">Get 3% FoodBack credits on every eligible order you complete, plus referral rewards when friends you invite order food.</p><div class="fb-actions"><a class="fb-button" href="/restaurants.html">Explore restaurants</a><button class="fb-button secondary" id="shareReferral" type="button">Share referral ID</button></div></div><div class="fb-hero-art" aria-hidden="true">🍔💚</div></section>
+<section class="fb-stats">
+<article class="fb-stat"><span>Available FoodBack</span><strong id="availableBalance">₦0</strong><small>Credits available in your wallet</small></article>
+<article class="fb-stat"><span>Total earned</span><strong id="totalEarned">₦0</strong><small>All credits awarded</small></article>
+<article class="fb-stat"><span>Friends referred</span><strong id="referredCount">0 / 10</strong><small>Current referral limit</small></article>
+<article class="fb-stat"><span>Referral rate now</span><strong id="referralRate">5%</strong><small>For qualifying friend orders</small></article>
+</section>
+<div class="fb-grid">
+<section class="fb-card" id="referralCard"><h3>Your Referral ID</h3><p class="fb-muted">Share your unique ID with a friend. They must enter it when creating their account; one account can only use one referral ID.</p><div class="fb-code"><div><small class="fb-muted">YOUR CODE</small><br><strong id="referralCode">Loading…</strong></div><button type="button" class="fb-button" id="copyReferral">Copy ID</button></div><div class="fb-actions"><button class="fb-button" id="copyReferralLink" type="button">Copy referral link</button><a class="fb-button secondary" id="whatsappReferral" target="_blank" rel="noopener noreferrer">Share on WhatsApp</a></div><p id="shareStatus" class="fb-status" aria-live="polite"></p><div class="fb-rules"><div class="fb-rule"><b>1</b><p><strong>Share your ID</strong><br>Invite up to 10 eligible new accounts.</p></div><div class="fb-rule"><b>2</b><p><strong>Your friend orders</strong><br>Only their first two successfully delivered orders qualify for referral cashback.</p></div><div class="fb-rule"><b>3</b><p><strong>You earn FoodBack</strong><br>7% during the first seven-day launch window when the friend registers and completes both qualifying orders within that window; 5% otherwise.</p></div></div></section>
+<section class="fb-card"><h3>How FoodBack works</h3><p class="fb-muted">You earn rewards in two ways. Cashback is credited after an order is successfully delivered.</p><div class="fb-rate"><div><strong>3%</strong><div class="fb-muted">On your own eligible orders</div></div><span>🍔</span></div><div class="fb-rate"><div><strong id="ruleReferralRate">5%</strong><div class="fb-muted">From a friend's first two eligible orders</div></div><span>🎁</span></div><div class="fb-notice">FoodBack credits are promotional rewards, not a bank balance. They cannot be withdrawn or transferred. Credits are currently tracked in your wallet; checkout redemption will be activated after the payment-settlement flow is configured so restaurants still receive the correct amount.</div></section>
+</div>
+<section class="fb-card fb-ledger"><div class="fb-ledger-head"><div><h3>Transaction history</h3><p class="fb-muted">Every reward and wallet adjustment appears here.</p></div><strong id="totalUsed">₦0 used</strong></div><div id="ledgerRows"><div class="fb-empty">Loading your transactions…</div></div></section>
+</main>
+<script src="/foodback.js?v=1" defer></script>
+</body></html>

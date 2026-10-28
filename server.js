@@ -832,11 +832,12 @@ app.get("/api/notifications", requireLogin, (req, res) => {
 });
 app.delete("/api/notifications", requireLogin, (req, res) => {
   const account = req.account;
-  if (account.role !== "agent") {
-    return res.status(403).json({ error: "Clearing notifications is currently available for delivery agents only." });
+  if (!["student", "restaurant", "agent"].includes(account.role)) {
+    return res.status(403).json({ error: "Clearing notifications is not available for this account." });
   }
   const items = readNotifications();
   const before = items.length;
+  // Remove only notifications belonging to the signed-in account; preserve every other user's notifications.
   const remaining = items.filter(item => !notificationBelongsToAccount(item, account));
   saveNotifications(remaining);
   res.json({ ok: true, cleared: before - remaining.length, message: "Your notifications have been cleared." });

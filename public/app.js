@@ -731,7 +731,7 @@ function renderOrderCard(order) {
   const canAssign = state.account.role === "admin" && order.status !== "Completed";
   const canReviewFoodBack = state.account.role === "admin" && state.account.isSuperAdmin && order.paymentMethod === "foodback" && order.status === "Awaiting admin approval";
   const canShowAvailableAgents = state.account.role === "restaurant" && order.status === "Ready for pickup" && !order.assignedAgentId;
-  const canChangeStatus = statuses.length > 0 && !(order.status === "Completed");
+  const canChangeStatus = statuses.length > 0 && !(order.status === "Completed") && !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval");
   const canContactAgent = state.account.role === "restaurant" && order.assignedAgentId && ["Ready for pickup", "Out for delivery"].includes(order.status);
   const canDeliveryChat = ["Ready for pickup", "Out for delivery"].includes(order.status) && ((state.account.role === "restaurant" && order.assignedAgentId) || (state.account.role === "agent" && state.account.agentId === order.assignedAgentId));
 

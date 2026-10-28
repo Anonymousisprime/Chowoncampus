@@ -16,7 +16,9 @@ function getCart() { try { const value = JSON.parse(localStorage.getItem("coc_ca
 function updateCartCount() { const node = $("#restaurantCartCount"); if (node) node.textContent = getCart().reduce((sum, item) => sum + (Number(item.qty) || 0), 0); }
 function categoryMatches(restaurant) {
   if (selectedCategory === "All") return true;
-  return (restaurant.items || []).some(item => String(item.category || "Meals").toLowerCase().includes(selectedCategory.toLowerCase()));
+  const categories = (restaurant.items || []).map(item => String(item.category || "Meals").toLowerCase());
+  if (selectedCategory === "Meals") return categories.some(category => !/(snack|drink|beverage|juice|water|smoothie)/.test(category));
+  return categories.some(category => category.includes(selectedCategory.toLowerCase()));
 }
 function renderRestaurants() {
   const query = searchQuery.trim().toLocaleLowerCase();

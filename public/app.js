@@ -502,6 +502,7 @@ async function placeOrder(event) {
     });
     const order = result.order;
     if (order.paymentMethod === "foodback") {
+      state.pendingOrderRequestId = null;
       state.lastOrderId = order.id;
       try { localStorage.setItem("coc_last_order_id", order.id); } catch {}
       state.cart = [];
@@ -728,7 +729,7 @@ function renderStudentRating(order) {
 
 function renderOrderCard(order) {
   const statuses = availableStatuses(order);
-  const canAssign = state.account.role === "admin" && order.status !== "Completed";
+  const canAssign = state.account.role === "admin" && order.status !== "Completed" && !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval");
   const canReviewFoodBack = state.account.role === "admin" && state.account.isSuperAdmin && order.paymentMethod === "foodback" && order.status === "Awaiting admin approval";
   const canShowAvailableAgents = state.account.role === "restaurant" && order.status === "Ready for pickup" && !order.assignedAgentId;
   const canChangeStatus = statuses.length > 0 && !(order.status === "Completed") && !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval");

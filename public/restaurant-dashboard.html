@@ -1,0 +1,174 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#06452e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="512x512" href="/chowoncampus-icon.png?v=2">
+  <link rel="apple-touch-icon" sizes="180x180" href="/chowoncampus-icon.png?v=2">
+  <meta property="og:title" content="Chowoncampus — Campus Food Delivery">
+  <meta property="og:description" content="Your favourite campus meals, delivered. Campus life tastes better here.">
+  <meta property="og:image" content="/chowoncampus-logo.svg">
+  <meta name="description" content="Chowoncampus — order your favourite campus meals with ease.">
+  <title>Restaurant Dashboard | Chowoncampus</title>
+  <link rel="stylesheet" href="/style.css?v=push-diagnostics-2">
+  <style>
+    body.restaurant-dashboard-page { background: #f3f7f4; }
+    .restaurant-dashboard-page .site-header { position: static; }
+    .restaurant-dashboard-page .nav-actions,
+    .restaurant-dashboard-page #homeView,
+    .restaurant-dashboard-page .site-footer { display: none !important; }
+    .restaurant-dashboard-page .navbar { justify-content: flex-start; }
+    .restaurant-dashboard-page #dashboardView { width: min(1100px, 100%); margin: 0 auto; padding: 28px 20px 56px; }
+    .restaurant-dashboard-page .dashboard-header { background: #fff; border: 1px solid #dfe9e1; border-radius: 16px; padding: 20px; margin-bottom: 20px; }
+    .restaurant-dashboard-page #dashboardContent > * { max-width: 100%; }
+    @media (max-width: 600px) { .restaurant-dashboard-page #dashboardView { padding: 18px 12px 40px; } .restaurant-dashboard-page .dashboard-header { padding: 16px; gap: 12px; } }
+  </style>
+  <script src="/app.js?v=chat-order-retry-2" defer></script>
+</head>
+<body class="restaurant-dashboard-page">
+  <header class="site-header">
+    <nav class="navbar">
+      <a href="/" class="brand" aria-label="Chowoncampus home"><img class="brand-logo" src="/chowoncampus-logo.svg" alt="Chowoncampus Delivery Service"></a>
+      <div class="nav-actions">
+        <button type="button" class="nav-link" data-view="home">Home</button>
+        <a class="nav-link" href="/student-login.html">Log in</a>
+        <a class="nav-link" href="/student-signup.html">Create account</a>
+        <a class="nav-link" href="/admin-login.html">Admin login</a>
+        <a class="nav-link" href="/restaurant-login.html">Restaurant login</a>
+         <a class="nav-link" href="/agent-login.html">Delivery agent login</a>
+        <button type="button" class="nav-link hidden" id="dashboardNav" data-view="dashboard">Dashboard</button>
+        <button type="button" class="nav-link hidden" id="notificationToggle" aria-expanded="false">🔔 Notifications <span id="notificationCount" class="notification-count hidden">0</span></button>
+        <button type="button" class="primary-button" id="cartJump">
+          Cart (<span id="cartCount">0</span>)
+        </button>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <section id="homeView" class="view">
+      <section class="hero">
+        <div class="hero-content">
+          <span class="eyebrow">YOUR CAMPUS. YOUR CRAVINGS.</span>
+          <h1>Good food.<br>Right on campus.</h1>
+          <p>Your favourite meals, from campus kitchens to your doorstep. Easy ordering, simple tracking, less stress.</p>
+          <a class="primary-button" id="exploreButton" href="/restaurants.html">View restaurants →</a>
+        </div>
+        <div class="hero-art" aria-hidden="true">🍛 🍗 🍚</div>
+      </section>
+
+      <section id="cartSection" class="content-section">
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">YOUR SELECTION</span>
+            <h2 id="cartHeadingCount">Your cart</h2>
+          </div>
+          <button type="button" id="clearCart" class="text-button">Clear cart</button>
+        </div>
+        <div id="cartItems">
+          <p>Your cart is empty. Explore the restaurants to get started!</p>
+        </div>
+
+        <div class="cart-summary">
+          <div><span>Subtotal</span><strong id="subtotal">₦0</strong></div>
+          <div><span>Delivery fee</span><strong id="deliveryFee">₦300</strong></div>
+          <div><span>Payment fee (1%)</span><strong id="paymentFee">₦0</strong></div>
+          <p id="deliveryEstimate" class="small-note" aria-live="polite">Add food and set a delivery pin to estimate your delivery fee.</p>
+          <div class="grand-total"><span>Total</span><strong id="grandTotal">₦300</strong></div>
+        </div>
+
+        <details id="deliveryDetailsDisclosure" class="delivery-details-disclosure">
+          <summary><span class="delivery-summary-icon" aria-hidden="true">📍</span><span><strong>Add delivery location</strong><small>Enter your hostel and choose where to deliver your order</small></span><span class="delivery-summary-chevron" aria-hidden="true">＋</span></summary>
+          <form id="checkoutForm" class="form-card">
+          <h3>Delivery details</h3>
+          <p class="small-note">You must be signed in with a student account to place an order. Your account details will be used automatically.</p>
+          <label for="paymentEmail">Email for payment receipt <span class="muted">(required for online payment)</span></label>
+          <input id="paymentEmail" name="paymentEmail" type="email" maxlength="254" autocomplete="email" placeholder="you@example.com">
+          <label for="hostel">Hostel / residence <span class="muted">(required)</span></label>
+          <input id="hostel" name="hostel" type="text" placeholder="e.g. Hall 2, campus" maxlength="150" required>
+          <div class="delivery-location-grid">
+            <label for="deliveryBlock">Block / building<input id="deliveryBlock" name="block" type="text" maxlength="100" placeholder="e.g. Block C"></label>
+            <label for="deliveryRoom">Room number<input id="deliveryRoom" name="room" type="text" maxlength="40" placeholder="e.g. Room 12"></label>
+          </div>
+          <label for="deliveryLandmark">Nearby landmark / gate<input id="deliveryLandmark" name="landmark" type="text" maxlength="150" placeholder="e.g. near the main gate"></label>
+          <input id="deliveryLatitude" type="hidden" name="latitude">
+          <input id="deliveryLongitude" type="hidden" name="longitude">
+          <div class="delivery-pin-tools">
+            <p class="small-note"><strong>Set your exact delivery point</strong><br>Allow GPS or click the map to place the pin where your order should arrive.</p>
+            <button type="button" id="deliveryMapPickGps" class="secondary-button full-width">📍 Use current GPS location</button>
+            <div id="deliveryLocationMap" class="restaurant-pickup-map" role="application" aria-label="Choose your delivery location on the map"></div>
+          </div>
+          <p id="locationMessage" class="small-note" aria-live="polite">No delivery pin selected yet. You can enter your address manually, use GPS, or click the map.</p>
+
+          <p id="checkoutMessage" class="form-message" aria-live="polite"></p>
+          <button type="submit" id="placeOrderButton" class="primary-button full-width">Continue to secure payment →</button>
+          <p class="small-note">Payments are confirmed by the server before your order is sent to the restaurant. Never pay outside the secure checkout.</p>
+        </form>
+        </details>
+      </section>
+
+      <section id="trackingSection" class="content-section">
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">ORDER UPDATES</span>
+            <h2>Track your order</h2>
+          </div>
+        </div>
+        <form id="trackForm" class="form-card">
+          <label for="trackId">Order ID</label>
+          <input id="trackId" name="trackId" type="text" placeholder="Enter your order ID" required>
+          <button type="submit" class="secondary-button">Track order</button>
+          <div id="trackResult" aria-live="polite"></div>
+        </form>
+      </section>
+    </section>
+
+    <section id="dashboardView" class="view hidden content-section">
+      <div class="dashboard-header">
+        <div>
+          <span class="eyebrow">CHOWONCAMPUS MANAGEMENT</span>
+          <h1 id="dashboardTitle">Dashboard</h1>
+          <p id="accountLabel"></p>
+        </div>
+        <button type="button" id="logoutButton" class="secondary-button">Log out</button>
+      </div>
+      <div id="earningsPanel"></div>
+      <div id="dashboardContent">
+        <p>Loading dashboard...</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <a href="#" class="brand footer-brand-logo" aria-label="Chowoncampus home"><img class="brand-logo" src="/chowoncampus-logo.svg" alt="Chowoncampus Delivery Service"></a>
+    <p>Good food, closer to you.</p>
+    <p><a href="/support.html">Support &amp; Help</a> · <a href="/privacy-policy.html">Privacy Policy</a> · <a href="/restaurant-privacy.html">Restaurant Privacy</a> · <a href="/agent-privacy.html">Agent Privacy &amp; Rating Policy</a> · <a href="/terms.html">Terms of Service</a> · <a href="/delivery-policy.html">Delivery &amp; Cancellation</a></p>
+    <p><a href="tel:+2349131999590">Call 09131999590</a> · <a href="https://wa.me/2349131999590" target="_blank" rel="noopener noreferrer">WhatsApp Support</a> · <a href="mailto:chowoncampus@gmail.com">Email Support</a></p>
+    <div class="staff-links"><strong>Staff access</strong><p><a href="/admin-login.html">Admin login</a> · <a href="/restaurant-login.html">Restaurant login</a> · <a href="/agent-login.html">Delivery agent login</a></p></div>
+    <p>© <span id="year"></span> Chowoncampus. Made for campus life.</p>
+  </footer>
+
+  <section id="temporaryChatPage" class="temporary-chat-page hidden" aria-label="Temporary delivery chat" aria-modal="true" role="dialog">
+    <header class="full-chat-header">
+      <button type="button" id="closeFullPageChat" class="full-chat-back" aria-label="Back to order">←</button>
+      <div class="full-chat-avatar" aria-hidden="true">💬</div>
+      <div class="full-chat-heading"><strong id="fullPageChatTitle">Delivery chat</strong><span id="fullPageChatOrderRef">Order</span></div>
+      <span class="full-chat-live"><span></span> Live</span>
+    </header>
+    <div class="full-chat-banner"><span>🔒</span><span>Private order chat · <span id="fullPageChatNotice">Messages refresh automatically.</span></span></div>
+    <div id="fullPageChatMessages" class="full-chat-messages" aria-live="polite"><p class="muted">Loading messages…</p></div>
+    <form id="fullPageChatForm" class="full-chat-composer">
+      <input id="fullPageChatInput" name="message" maxlength="500" required autocomplete="off" placeholder="Write a message…" aria-label="Write a message">
+      <button type="submit" aria-label="Send message"><span>➤</span></button>
+    </form>
+  </section>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <aside id="notificationPanel" class="notification-panel hidden" aria-label="Notifications"><div class="notification-panel-heading"><strong>Notifications</strong><button type="button" id="notificationClose" aria-label="Close notifications">×</button></div><div class="notification-push-controls"><p id="pushSetupStatus" class="small-note" role="status">Set up background alerts so you can receive order updates when ChowOnCampus is closed.</p><button type="button" id="notificationEnablePush" class="secondary-button full-width">Enable background alerts</button><button type="button" id="notificationPushTest" class="secondary-button full-width">Send test alert</button></div><div id="notificationList"><p class="muted">Loading notifications…</p></div></aside>
+  <script src="/notifications.js?v=push-diagnostics-2" defer></script>
+</body>
+</html>

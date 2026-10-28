@@ -529,7 +529,7 @@ async function placeOrder(event) {
   }
 }
 
-function renderTrackedOrder(order) {
+function renderTrackedOrder(order, resultSelector = "#trackResult") {
   const items = order.items.map(item => `${item.qty} × ${escapeHtml(item.name)}`).join(", ");
   const steps = ["Awaiting payment", "Confirmed", "Preparing", "Ready for pickup", "Out for delivery", "Completed"];
   const cancelled = order.status === "Cancelled";
@@ -540,7 +540,9 @@ function renderTrackedOrder(order) {
   const timeline = history.map(event => `
     <li class="tracking-event"><span class="tracking-dot"></span><div><strong>${escapeHtml(event.status)}</strong><small>${escapeHtml(new Date(event.at).toLocaleString())}</small></div></li>
   `).join("");
-  $("#trackResult").innerHTML = `
+  const resultTarget = $(resultSelector);
+  if (!resultTarget) return;
+  resultTarget.innerHTML = `
     <article class="order-card tracking-card">
       <div class="order-top"><div><span class="eyebrow">ORDER REFERENCE</span><h3>${escapeHtml(order.id)}</h3></div><span class="status">${escapeHtml(order.status)}</span></div>
       <p>${escapeHtml(order.restaurantName || "Your restaurant")}</p><p class="order-items">${items}</p>
@@ -628,31 +630,35 @@ async function loadCustomerChat(orderId) {
 
 let activeTrackedOrderId = null;
 let trackingRefreshTimer = null;
-async function trackOrder(orderId, quiet = false) {
+let activeTrackingResultSelector = "#trackResult";
+let activeTrackingInputSelector = "#trackId";
+async function trackOrder(orderId, quiet = false, resultSelector = "#trackResult", inputSelector = "#trackId") {
   const id = String(orderId || "").trim();
-  if (!id) return showMessage("#trackResult", "Enter your order ID.");
+  activeTrackingResultSelector = resultSelector;
+  activeTrackingInputSelector = inputSelector;
+  if (!id) return showMessage(resultSelector, "Enter your order ID.");
   activeTrackedOrderId = id;
-  if (!quiet) $("#trackResult").innerHTML = `<p class="loading">Looking up your order…</p>`;
+  if (!quiet && $(resultSelector)) $(resultSelector).innerHTML = `<p class="loading">Looking up your order…</p>`;
   try {
     const result = await api(`/api/orders/${encodeURIComponent(id)}`);
     if (state.account?.role === "student" && !studentOrderIsVisible(result.order)) {
       try {
         if (localStorage.getItem("coc_last_order_id") === id) localStorage.removeItem("coc_last_order_id");
       } catch {}
-      if ($("#trackId")) $("#trackId").value = "";
-      if ($("#trackResult")) $("#trackResult").innerHTML = '<div class="empty-state">This order is no longer active. Past orders are available to admins only.</div>';
+      if ($(inputSelector)) $(inputSelector).value = "";
+      if ($(resultSelector)) $(resultSelector).innerHTML = '<div class="empty-state">This order is no longer active. Past orders are available to admins only.</div>';
       if (activeTrackedOrderId === id) activeTrackedOrderId = null;
       return;
     }
-    renderTrackedOrder(result.order);
+    renderTrackedOrder(result.order, resultSelector);
   } catch (error) {
-    if (!quiet) $("#trackResult").innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+    if (!quiet && $(resultSelector)) $(resultSelector).innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
   }
 }
 function startTrackingRefresh() {
   if (trackingRefreshTimer) clearInterval(trackingRefreshTimer);
   trackingRefreshTimer = setInterval(() => {
-    if (activeTrackedOrderId && document.visibilityState === "visible") trackOrder(activeTrackedOrderId, true);
+    if (activeTrackedOrderId && document.visibilityState === "visible") trackOrder(activeTrackedOrderId, true, activeTrackingResultSelector, activeTrackingInputSelector);
   }, 15000);
 }
 
@@ -1198,6 +1204,7 @@ async function loadDashboard(automatic = false) {
           <div><span class="eyebrow">STUDENT WORKSPACE</span><h2>Welcome, ${escapeHtml(account.name)}!</h2><p>Track your current orders here. Completed orders remain visible briefly for feedback, then move out of your dashboard. Past orders are available to admins only.</p></div>
           <div class="student-dashboard-actions"><a class="secondary-button" href="/restaurants.html" style="display:inline-flex;align-items:center;text-decoration:none">🍽️ Browse food</a><button class="secondary-button" type="button" data-show-password-form>🔐 Change password</button></div>
         </div>
+        <section class="dashboard-order-section" id="studentTrackOrderSection"><div class="dashboard-section-heading"><div><h2>Track an order</h2><p>Enter your order ID to see its current status, progress and updates.</p></div></div><form id="studentTrackForm" class="form-card"><label for="studentTrackId">Order ID</label><input id="studentTrackId" name="orderId" type="text" maxlength="100" placeholder="Enter your order ID" required><button type="submit" class="primary-button">Track order</button><div id="studentTrackResult" aria-live="polite"></div></form></section>
         <section class="dashboard-order-section"><div class="dashboard-section-heading"><div><h2>Current orders</h2><p>Only active orders and the brief post-delivery feedback window appear here.</p></div><span class="count-pill">${studentOrders.length}</span></div>
         ${studentOrders.length
           ? `<div class="order-list">${studentOrders.map(renderOrderCard).join("")}</div>`
@@ -1754,9 +1761,15 @@ async function initialize() {
 
   $("#checkoutForm").addEventListener("submit", placeOrder);
 
-  $("#trackForm").addEventListener("submit", event => {
+  $("#trackForm")?.addEventListener("submit", event => {
     event.preventDefault();
     trackOrder($("#trackId").value);
+  });
+  document.addEventListener("submit", event => {
+    const studentTrackForm = event.target.closest("#studentTrackForm");
+    if (!studentTrackForm) return;
+    event.preventDefault();
+    trackOrder($("#studentTrackId").value, false, "#studentTrackResult", "#studentTrackId");
   });
   document.addEventListener("submit", async event => {
 

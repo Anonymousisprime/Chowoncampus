@@ -1075,7 +1075,19 @@ async function loadDashboard(automatic = false) {
       const result = await api("/api/agents/available");
       state.availableAgents = result.agents;
       state.agents = [];
-    } else if (account.role === "agent") {
+          const refreshFoodBackAdmin = async () => {
+        const metrics = $("#adminFoodBackMetrics");
+        const list = $("#adminFoodBackReferrers");
+        if (!metrics || !list) return;
+        try {
+          const data = await api("/api/admin/foodback-summary");
+          metrics.innerHTML = '<article><span>Outstanding credits</span><strong>' + money(data.totalOutstanding) + '</strong></article><article><span>Total credits issued</span><strong>' + money(data.totalCreditsIssued) + '</strong></article><article><span>Referred accounts</span><strong>' + (data.referredAccountCount || 0) + '</strong></article>';
+          list.innerHTML = '<h3>Top referrers</h3>' + (data.referrers.length ? data.referrers.map(item => '<p><strong>' + escapeHtml(item.name) + '</strong> · ' + item.referredCount + ' friend(s) · ' + escapeHtml(item.referralCode) + '</p>').join('') : '<p>No referrals yet.</p>');
+        } catch (error) { metrics.innerHTML = '<p class="muted">' + escapeHtml(error.message) + '</p>'; }
+      };
+      refreshFoodBackAdmin();
+      document.addEventListener("click", event => { if (event.target.closest("#refreshAdminFoodBack")) refreshFoodBackAdmin(); }, { once: true });
+      } else if (account.role === "agent") {
       state.agents = [];
       state.availableAgents = [];
       state.agentProfile = await api("/api/agents/me");
@@ -1159,6 +1171,11 @@ async function loadDashboard(automatic = false) {
             <button type="button" class="secondary-button" data-admin-jump="adminStudentAccounts">Manage students · Ban / Unban</button>
             <button type="button" class="secondary-button" data-admin-jump="adminRestaurantPartners">View / delete restaurants</button>
           </div>
+        </section>
+        <section class="dashboard-order-section" id="adminFoodBackPanel">
+          <div class="dashboard-section-heading"><div><span class="eyebrow">REWARDS CONTROL</span><h2>FoodBack overview</h2><p>Track credits issued and referral activity. This panel is reporting-only; reward percentages are enforced server-side.</p></div><button type="button" class="secondary-button" id="refreshAdminFoodBack">↻ Refresh</button></div>
+          <div class="student-foodback-metrics" id="adminFoodBackMetrics"><article><span>Outstanding credits</span><strong>Loading…</strong></article><article><span>Credits issued</span><strong>Loading…</strong></article><article><span>Referred accounts</span><strong>Loading…</strong></article></div>
+          <div id="adminFoodBackReferrers" class="muted">Loading top referrers…</div>
         </section>
         <section class="dashboard-order-section" id="adminRestaurantPartners">
           <div class="dashboard-section-heading"><div><h2>Restaurant partners · Delete</h2><p>Delete controls are shown here for each registered restaurant. Restaurants with active orders cannot be deleted.</p></div></div>

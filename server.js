@@ -830,6 +830,18 @@ app.get("/api/notifications", requireLogin, (req, res) => {
     .slice(0, 100);
   res.json({ notifications, unreadCount: notifications.filter(item => !item.read).length });
 });
+app.delete("/api/notifications", requireLogin, (req, res) => {
+  const account = req.account;
+  if (account.role !== "agent") {
+    return res.status(403).json({ error: "Clearing notifications is currently available for delivery agents only." });
+  }
+  const items = readNotifications();
+  const before = items.length;
+  const remaining = items.filter(item => !notificationBelongsToAccount(item, account));
+  saveNotifications(remaining);
+  res.json({ ok: true, cleared: before - remaining.length, message: "Your notifications have been cleared." });
+});
+
 app.patch("/api/notifications/:id/read", requireLogin, (req, res) => {
   const account = req.account;
   const items = readNotifications();

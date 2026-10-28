@@ -1412,13 +1412,20 @@ async function initialize() {
     const result = await api("/api/me");
     state.account = result.account;
     updateNavigation();
+    const isRestaurantDashboardPage = document.body.classList.contains("restaurant-dashboard-page");
+    if (isRestaurantDashboardPage && state.account?.role !== "restaurant") {
+      location.replace("/restaurant-login.html");
+      return;
+    }
     const params = new URLSearchParams(location.search);
-    if (state.account && ["student", "restaurant", "agent"].includes(state.account.role) && params.get("dashboard") === "1") {
+    if (state.account && ["student", "restaurant", "agent"].includes(state.account.role) &&
+        (params.get("dashboard") === "1" || isRestaurantDashboardPage)) {
       setView("dashboard");
       history.replaceState({}, "", location.pathname);
     }
   } catch (error) {
     console.error(error);
+    if (document.body.classList.contains("restaurant-dashboard-page")) location.replace("/restaurant-login.html");
   }
 
   document.addEventListener("click", async event => {

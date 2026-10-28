@@ -1196,7 +1196,7 @@ async function loadDashboard(automatic = false) {
       $("#dashboardContent").innerHTML = `
         <div class="restaurant-welcome">
           <div><span class="eyebrow">STUDENT WORKSPACE</span><h2>Welcome, ${escapeHtml(account.name)}!</h2><p>Track your current orders here. Completed orders remain visible briefly for feedback, then move out of your dashboard. Past orders are available to admins only.</p></div>
-          <div class="student-dashboard-actions"><button class="secondary-button" type="button" data-view="home">Browse food</button><button class="secondary-button" type="button" data-show-password-form>🔐 Change password</button></div>
+          <div class="student-dashboard-actions"><a class="secondary-button" href="/restaurants.html" style="display:inline-flex;align-items:center;text-decoration:none">🍽️ Browse food</a><button class="secondary-button" type="button" data-show-password-form>🔐 Change password</button></div>
         </div>
         <section class="dashboard-order-section"><div class="dashboard-section-heading"><div><h2>Current orders</h2><p>Only active orders and the brief post-delivery feedback window appear here.</p></div><span class="count-pill">${studentOrders.length}</span></div>
         ${studentOrders.length
@@ -1433,13 +1433,18 @@ async function initialize() {
     state.account = result.account;
     updateNavigation();
     const isRestaurantDashboardPage = document.body.classList.contains("restaurant-dashboard-page");
+    const isStudentDashboardPage = document.body.classList.contains("student-dashboard-page");
     if (isRestaurantDashboardPage && state.account?.role !== "restaurant") {
       location.replace("/restaurant-login.html");
       return;
     }
+    if (isStudentDashboardPage && state.account?.role !== "student") {
+      location.replace("/student-login.html");
+      return;
+    }
     const params = new URLSearchParams(location.search);
     if (state.account && ["student", "restaurant", "agent"].includes(state.account.role) &&
-        (params.get("dashboard") === "1" || isRestaurantDashboardPage)) {
+        (params.get("dashboard") === "1" || isRestaurantDashboardPage || isStudentDashboardPage)) {
       setView("dashboard");
       history.replaceState({}, "", location.pathname);
     }

@@ -1164,6 +1164,13 @@ async function loadDashboard(automatic = false) {
           <div class="dashboard-section-heading"><div><span class="eyebrow">REWARDS CONTROL</span><h2>FoodBack overview</h2><p>Track credits issued and referral activity. This panel is reporting-only; reward percentages are enforced server-side.</p></div><button type="button" class="secondary-button" id="refreshAdminFoodBack">↻ Refresh</button></div>
           <div class="student-foodback-metrics" id="adminFoodBackMetrics"><article><span>Outstanding credits</span><strong>Loading…</strong></article><article><span>Credits issued</span><strong>Loading…</strong></article><article><span>Referred accounts</span><strong>Loading…</strong></article></div>
           <div id="adminFoodBackReferrers" class="muted">Loading top referrers…</div>
+          <form id="adminFoodBackConfigForm" class="order-card" style="margin-top:16px">
+            <h3>Official launch date</h3>
+            <p class="muted">Set this before launch. The 7% referral bonus applies only when a friend registers and completes both qualifying orders within the first seven days from this date.</p>
+            <label>Launch date and time<input id="foodBackLaunchStart" name="launchStartAt" type="datetime-local" required></label>
+            <button class="primary-button" type="submit">Save launch window</button>
+            <p id="foodBackLaunchStatus" class="muted" role="status"></p>
+          </form>
         </section>
         <section class="dashboard-order-section" id="adminRestaurantPartners">
           <div class="dashboard-section-heading"><div><h2>Restaurant partners · Delete</h2><p>Delete controls are shown here for each registered restaurant. Restaurants with active orders cannot be deleted.</p></div></div>
@@ -1217,10 +1224,33 @@ async function loadDashboard(automatic = false) {
           const data = await api("/api/admin/foodback-summary");
           metrics.innerHTML = '<article><span>Outstanding credits</span><strong>' + money(data.totalOutstanding) + '</strong></article><article><span>Total credits issued</span><strong>' + money(data.totalCreditsIssued) + '</strong></article><article><span>Referred accounts</span><strong>' + (data.referredAccountCount || 0) + '</strong></article>';
           list.innerHTML = '<h3>Top referrers</h3>' + (data.referrers.length ? data.referrers.map(item => '<p><strong>' + escapeHtml(item.name) + '</strong> · ' + item.referredCount + ' friend(s) · ' + escapeHtml(item.referralCode) + '</p>').join('') : '<p>No referrals yet.</p>');
+          const launchInput = $("#foodBackLaunchStart");
+          const launchStatus = $("#foodBackLaunchStatus");
+          if (launchInput && data.launchStartAt && !launchInput.value) {
+            const date = new Date(data.launchStartAt);
+            const pad = number => String(number).padStart(2, "0");
+            launchInput.value = date.getFullYear() + "-" + pad(date.getMonth()+1) + "-" + pad(date.getDate()) + "T" + pad(date.getHours()) + ":" + pad(date.getMinutes());
+          }
+          if (launchStatus) launchStatus.textContent = data.launchStartAt ? "Launch window starts " + new Date(data.launchStartAt).toLocaleString() + "." : "Launch date is not set. The ongoing 5% referral rate applies until you configure it.";
         } catch (error) { metrics.innerHTML = '<p class="muted">' + escapeHtml(error.message) + '</p>'; }
       };
       refreshFoodBackAdmin();
       $("#refreshAdminFoodBack")?.addEventListener("click", refreshFoodBackAdmin);
+      $("#adminFoodBackConfigForm")?.addEventListener("submit", async event => {
+        event.preventDefault();
+        const input = $("#foodBackLaunchStart");
+        const status = $("#foodBackLaunchStatus");
+        if (!input?.value) return;
+        const button = event.currentTarget.querySelector('button[type="submit"]');
+        button.disabled = true;
+        try {
+          const result = await api("/api/admin/foodback-config", { method: "POST", body: JSON.stringify({ launchStartAt: new Date(input.value).toISOString() }) });
+          if (status) status.textContent = result.message;
+          await refreshFoodBackAdmin();
+        } catch (error) {
+          if (status) status.textContent = error.message;
+        } finally { button.disabled = false; }
+      });
       } else if (account.role === "agent") {
       const activeDeliveryOrders = orders.filter(order =>
         order.assignedAgentId === account.agentId && ["Ready for pickup", "Out for delivery"].includes(order.status)

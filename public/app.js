@@ -174,7 +174,14 @@ function renderRestaurants() {
 
   $("#restaurantList").innerHTML = matches.length ? matches.map(({ restaurant, matchingItems }, index) => `
     <article class="restaurant-card">
-      <div class="restaurant-banner">${index === 0 ? "🍛" : "🍲"}</div>
+      <div class="restaurant-banner restaurant-photo"><img src="${[
+        "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=900&q=80",
+        "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=900&q=80",
+        "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=900&q=80",
+        "https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?auto=format&fit=crop&w=900&q=80",
+        "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=900&q=80",
+        "https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=900&q=80"
+      ][index % 6]}" alt="Food from ${escapeHtml(restaurant.name)}" loading="lazy"></div>
       <div class="restaurant-info">
         <h3>${escapeHtml(restaurant.name)}</h3>
         <p>${escapeHtml(restaurant.description)}</p>
@@ -298,7 +305,9 @@ function renderCart() {
   const delivery = state.cart.length ? 300 : 0;
   const paymentFee = state.cart.length ? Math.round((subtotal + delivery) * 0.01) : 0;
 
-  $("#cartCount").textContent = count;
+  const cartCountElement = $("#cartCount");
+  if (cartCountElement) cartCountElement.textContent = count;
+  if (!$("#cartItems")) return;
   $("#cartHeadingCount").textContent = `(${count})`;
   $("#subtotal").textContent = money(subtotal);
   $("#deliveryFee").textContent = money(delivery);
@@ -516,11 +525,11 @@ async function placeOrder(event) {
     if ($("#locationMessage")) $("#locationMessage").textContent = "Enter your location manually, use GPS, or click the map to choose a delivery pin.";
     if ($("#deliveryLatitude")) $("#deliveryLatitude").value = "";
     if ($("#deliveryLongitude")) $("#deliveryLongitude").value = "";
-    $("#trackId").value = order.id;
+    if ($("#trackId")) $("#trackId").value = order.id;
     showMessage("#checkoutMessage", "Demo order " + order.id + " created. No payment has been made.", true);
     showToast("Demo order created!");
     await trackOrder(order.id);
-    $("#trackingSection").scrollIntoView({ behavior: "smooth", block: "start" });
+    $("#trackingSection")?.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
     showMessage("#checkoutMessage", error.message);
   } finally {
@@ -1412,6 +1421,11 @@ async function assignAgent(orderId) {
 }
 
 async function initialize() {
+  const initialParams = new URLSearchParams(location.search);
+  if (location.pathname === "/" && initialParams.get("payment") === "paystack") {
+    location.replace("/checkout.html" + location.search);
+    return;
+  }
   if ($("#year")) $("#year").textContent = new Date().getFullYear();
   try { const savedCart = JSON.parse(localStorage.getItem("coc_cart") || "[]"); if (Array.isArray(savedCart)) state.cart = savedCart.filter(item => item && item.id && item.restaurantId && Number(item.qty) > 0); } catch { state.cart = []; }
 
@@ -1563,7 +1577,13 @@ async function initialize() {
     }
 
     if (event.target.closest("#cartJump")) {
-      $("#cartSection").scrollIntoView({ behavior: "smooth" });
+      const cartSection = $("#cartSection");
+      if (cartSection && !document.body.classList.contains("food-home-page")) {
+        event.preventDefault();
+        cartSection.scrollIntoView({ behavior: "smooth" });
+      } else {
+        location.href = "/checkout.html";
+      }
     }
 
     if (event.target.closest("#clearCart")) {
@@ -1754,7 +1774,7 @@ async function initialize() {
     });
   }
 
-  $("#checkoutForm").addEventListener("submit", placeOrder);
+  $("#checkoutForm")?.addEventListener("submit", placeOrder);
 
   $("#trackForm")?.addEventListener("submit", event => {
     event.preventDefault();
@@ -2092,7 +2112,7 @@ async function initialize() {
         });
         state.lastOrderId = callbackOrderId;
         try { localStorage.setItem("coc_last_order_id", callbackOrderId); } catch {}
-        $("#trackId").value = callbackOrderId;
+        if ($("#trackId")) $("#trackId").value = callbackOrderId;
         showMessage("#checkoutMessage", (verification.message || "Payment verified and order confirmed.") + " Your order ID is " + callbackOrderId + ". Save this ID for tracking and support.", true);
         showToast("Payment verified. Your order is confirmed.");
         await trackOrder(callbackOrderId);
@@ -2107,7 +2127,7 @@ async function initialize() {
   }
   try {
     const savedOrderId = localStorage.getItem("coc_last_order_id");
-    if (savedOrderId) {
+    if (savedOrderId && $("#trackId")) {
       $("#trackId").value = savedOrderId;
       trackOrder(savedOrderId, true);
     }

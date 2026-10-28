@@ -2756,6 +2756,9 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
     if (!order) {
       return res.status(404).json({ error: "Order not found." });
     }
+    if (order.paymentMethod === "foodback" && order.status === "Awaiting admin approval") {
+      return res.status(403).json({ error: "FoodBack orders must be approved or rejected by the ultimate admin before fulfilment." });
+    }
 
     const role = req.account.role;
 
@@ -2802,7 +2805,7 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
     // Fulfilment requires a verified payment state.
     if (
       newStatus !== "Cancelled" &&
-      !["Paid — demo verified", "Paid — Paystack verified"].includes(order.paymentStatus)
+      !["Paid — demo verified", "Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)
     ) {
       return res.status(400).json({
         error: "This order is unpaid. Complete and verify payment before fulfilment."

@@ -553,7 +553,9 @@ function saveStudents(students) {
 
 const FOODBACK_CONFIG_FILE = path.join(__dirname, "foodback-config.json");
 function readFoodBackConfig() {
-  return readStoredJson(FOODBACK_CONFIG_FILE, { launchStartAt: process.env.FOODBACK_LAUNCH_START || null });
+  const config = readStoredJson(FOODBACK_CONFIG_FILE, { launchStartAt: null });
+  if (!config.launchStartAt && process.env.FOODBACK_LAUNCH_START) return { ...config, launchStartAt: process.env.FOODBACK_LAUNCH_START };
+  return config;
 }
 function saveFoodBackConfig(config) {
   saveStoredJson(FOODBACK_CONFIG_FILE, config);
@@ -707,8 +709,9 @@ app.get("/api/foodback", requireRole("student"), (req, res) => {
     const students = readStudents();
     const student = students.find(item => item.phone === req.account.username);
     if (!student) return res.status(404).json({ error: "Student account not found." });
+    if (!student.referralCode) student.referralCode = createReferralCode(students);
     const expired = expireFoodBackCredits(student);
-    if (expired) saveStudents(students);
+    if (expired || !student.referralCode) saveStudents(students);
     const referredStudents = students.filter(item => item.referredByPhone === student.phone);
     const earned = (student.foodbackLedger || []).filter(item => item.type === "credit").reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
     const used = (student.foodbackLedger || []).filter(item => item.type === "debit").reduce((sum, item) => sum + Math.abs(Number(item.amount) || 0), 0);

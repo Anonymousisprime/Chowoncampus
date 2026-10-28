@@ -814,6 +814,26 @@ async function loadRestaurantRatings() {
     reviews.innerHTML = recent.length ? recent.map(review => '<article class="order-card"><strong>' + escapeHtml(review.restaurantName || 'Restaurant') + ' · ' + (review.restaurantRating ? '★ ' + review.restaurantRating + '/5' : 'No restaurant score') + '</strong><p class="muted">Student: ' + escapeHtml(review.studentName || 'Student') + ' · Order ' + escapeHtml(review.orderId || '—') + '</p>' + (review.agentRating ? '<p>Delivery agent rating: ★ ' + escapeHtml(review.agentRating) + '/5</p>' : '') + ((review.foodRatings || []).length ? '<p>Food: ' + review.foodRatings.map(food => escapeHtml(food.itemName) + ' ★ ' + escapeHtml(food.rating) + '/5').join(' · ') + '</p>' : '') + (review.comment ? '<p>' + escapeHtml(review.comment) + '</p>' : '') + '<small class="muted">Delivered: ' + escapeHtml(review.deliveredAt ? new Date(review.deliveredAt).toLocaleString() : 'Time not recorded') + ' · Rated: ' + escapeHtml(review.ratedAt ? new Date(review.ratedAt).toLocaleString() : '—') + '</small></article>').join('') : '<div class="empty-state compact-empty">No student ratings yet. Ratings appear here after students review completed orders.</div>';
   } catch (error) { summary.innerHTML = '<p class="muted">' + escapeHtml(error.message || 'Could not load ratings.') + '</p>'; }
 }
+document.addEventListener("click", event => {
+  const menuToggle = event.target.closest("#mobileMenuToggle");
+  if (menuToggle) {
+    const nav = document.getElementById("mainNavActions");
+    const isOpen = menuToggle.getAttribute("aria-expanded") === "true";
+    menuToggle.setAttribute("aria-expanded", String(!isOpen));
+    menuToggle.setAttribute("aria-label", isOpen ? "Open navigation menu" : "Close navigation menu");
+    nav?.classList.toggle("mobile-menu-open", !isOpen);
+    return;
+  }
+  const navLink = event.target.closest("#mainNavActions a, #mainNavActions button");
+  if (navLink && !navLink.matches("#notificationToggle")) {
+    const toggle = document.getElementById("mobileMenuToggle");
+    if (toggle && window.matchMedia("(max-width: 760px)").matches) {
+      toggle.setAttribute("aria-expanded", "false");
+      toggle.setAttribute("aria-label", "Open navigation menu");
+      document.getElementById("mainNavActions")?.classList.remove("mobile-menu-open");
+    }
+  }
+});
 document.addEventListener("click", event => { if (event.target.closest("#refreshRestaurantRatings")) loadRestaurantRatings(); });
 
 function renderMenuRow(item = {}) {

@@ -1237,11 +1237,24 @@ async function loadDashboard(automatic = false) {
           <div><span class="eyebrow">STUDENT WORKSPACE</span><h2>Welcome, ${escapeHtml(account.name)}!</h2><p>Track your current orders here. Completed orders remain visible briefly for feedback, then move out of your dashboard. Past orders are available to admins only.</p></div>
           <div class="student-dashboard-actions"><a class="secondary-button" href="/restaurants.html" style="display:inline-flex;align-items:center;text-decoration:none">🍽️ Browse food</a><button class="secondary-button" type="button" data-show-password-form>🔐 Change password</button></div>
         </div>
+        <section class="dashboard-order-section student-foodback-summary" aria-label="FoodBack rewards">
+          <div class="dashboard-section-heading"><div><span class="eyebrow">FOODBACK REWARDS</span><h2>Your FoodBack wallet</h2><p>Earn 3% on your own eligible orders and referral rewards when friends order.</p></div><a class="secondary-button" href="/foodback.html" style="display:inline-flex;align-items:center;text-decoration:none">Open wallet →</a></div>
+          <div class="student-foodback-metrics"><article><span>Available balance</span><strong id="studentFoodBackBalance">Loading…</strong></article><article><span>Friends referred</span><strong id="studentFoodBackReferrals">—</strong></article><article><span>Referral reward now</span><strong id="studentFoodBackRate">—</strong></article></div>
+          <div class="student-dashboard-actions"><a class="primary-button" href="/foodback.html?view=refer" style="display:inline-flex;align-items:center;text-decoration:none">🎁 Refer &amp; Earn</a><a class="secondary-button" href="/foodback.html" style="display:inline-flex;align-items:center;text-decoration:none">View transactions</a></div>
+        </section>
         <section class="dashboard-order-section" id="studentTrackOrderSection"><div class="dashboard-section-heading"><div><h2>Track an order</h2><p>Enter your order ID to see its current status, progress and updates.</p></div></div><form id="studentTrackForm" class="form-card"><label for="studentTrackId">Order ID</label><input id="studentTrackId" name="orderId" type="text" maxlength="100" placeholder="Enter your order ID" required><button type="submit" class="primary-button">Track order</button><div id="studentTrackResult" aria-live="polite"></div></form></section>
         <section class="dashboard-order-section"><div class="dashboard-section-heading"><div><h2>Current orders</h2><p>Only active orders and the brief post-delivery feedback window appear here.</p></div><span class="count-pill">${studentOrders.length}</span></div>
         ${studentOrders.length
           ? `<div class="order-list">${studentOrders.map(renderOrderCard).join("")}</div>`
           : `<div class="empty-state">You have no active orders. Browse the menu and place your next order!</div>`}</section>`;
+      api("/api/foodback").then(foodback => {
+        const balance = $("#studentFoodBackBalance");
+        const referrals = $("#studentFoodBackReferrals");
+        const rate = $("#studentFoodBackRate");
+        if (balance) balance.textContent = money(foodback.availableBalance);
+        if (referrals) referrals.textContent = (foodback.referredCount || 0) + " / " + (foodback.referralLimit || 10);
+        if (rate) rate.textContent = (foodback.launchRate || 5) + "%";
+      }).catch(() => { const balance = $("#studentFoodBackBalance"); if (balance) balance.textContent = "Unavailable"; });
     }
 
 

@@ -603,8 +603,8 @@ function awardFoodBackForCompletedOrder(order) {
   const eligibleFoodSubtotal = Math.max(0, Number(order.foodSubtotal ?? (Number(order.subtotal || 0) - Number(order.takeawayFee || 200))) || 0);
   expireFoodBackCredits(customer, now.getTime());
 
-  const ownReward = Math.floor(eligibleFoodSubtotal * 0.03);
-  if (ownReward > 0) addFoodBackCredit(customer, ownReward, "3% cashback on your order", order.id, "own-order");
+  const ownReward = Math.floor(eligibleFoodSubtotal * 0.01);
+  if (ownReward > 0) addFoodBackCredit(customer, ownReward, "1% cashback on your order", order.id, "own-order");
 
   let referralReward = 0;
   if (customer.referredByPhone && !(customer.referralRewardOrderIds || []).includes(order.id)) {
@@ -620,10 +620,10 @@ function awardFoodBackForCompletedOrder(order) {
       const registeredDuringLaunch = launchConfigured && registeredAt >= launchStart && registeredAt < launchEnd;
       const orderDuringLaunch = launchConfigured && orderTime >= launchStart && orderTime < launchEnd;
       const details = Array.isArray(customer.referralOrderRewardDetails) ? customer.referralOrderRewardDetails : [];
-      const baseReward = Math.floor(eligibleFoodSubtotal * 0.05);
+      const baseReward = Math.floor(eligibleFoodSubtotal * 0.02);
       if (baseReward > 0) {
         expireFoodBackCredits(referrer, now.getTime());
-        addFoodBackCredit(referrer, baseReward, "5% referral reward from a friend's order", order.id, "referral");
+        addFoodBackCredit(referrer, baseReward, "2% referral reward from a friend's order", order.id, "referral");
         referralReward += baseReward;
         qualifying.push(order.id);
         customer.referralQualifyingOrderIds = qualifying;
@@ -707,7 +707,7 @@ app.post("/api/student/register", (req, res) => {
       referrer = students.find(student => String(student.referralCode || "").toUpperCase() === referralCodeInput);
       if (!referrer) return res.status(400).json({ error: "That referral ID is not valid. Check the code and try again." });
       const successfulReferrals = students.filter(student => student.referredByPhone === referrer.phone).length;
-      if (successfulReferrals >= 10) return res.status(400).json({ error: "This referral ID has reached its current limit of 10 referred accounts." });
+      if (successfulReferrals >= 5) return res.status(400).json({ error: "This referral ID has reached its limit of 5 referred accounts." });
     }
     const passwordData = hashPassword(password);
     const consentedAt = new Date().toISOString();
@@ -744,12 +744,12 @@ app.get("/api/foodback", requireRole("student"), (req, res) => {
       referralCode: student.referralCode || null,
       referralLink: "https://chowoncampus.onrender.com/student-signup.html?ref=" + encodeURIComponent(student.referralCode || ""),
       referredCount: referredStudents.length,
-      referralLimit: 10,
+      referralLimit: 5,
       availableBalance: Math.max(0, Number(student.foodbackBalance) || 0),
       totalEarned: earned,
       totalUsed: used,
       referralQualifyingOrderCount: (student.referralQualifyingOrderIds || []).length,
-      launchRate: launchActive ? 7 : 5,
+      launchRate: launchActive ? 4 : 2,
       launchActive,
       launchStartAt: config.launchStartAt || null,
       ledger: (student.foodbackLedger || []).slice(0, 100)
@@ -1245,6 +1245,8 @@ app.post("/api/logout", (req, res) => {
 // Create an order. All prices are calculated on the server.
 app.post("/api/orders", requireRole("student"), (req, res) => {
   const { hostel, block, room, landmark, latitude, longitude, restaurantId, items, requestId } = req.body;
+  const paymentMethod = String(req.body.paymentMethod || "paystack").trim().toLowerCase();
+  if (!["paystack", "foodback"].includes(paymentMethod)) return res.status(400).json({ error: "Choose Paystack or FoodBack as your payment method." });
   let student;
   try {
     student = readStudents().find(item => item.phone === req.account.username);
@@ -1354,6 +1356,13 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
   const deliveryFee = deliveryQuote.deliveryFee;
   const baseTotal = subtotal + deliveryFee;
   const paymentFee = Math.round(baseTotal * STUDENT_PAYMENT_FEE_RATE);
+  const orderTotal = baseTotal + paymentFee;
+  if (paymentMethod === "foodback") {
+    expireFoodBackCredits(student);
+    if ((Number(student.foodbackBalance) || 0) < orderTotal) {
+      return res.status(400).json({ error: "Your FoodBack balance is not enough to cover the full order. Choose Paystack or earn more FoodBack first." });
+    }
+  }
 
   const order = {
     id: `COC-${Date.now()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`,
@@ -1378,11 +1387,12 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     baseTotal,
     paymentFeeRate: STUDENT_PAYMENT_FEE_RATE,
     paymentFee,
-    total: baseTotal + paymentFee,
-    status: "Awaiting payment",
-    statusHistory: [{ status: "Awaiting payment", at: new Date().toISOString(), by: "system" }],
+    total: orderTotal,
+    paymentMethod,
+    status: paymentMethod === "foodback" ? "Awaiting admin approval" : "Awaiting payment",
+    statusHistory: [{ status: paymentMethod === "foodback" ? "Awaiting admin approval" : "Awaiting payment", at: new Date().toISOString(), by: "system" }],
     updatedAt: new Date().toISOString(),
-    paymentStatus: IS_PRODUCTION ? "Unpaid" : "Unpaid — demo only",
+    paymentStatus: paymentMethod === "foodback" ? "FoodBack — awaiting admin approval" : (IS_PRODUCTION ? "Unpaid" : "Unpaid — demo only"),
     idempotencyKey: cleanRequestId || null,
     assignedAgentId: null,
     chatMessages: [],
@@ -1394,12 +1404,29 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     const orders = readOrders();
     orders.unshift(order);
     saveOrders(orders);
-    // Keep unpaid production orders out of restaurant fulfilment until Paystack confirms payment.
-    if (!IS_PRODUCTION) notifyOrderParties(order, "New order placed", order.customerName + " placed an order at " + order.restaurantName + ".");
+    if (paymentMethod === "foodback") {
+      const students = readStudents();
+      const walletStudent = students.find(item => item.phone === customerPhone);
+      expireFoodBackCredits(walletStudent);
+      if (!walletStudent || (Number(walletStudent.foodbackBalance) || 0) < order.total) {
+        orders.splice(orders.findIndex(item => item.id === order.id), 1);
+        saveOrders(orders);
+        return res.status(400).json({ error: "Your FoodBack balance changed before checkout. Refresh your wallet and try again." });
+      }
+      walletStudent.foodbackBalance = Math.max(0, Number(walletStudent.foodbackBalance) || 0) - order.total;
+      walletStudent.foodbackLedger = Array.isArray(walletStudent.foodbackLedger) ? walletStudent.foodbackLedger : [];
+      walletStudent.foodbackLedger.unshift({ id: crypto.randomUUID(), type: "debit", kind: "order-redemption", amount: -order.total, description: "FoodBack used for order awaiting admin approval", orderId: order.id, createdAt: new Date().toISOString() });
+      walletStudent.foodbackLedger = walletStudent.foodbackLedger.slice(0, 500);
+      saveStudents(students);
+      createNotification({ role: "admin" }, "FoodBack order needs approval", order.id + ": " + order.customerName + " used " + "₦" + order.total.toLocaleString("en-NG") + " FoodBack credits. Review this order in the admin dashboard.", order.id);
+    } else {
+      // Keep unpaid production orders out of restaurant fulfilment until Paystack confirms payment.
+      if (!IS_PRODUCTION) notifyOrderParties(order, "New order placed", order.customerName + " placed an order at " + order.restaurantName + ".");
+    }
 
     res.status(201).json({
       order: publicOrder(order),
-      message: IS_PRODUCTION ? "Order created. Complete payment to confirm it." : "Demo order created. No payment has been made."
+      message: paymentMethod === "foodback" ? "FoodBack checkout submitted. Your order is waiting for ultimate admin approval." : (IS_PRODUCTION ? "Order created. Complete payment to confirm it." : "Demo order created. No payment has been made.")
     });
   } catch (error) {
     console.error(error);
@@ -1631,6 +1658,8 @@ app.get("/api/orders", requireLogin, (req, res) => {
         order => order.assignedAgentId === req.account.agentId &&
           ["Paid — demo verified", "Paid — Paystack verified"].includes(order.paymentStatus)
       );
+    } else if (req.account.role === "admin" && !req.account.isSuperAdmin) {
+      orders = orders.filter(order => !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval"));
     } else if (req.account.role === "student") {
       // Students see active orders and a short post-delivery feedback window only.
       // Older completed/cancelled orders remain available for admin review.
@@ -1866,7 +1895,7 @@ app.get("/api/orders/:id", (req, res) => {
   }
 });
 
-app.post("/api/admin/foodback-config", requireRole("admin"), (req, res) => {
+app.post("/api/admin/foodback-config", requireSuperAdmin, (req, res) => {
   const raw = String(req.body.launchStartAt || "").trim();
   const start = new Date(raw);
   if (!raw || !Number.isFinite(start.getTime())) return res.status(400).json({ error: "Choose a valid official launch date and time." });
@@ -1875,26 +1904,73 @@ app.post("/api/admin/foodback-config", requireRole("admin"), (req, res) => {
   res.json({ ok: true, launchStartAt: config.launchStartAt, message: "FoodBack launch window saved. The 7-day launch bonus starts at the selected time." });
 });
 
-app.get("/api/admin/foodback-summary", requireRole("admin"), (req, res) => {
+app.get("/api/superadmin/foodback-summary", requireSuperAdmin, (req, res) => {
   try {
     const students = readStudents();
     let changed = false;
     for (const student of students) if (expireFoodBackCredits(student)) changed = true;
     if (changed) saveStudents(students);
-    const ledger = students.flatMap(student => (student.foodbackLedger || []).map(entry => ({ ...entry, studentPhone: student.phone })));
+    const ledger = students.flatMap(student => (student.foodbackLedger || []).map(entry => ({ ...entry, studentName: student.name, studentPhone: student.phone })));
     const totalOutstanding = students.reduce((sum, student) => sum + Math.max(0, Number(student.foodbackBalance) || 0), 0);
     const totalCreditsIssued = ledger.filter(entry => entry.type === "credit").reduce((sum, entry) => sum + Math.max(0, Number(entry.amount) || 0), 0);
+    const totalUsed = ledger.filter(entry => entry.type === "debit").reduce((sum, entry) => sum + Math.abs(Number(entry.amount) || 0), 0);
     const totalExpired = ledger.filter(entry => entry.type === "expired").reduce((sum, entry) => sum + Math.abs(Number(entry.amount) || 0), 0);
+    const ownOrderCredits = ledger.filter(entry => entry.type === "credit" && entry.kind === "own-order").reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+    const referralCredits = ledger.filter(entry => entry.type === "credit" && String(entry.kind || "").startsWith("referral")).reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+    const foodbackOrders = readOrders().filter(order => order.paymentMethod === "foodback");
+    const pendingFoodbackOrders = foodbackOrders.filter(order => order.status === "Awaiting admin approval").length;
     const referrals = students.filter(student => student.referredByPhone);
     const referrers = students.map(student => ({
       name: student.name, referralCode: student.referralCode || "",
       referredCount: referrals.filter(item => item.referredByPhone === student.phone).length,
       balance: Math.max(0, Number(student.foodbackBalance) || 0)
     })).filter(item => item.referredCount > 0).sort((a, b) => b.referredCount - a.referredCount).slice(0, 10);
-    res.json({ studentCount: students.length, referredAccountCount: referrals.length, totalOutstanding, totalCreditsIssued, totalExpired, ledgerCount: ledger.length, referrers, launchStartAt: readFoodBackConfig().launchStartAt || null });
+    res.json({ studentCount: students.length, referredAccountCount: referrals.length, totalOutstanding, totalCreditsIssued, totalUsed, totalExpired, ownOrderCredits, referralCredits, foodbackOrderCount: foodbackOrders.length, pendingFoodbackOrders, ledgerCount: ledger.length, referrers, ledger: ledger.slice(0, 300), launchStartAt: readFoodBackConfig().launchStartAt || null });
   } catch (error) {
     res.status(500).json({ error: "Could not load FoodBack administration summary." });
   }
+});
+
+
+app.post("/api/superadmin/foodback-orders/:id/review", requireSuperAdmin, (req, res) => {
+  const decision = String(req.body.decision || "").trim().toLowerCase();
+  if (!["approve", "reject"].includes(decision)) return res.status(400).json({ error: "Choose approve or reject." });
+  const orders = readOrders();
+  const order = orders.find(item => item.id === req.params.id);
+  if (!order || order.paymentMethod !== "foodback") return res.status(404).json({ error: "FoodBack order not found." });
+  if (order.status !== "Awaiting admin approval") return res.status(409).json({ error: "This FoodBack order has already been reviewed." });
+  const now = new Date().toISOString();
+  if (decision === "approve") {
+    order.status = "Confirmed";
+    order.paymentStatus = "Paid — FoodBack approved";
+    order.approvedBy = req.account.username;
+    order.approvedAt = now;
+    order.updatedAt = now;
+    order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+    order.statusHistory.push({ status: "Confirmed", at: now, by: req.account.username + " (FoodBack approval)" });
+    saveOrders(orders);
+    notifyOrderParties(order, "FoodBack order approved", "Your FoodBack payment was approved. The restaurant can now prepare your order.");
+    return res.json({ ok: true, message: "FoodBack order approved and sent to the restaurant." });
+  }
+  const students = readStudents();
+  const student = students.find(item => item.phone === order.customerPhone);
+  if (!student) return res.status(500).json({ error: "Could not refund FoodBack credits because the student account was not found." });
+  student.foodbackBalance = Math.max(0, Number(student.foodbackBalance) || 0) + Number(order.total || 0);
+  student.foodbackLedger = Array.isArray(student.foodbackLedger) ? student.foodbackLedger : [];
+  student.foodbackLedger.unshift({ id: crypto.randomUUID(), type: "refund", kind: "foodback-refund", amount: Number(order.total || 0), description: "FoodBack refund for rejected order", orderId: order.id, createdAt: now });
+  student.foodbackLedger = student.foodbackLedger.slice(0, 500);
+  order.status = "Cancelled";
+  order.paymentStatus = "FoodBack — refunded";
+  order.refundedAt = now;
+  order.reviewedBy = req.account.username;
+  order.updatedAt = now;
+  order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+  order.statusHistory.push({ status: "Cancelled", at: now, by: req.account.username + " (FoodBack rejection)" });
+  saveStudents(students);
+  saveOrders(orders);
+  createNotification({ role: "student", username: order.customerPhone }, "FoodBack order rejected", "Your order was rejected by the admin and your FoodBack credits have been returned.", order.id);
+  createNotification({ role: "admin" }, "FoodBack order rejected", order.id + " was rejected and credits were refunded.", order.id);
+  return res.json({ ok: true, message: "FoodBack order rejected and credits refunded." });
 });
 
 // Admin-only restaurant creation. New partner passwords are hashed before storage.

@@ -497,7 +497,6 @@ function renderTrackedOrder(order) {
       <p>Food and packaging: <strong>${money(order.subtotal)}</strong></p><p>Delivery fee: <strong>${money(order.deliveryFee)}</strong></p><p>Payment fee (1%): <strong>${money(order.paymentFee || 0)}</strong></p><p>Total paid/payable: <strong>${money(order.total)}</strong></p>
       <p>Payment: <strong>${escapeHtml(order.paymentStatus || "Check with the restaurant")}</strong></p>
       <p class="tiny muted">Last updated: ${escapeHtml(new Date(order.updatedAt || order.createdAt).toLocaleString())}</p>
-      ${isLocalDemo && order.paymentStatus === "Unpaid — demo only" ? `<button class="primary-button" data-demo-pay="${escapeHtml(order.id)}">Simulate demo payment (no money charged)</button>` : ""}
       ${state.account?.role === "student" && !isLocalDemo && !["Paid — Paystack verified", "Paid — demo verified"].includes(order.paymentStatus) && order.status !== "Cancelled" ? `<button class="primary-button" data-pay-order="${escapeHtml(order.id)}">Continue secure payment</button>` : ""}
       <p class="tiny muted">Tracking refreshes automatically every 15 seconds while this page is open.</p>
       ${state.account?.role === "student" && (["Ready for pickup", "Out for delivery"].includes(order.status) || (order.status === "Completed" && Date.now() - new Date(order.deliveredAt || order.completedAt || 0).getTime() < 120000)) ? '<section class="temporary-chat-preview"><div><h4>Temporary delivery chat</h4><p class="tiny muted">Chat with your assigned delivery agent. The chat closes two minutes after delivery.</p></div><button type="button" class="primary-button" data-open-temp-chat="${escapeHtml(order.id)}" data-chat-title="Delivery agent">Open full-page chat ↗</button></section>' : ""}
@@ -600,23 +599,6 @@ function startTrackingRefresh() {
   trackingRefreshTimer = setInterval(() => {
     if (activeTrackedOrderId && document.visibilityState === "visible") trackOrder(activeTrackedOrderId, true);
   }, 15000);
-}
-
-async function simulatePayment(orderId) {
-  if (!isLocalDemo) return showToast("Demo payments are available locally only.");
-
-  if (!confirm("Simulate a payment for testing? No money will be charged.")) return;
-
-  try {
-    await api(`/api/orders/${encodeURIComponent(orderId)}/demo-payment`, {
-      method: "POST",
-      body: JSON.stringify({})
-    });
-    showToast("Demo payment simulated. No money was charged.");
-    await trackOrder(orderId);
-  } catch (error) {
-    showToast(error.message);
-  }
 }
 
 async function logout() {
@@ -1542,9 +1524,6 @@ async function initialize() {
     const assignButton = event.target.closest("[data-save-agent]");
     if (assignButton) await assignAgent(assignButton.dataset.saveAgent);
 
-    const demoPayButton = event.target.closest("[data-demo-pay]");
-    if (demoPayButton) await simulatePayment(demoPayButton.dataset.demoPay);
-
     const payOrderButton = event.target.closest("[data-pay-order]");
     if (payOrderButton) {
       payOrderButton.disabled = true;
@@ -1879,7 +1858,7 @@ async function initialize() {
         state.lastOrderId = callbackOrderId;
         try { localStorage.setItem("coc_last_order_id", callbackOrderId); } catch {}
         $("#trackId").value = callbackOrderId;
-        showMessage("#checkoutMessage", verification.message || "Payment verified and order confirmed.", true);
+        showMessage("#checkoutMessage", (verification.message || "Payment verified and order confirmed.") + " Your order ID is " + callbackOrderId + ". Save this ID for tracking and support.", true);
         showToast("Payment verified. Your order is confirmed.");
         await trackOrder(callbackOrderId);
         $("#trackingSection").scrollIntoView({ behavior: "smooth", block: "start" });

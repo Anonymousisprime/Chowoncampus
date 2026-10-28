@@ -21,6 +21,8 @@ const state = {
   pendingOrderRequestId: null,
   agents: [],
   availableAgents: [],
+  agentOnline: false,
+  agentProfile: null,
   catalogSearchQuery: "",
   deliveryQuote: null
 };
@@ -910,6 +912,90 @@ function renderRestaurantMenuManager() {
   $("#dashboardContent").prepend(container);
 }
 
+let agentLocationWatchId = null;
+let agentLocationHeartbeat = null;
+let lastAgentLocationSentAt = 0;
+let agentLocationSendPromise = Promise.resolve();
+
+async function sendAgentLocation(latitude, longitude, force = false) {
+  const now = Date.now();
+  if (!force && now - lastAgentLocationSentAt < 8000) return;
+  lastAgentLocationSentAt = now;
+  agentLocationSendPromise = agentLocationSendPromise.catch(() => {}).then(() =>
+    api("/api/agent/location", { method: "PATCH", body: JSON.stringify({ latitude, longitude }) })
+  );
+  return agentLocationSendPromise;
+}
+function stopAgentLocationTracking() {
+  if (agentLocationWatchId !== null && navigator.geolocation) navigator.geolocation.clearWatch(agentLocationWatchId);
+  agentLocationWatchId = null;
+  if (agentLocationHeartbeat) clearInterval(agentLocationHeartbeat);
+  agentLocationHeartbeat = null;
+  lastAgentLocationSentAt = 0;
+}
+function startAgentLocationTracking() {
+  if (!navigator.geolocation) return false;
+  if (agentLocationWatchId !== null) return true;
+  agentLocationWatchId = navigator.geolocation.watchPosition(position => {
+    sendAgentLocation(position.coords.latitude, position.coords.longitude).catch(error => {
+      console.warn("Agent GPS update failed:", error.message);
+      const status = $("#agentLocationStatus");
+      if (status) status.textContent = "GPS update failed. Check your connection and location permission.";
+    });
+  }, error => {
+    const status = $("#agentLocationStatus");
+    if (status) status.textContent = error.code === 1
+      ? "Location permission was denied. Allow location access to receive nearby pickup offers."
+      : "GPS is temporarily unavailable. Check device location settings.";
+  }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 });
+  agentLocationHeartbeat = setInterval(() => {
+    if (document.visibilityState !== "visible") return;
+    navigator.geolocation.getCurrentPosition(position => {
+      sendAgentLocation(position.coords.latitude, position.coords.longitude, true).catch(error => {
+        console.warn("Agent GPS heartbeat failed:", error.message);
+      });
+    }, () => {}, { enableHighAccuracy: true, maximumAge: 5000, timeout: 12000 });
+  }, 25000);
+  return true;
+}
+async function setAgentAvailability(online) {
+  const status = $("#agentLocationStatus");
+  const button = $("#toggleAgentAvailability");
+  if (button) { button.disabled = true; button.textContent = online ? "Getting GPS…" : "Going offline…"; }
+  try {
+    if (online) {
+      if (!navigator.geolocation) throw new Error("This browser does not support GPS location.");
+      const position = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, error => {
+        reject(new Error(error.code === 1
+          ? "Allow location access in your browser settings before going online."
+          : "Could not get your GPS location. Check device location settings and try again."));
+      }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }));
+      await sendAgentLocation(position.coords.latitude, position.coords.longitude, true);
+      await api("/api/agent/availability", { method: "PATCH", body: JSON.stringify({ online: true }) });
+      state.agentOnline = true;
+      startAgentLocationTracking();
+      if (status) status.textContent = "Online · GPS updates are active while this dashboard is open.";
+      showToast("You're online and can receive nearby pickup offers.");
+    } else {
+      await api("/api/agent/availability", { method: "PATCH", body: JSON.stringify({ online: false }) });
+      state.agentOnline = false;
+      stopAgentLocationTracking();
+      if (status) status.textContent = "Offline · your location is no longer shared.";
+      showToast("You're now offline.");
+    }
+    await loadDashboard();
+  } catch (error) {
+    if (status) status.textContent = error.message;
+    showToast(error.message);
+  } finally {
+    const currentButton = $("#toggleAgentAvailability");
+    if (currentButton) {
+      currentButton.disabled = false;
+      currentButton.textContent = state.agentOnline ? "Go offline" : "Go online";
+    }
+  }
+}
+
 async function loadDashboard() {
   if (!state.account) { location.href = "/student-login.html"; return; }
 
@@ -938,6 +1024,9 @@ async function loadDashboard() {
       state.agents = [];
       state.availableAgents = [];
       state.agentProfile = await api("/api/agents/me");
+      state.agentOnline = Boolean(state.agentProfile.online);
+      if (state.agentOnline) startAgentLocationTracking();
+      else stopAgentLocationTracking();
     } else {
       state.agents = [];
       state.availableAgents = [];
@@ -1063,16 +1152,18 @@ async function loadDashboard() {
         order.assignedAgentId === account.agentId && ["Ready for pickup", "Out for delivery"].includes(order.status)
       );
       const completedDeliveryOrders = orders.filter(order => order.assignedAgentId === account.agentId && order.status === "Completed");
-      const agentOnline = Boolean(state.agentProfile?.online);
       $("#dashboardContent").innerHTML = `
         <div class="restaurant-welcome">
-          <div><span class="eyebrow">DELIVERY AGENT WORKSPACE</span><h2>Welcome, ${escapeHtml(account.name)}!</h2><p>Go online when you are available. Allow GPS permission so pickup requests can be offered to the nearest agent. Your location is used only while you are online.</p></div>
-          <div class="student-dashboard-actions"><button class="${agentOnline ? "danger-button" : "primary-button"}" type="button" id="toggleAgentOnline">${agentOnline ? "Go offline" : "Go online"}</button><button class="secondary-button" type="button" id="refreshAgentOrders">↻ Refresh deliveries</button></div>
+          <div><span class="eyebrow">DELIVERY AGENT WORKSPACE</span><h2>Welcome, ${escapeHtml(account.name)}!</h2><p>Go online to share your GPS location and receive pickup offers from the nearest restaurant. Your location is used only while online.</p></div>
+          <div class="student-dashboard-actions">
+            <button class="${state.agentOnline ? "danger-button" : "primary-button"}" type="button" id="toggleAgentAvailability">${state.agentOnline ? "Go offline" : "Go online"}</button>
+            <button class="secondary-button" type="button" id="refreshAgentOrders">↻ Refresh deliveries</button>
+          </div>
         </div>
         <section class="dashboard-order-section">
-          <div class="dashboard-section-heading"><div><span class="eyebrow">LIVE LOCATION</span><h2>${agentOnline ? "You are online" : "You are offline"}</h2><p>${agentOnline ? "Your latest GPS position helps rank pickup offers by distance from the restaurant." : "Switch online when you are ready to receive delivery requests."}</p></div><span class="status">${agentOnline ? "ONLINE" : "OFFLINE"}</span></div>
-          <p id="agentGpsStatus" class="muted" role="status">${agentOnline ? "Starting GPS… allow location access and keep this page open." : "GPS tracking is stopped while offline."}</p>
-          <p class="tiny muted">GPS must have updated within the last 2 minutes for nearest-agent dispatch. Browser GPS can pause when this page is closed or suspended.</p>
+          <div class="dashboard-section-heading"><div><h2>GPS & availability</h2><p>GPS updates are sent while this dashboard is open. Keep location permission enabled for reliable offers.</p></div><span class="status">${state.agentOnline ? "ONLINE" : "OFFLINE"}</span></div>
+          <p id="agentLocationStatus" class="muted" role="status">${state.agentOnline ? "Online · GPS updates are active while this dashboard is open." : "Offline · go online when you are ready to receive delivery offers."}</p>
+          <p class="tiny muted">Only online agents with a recent GPS update are eligible. If an agent does not accept within 60 seconds, the request moves to the next nearest eligible agent.</p>
         </section>
         <section class="dashboard-order-section">
           <div class="dashboard-section-heading"><div><h2>Active deliveries</h2><p>Use the full-page chat while the order is ready for pickup or out for delivery.</p></div><span class="count-pill">${activeDeliveryOrders.length}</span></div>
@@ -1082,7 +1173,6 @@ async function loadDashboard() {
           <div class="dashboard-section-heading"><div><h2>Completed deliveries</h2><p>Your recent completed orders.</p></div><span class="count-pill">${completedDeliveryOrders.length}</span></div>
           ${completedDeliveryOrders.length ? `<div class="order-list">${completedDeliveryOrders.slice(0,10).map(renderOrderCard).join("")}</div>` : `<div class="empty-state">No completed deliveries yet.</div>`}
         </section>`;
-      if (agentOnline) startAgentGps(); else stopAgentGps();
     } else {
       const studentOrders = orders.filter(studentOrderIsVisible);
       $("#dashboardContent").innerHTML = `
@@ -1715,6 +1805,11 @@ async function initialize() {
         message.classList.remove("success");
         button.disabled = false;
       }
+      return;
+    }
+    const availabilityButton = event.target.closest("#toggleAgentAvailability");
+    if (availabilityButton) {
+      await setAgentAvailability(!state.agentOnline);
       return;
     }
     if (event.target.closest("#refreshAgentOrders")) { await loadDashboard(); return; }

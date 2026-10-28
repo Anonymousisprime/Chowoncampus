@@ -603,11 +603,11 @@ function awardFoodBackForCompletedOrder(order) {
   const eligibleFoodSubtotal = Math.max(0, Number(order.foodSubtotal ?? (Number(order.subtotal || 0) - Number(order.takeawayFee || 200))) || 0);
   expireFoodBackCredits(customer, now.getTime());
 
-  const ownReward = Math.floor(eligibleFoodSubtotal * 0.01);
+  const ownReward = order.paymentMethod === "foodback" ? 0 : Math.floor(eligibleFoodSubtotal * 0.01);
   if (ownReward > 0) addFoodBackCredit(customer, ownReward, "1% cashback on your order", order.id, "own-order");
 
   let referralReward = 0;
-  if (customer.referredByPhone && !(customer.referralRewardOrderIds || []).includes(order.id)) {
+  if (order.paymentMethod !== "foodback" && customer.referredByPhone && !(customer.referralRewardOrderIds || []).includes(order.id)) {
     const referrer = students.find(student => student.phone === customer.referredByPhone);
     const qualifying = Array.isArray(customer.referralQualifyingOrderIds) ? customer.referralQualifyingOrderIds : [];
     if (referrer && qualifying.length < 2) {
@@ -1407,8 +1407,13 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     if (paymentMethod === "foodback") {
       const students = readStudents();
       const walletStudent = students.find(item => item.phone === customerPhone);
+      if (!walletStudent) {
+        orders.splice(orders.findIndex(item => item.id === order.id), 1);
+        saveOrders(orders);
+        return res.status(400).json({ error: "Student wallet could not be found. Please sign in again." });
+      }
       expireFoodBackCredits(walletStudent);
-      if (!walletStudent || (Number(walletStudent.foodbackBalance) || 0) < order.total) {
+      if ((Number(walletStudent.foodbackBalance) || 0) < order.total) {
         orders.splice(orders.findIndex(item => item.id === order.id), 1);
         saveOrders(orders);
         return res.status(400).json({ error: "Your FoodBack balance changed before checkout. Refresh your wallet and try again." });
@@ -1651,19 +1656,19 @@ app.get("/api/orders", requireLogin, (req, res) => {
     if (req.account.role === "restaurant") {
       orders = orders.filter(
         order => order.restaurantId === req.account.restaurantId &&
-          ["Paid — demo verified", "Paid — Paystack verified"].includes(order.paymentStatus)
+          ["Paid — demo verified", "Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)
       );
     } else if (req.account.role === "agent") {
       orders = orders.filter(
         order => order.assignedAgentId === req.account.agentId &&
-          ["Paid — demo verified", "Paid — Paystack verified"].includes(order.paymentStatus)
+          ["Paid — demo verified", "Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)
       );
     } else if (req.account.role === "admin" && !req.account.isSuperAdmin) {
       orders = orders.filter(order => !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval"));
     } else if (req.account.role === "student") {
       // Students see active orders and a short post-delivery feedback window only.
       // Older completed/cancelled orders remain available for admin review.
-      const activeStatuses = new Set(["Awaiting payment", "Confirmed", "Preparing", "Ready for pickup", "Out for delivery"]);
+      const activeStatuses = new Set(["Awaiting payment", "Awaiting admin approval", "Confirmed", "Preparing", "Ready for pickup", "Out for delivery"]);
       const feedbackWindowMs = 2 * 60 * 1000;
       orders = orders.filter(order => {
         if (order.customerPhone !== req.account.username) return false;

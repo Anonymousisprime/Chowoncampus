@@ -15,14 +15,15 @@
   <meta property="og:image" content="/chowoncampus-logo.svg">
   <meta name="description" content="Chowoncampus — order your favourite campus meals with ease.">
   <title>Chowoncampus | Campus Food Made Easy</title>
-  <link rel="stylesheet" href="/style.css?v=homepage-food-catalog-2">
-  <script src="/app.js?v=homepage-food-catalog-2" defer></script>
+  <link rel="stylesheet" href="/style.css?v=mobile-menu-1">
+  <script src="/app.js?v=mobile-menu-1" defer></script>
 </head>
 <body class="food-home-page">
   <header class="site-header">
     <nav class="navbar">
       <a href="#" id="brandHome" class="brand" aria-label="Chowoncampus home"><img class="brand-logo" src="/chowoncampus-logo.svg" alt="Chowoncampus Delivery Service"></a>
-      <div class="nav-actions">
+      <button type="button" class="mobile-menu-toggle" id="mobileMenuToggle" aria-label="Open navigation menu" aria-expanded="false" aria-controls="mainNavActions"><span></span><span></span><span></span></button>
+      <div class="nav-actions" id="mainNavActions">
         <button type="button" class="nav-link" data-view="home">Home</button>
         <a class="nav-link" href="/student-login.html">Log in</a>
         <a class="nav-link" href="/student-signup.html">Create account</a>

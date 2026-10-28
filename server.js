@@ -709,9 +709,10 @@ app.get("/api/foodback", requireRole("student"), (req, res) => {
     const students = readStudents();
     const student = students.find(item => item.phone === req.account.username);
     if (!student) return res.status(404).json({ error: "Student account not found." });
-    if (!student.referralCode) student.referralCode = createReferralCode(students);
+    const needsReferralCode = !student.referralCode;
+    if (needsReferralCode) student.referralCode = createReferralCode(students);
     const expired = expireFoodBackCredits(student);
-    if (expired || !student.referralCode) saveStudents(students);
+    if (expired || needsReferralCode) saveStudents(students);
     const referredStudents = students.filter(item => item.referredByPhone === student.phone);
     const earned = (student.foodbackLedger || []).filter(item => item.type === "credit").reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
     const used = (student.foodbackLedger || []).filter(item => item.type === "debit").reduce((sum, item) => sum + Math.abs(Number(item.amount) || 0), 0);

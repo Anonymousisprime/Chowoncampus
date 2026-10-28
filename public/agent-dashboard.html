@@ -83,7 +83,7 @@ input,select,textarea{min-width:0}
 <body><header class="top"><a class="brand" href="/">Chowoncampus · Delivery</a><div class="row"><span id="agentName" class="muted">Loading agent…</span><button class="btn light" id="openChangePassword" type="button">Change password</button><button class="btn light" id="logout">Log out</button></div></header>
 <main class="wrap"><h1>Delivery dashboard</h1><p class="muted">Go online when you're ready to receive deliveries. Orders marked ready for pickup are assigned automatically.</p>
 <section class="panel"><div class="row"><div><strong>Your availability</strong><p id="availabilityHelp" class="muted">Loading availability…</p></div><div class="row"><span id="availabilityPill" class="pill off">Offline</span><button class="btn primary" id="toggleOnline">Go online</button></div></div><p id="pageMessage" class="status" role="status"></p></section>
-<section class="panel" id="agentNotificationsPanel"><div class="row"><div><h2>Notifications <span id="agentUnreadCount" class="pill off">0 unread</span></h2><p class="muted">Pickup requests, delivery updates, and payment records appear here.</p></div><button class="btn light" id="refreshAgentNotifications" type="button">Refresh notifications</button></div><p id="agentNotificationsStatus" class="status" role="status">Loading notifications…</p><div id="agentNotificationsList"><div class="empty">Loading notifications…</div></div></section>
+<section class="panel" id="agentNotificationsPanel"><div class="row"><div><h2>Notifications <span id="agentUnreadCount" class="pill off">0 unread</span></h2><p class="muted">Pickup requests, delivery updates, and payment records appear here.</p></div><div class="notification-actions"><button class="btn light" id="refreshAgentNotifications" type="button">Refresh notifications</button><button class="btn light" id="clearAgentNotifications" type="button">Clear notifications</button></div></div><p id="agentNotificationsStatus" class="status" role="status">Loading notifications…</p><div id="agentNotificationsList"><div class="empty">Loading notifications…</div></div></section>
 <section class="panel"><div class="row"><div><h2>My performance</h2><p class="muted">Your completed deliveries across all time.</p></div><div class="stat" style="min-width:190px"><span>Successful deliveries</span><span id="successfulDeliveries" class="stat-number">0</span></div></div></section>
 <section class="panel" id="agentRatingsPanel"><div class="row"><div><h2>Student ratings &amp; feedback</h2><p class="muted">See how students rated your delivery service.</p></div><button class="btn light" id="refreshAgentRatings" type="button">Refresh ratings</button></div><div id="agentRatingSummary" class="details">Loading ratings…</div><div id="agentRecentReviews"></div></section>
 <section class="panel" id="agentEarningsPanel"><div class="row"><div><h2>Monthly earnings</h2><p class="muted">Your completed deliveries, recorded payments, and outstanding balance.</p></div><div class="tools"><input class="search" id="agentEarningsMonth" type="month" aria-label="Earnings month"><button class="btn light" id="refreshAgentEarnings" type="button">View month</button></div></div><p id="agentEarningsStatus" class="status" role="status">Loading monthly earnings…</p><div class="cards" id="agentEarningsTotals"><div class="metric"><small>Earned</small><strong>—</strong></div><div class="metric"><small>Paid</small><strong>—</strong></div><div class="metric"><small>Outstanding</small><strong>—</strong></div></div><h3>Monthly payment records</h3><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:650px"><thead><tr><th style="text-align:left;padding:10px">Paid date</th><th style="text-align:left;padding:10px">Amount</th><th style="text-align:left;padding:10px">Transfer reference</th><th style="text-align:left;padding:10px">Note</th></tr></thead><tbody id="agentPaymentsBody"><tr><td colspan="4" class="empty">Loading payment records…</td></tr></tbody></table></div></section>
@@ -142,6 +142,20 @@ async function loadAgentNotifications(){
   }
 }
 $("#refreshAgentNotifications").addEventListener("click",loadAgentNotifications);
+$("#clearAgentNotifications").addEventListener("click",async()=>{
+  if(!window.confirm("Clear all notifications for your delivery agent account? This cannot be undone."))return;
+  const button=$("#clearAgentNotifications");
+  button.disabled=true;
+  try{
+    const result=await api("/api/notifications",{method:"DELETE"});
+    $("#agentNotificationsStatus").className="status";
+    $("#agentNotificationsStatus").textContent=result.message||"Notifications cleared.";
+    await loadAgentNotifications();
+  }catch(error){
+    $("#agentNotificationsStatus").className="status error";
+    $("#agentNotificationsStatus").textContent=error.message||"Could not clear notifications.";
+  }finally{button.disabled=false}
+});
 $("#agentNotificationsList").addEventListener("click",async e=>{
   const button=e.target.closest("[data-notification-read]");
   if(!button)return;

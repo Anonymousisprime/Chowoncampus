@@ -1075,19 +1075,7 @@ async function loadDashboard(automatic = false) {
       const result = await api("/api/agents/available");
       state.availableAgents = result.agents;
       state.agents = [];
-          const refreshFoodBackAdmin = async () => {
-        const metrics = $("#adminFoodBackMetrics");
-        const list = $("#adminFoodBackReferrers");
-        if (!metrics || !list) return;
-        try {
-          const data = await api("/api/admin/foodback-summary");
-          metrics.innerHTML = '<article><span>Outstanding credits</span><strong>' + money(data.totalOutstanding) + '</strong></article><article><span>Total credits issued</span><strong>' + money(data.totalCreditsIssued) + '</strong></article><article><span>Referred accounts</span><strong>' + (data.referredAccountCount || 0) + '</strong></article>';
-          list.innerHTML = '<h3>Top referrers</h3>' + (data.referrers.length ? data.referrers.map(item => '<p><strong>' + escapeHtml(item.name) + '</strong> · ' + item.referredCount + ' friend(s) · ' + escapeHtml(item.referralCode) + '</p>').join('') : '<p>No referrals yet.</p>');
-        } catch (error) { metrics.innerHTML = '<p class="muted">' + escapeHtml(error.message) + '</p>'; }
-      };
-      refreshFoodBackAdmin();
-      $("#refreshAdminFoodBack")?.addEventListener("click", refreshFoodBackAdmin);
-      } else if (account.role === "agent") {
+          } else if (account.role === "agent") {
       state.agents = [];
       state.availableAgents = [];
       state.agentProfile = await api("/api/agents/me");
@@ -1221,7 +1209,19 @@ async function loadDashboard(automatic = false) {
           <div class="dashboard-section-heading"><div><h2>Orders</h2><p>Manage orders and assign delivery agents.</p></div><span class="count-pill">${orders.length}</span></div>
           ${orders.length ? `<div class="order-list">${orders.map(renderOrderCard).join("")}</div>` : '<div class="empty-state">No orders here yet. New orders will appear when customers place them.</div>'}
         </section>`;
-    } else if (account.role === "agent") {
+          const refreshFoodBackAdmin = async () => {
+        const metrics = $("#adminFoodBackMetrics");
+        const list = $("#adminFoodBackReferrers");
+        if (!metrics || !list) return;
+        try {
+          const data = await api("/api/admin/foodback-summary");
+          metrics.innerHTML = '<article><span>Outstanding credits</span><strong>' + money(data.totalOutstanding) + '</strong></article><article><span>Total credits issued</span><strong>' + money(data.totalCreditsIssued) + '</strong></article><article><span>Referred accounts</span><strong>' + (data.referredAccountCount || 0) + '</strong></article>';
+          list.innerHTML = '<h3>Top referrers</h3>' + (data.referrers.length ? data.referrers.map(item => '<p><strong>' + escapeHtml(item.name) + '</strong> · ' + item.referredCount + ' friend(s) · ' + escapeHtml(item.referralCode) + '</p>').join('') : '<p>No referrals yet.</p>');
+        } catch (error) { metrics.innerHTML = '<p class="muted">' + escapeHtml(error.message) + '</p>'; }
+      };
+      refreshFoodBackAdmin();
+      $("#refreshAdminFoodBack")?.addEventListener("click", refreshFoodBackAdmin);
+      } else if (account.role === "agent") {
       const activeDeliveryOrders = orders.filter(order =>
         order.assignedAgentId === account.agentId && ["Ready for pickup", "Out for delivery"].includes(order.status)
       );

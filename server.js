@@ -8,9 +8,9 @@ const crypto = require("crypto");
 
 const { Pool } = require("pg");
 const webPush = require("web-push");
-const storagePool = process.env.DATABASE_URL
+const storagePool = process.env.LOAD_TEST_MODE === "true" ? null : (process.env.DATABASE_URL
   ? new Pool({ connectionString: process.env.DATABASE_URL, max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 })
-  : null;
+  : null);
 const storageCache = new Map();
 const persistedOrderSnapshot = new Map();
 let storageWriteQueue = Promise.resolve();
@@ -2783,6 +2783,7 @@ async function runIsolatedOrderLifecycleTest() {
   }
   const check = (name, passed, details = "") => {
     results.checks[name] = { passed: Boolean(passed), details };
+    console.log("ORDER_LIFECYCLE_CHECK " + (passed ? "PASS " : "FAIL ") + name + (details ? " — " + details : ""));
     assert(passed, name + (details ? ": " + details : ""));
   };
   try {

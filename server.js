@@ -746,6 +746,60 @@ app.delete("/api/push/subscribe", requireLogin, (req, res) => {
   res.json({ ok: true });
 });
 
+// Device-level diagnostics so staff can confirm whether background push is actually set up.
+app.get("/api/push/status", requireLogin, (req, res) => {
+  const matching = readPushSubscriptions().filter(item => pushSubscriptionBelongsToTarget(item, req.account));
+  res.json({
+    configured: PUSH_VAPID_CONFIGURED,
+    subscribedDevices: matching.length,
+    role: req.account.role
+  });
+});
+app.post("/api/push/test", requireLogin, async (req, res) => {
+  if (!PUSH_VAPID_CONFIGURED) {
+    return res.status(503).json({ error: "Background push is not configured on the server. VAPID keys are missing." });
+  }
+  const matching = readPushSubscriptions().filter(item => pushSubscriptionBelongsToTarget(item, req.account));
+  if (!matching.length) {
+    return res.status(409).json({ error: "This account has no registered devices yet. Allow notifications and enable them on this device first." });
+  }
+  const payload = JSON.stringify({
+    title: "ChowOnCampus test alert",
+    body: "Background notifications are working on this device.",
+    url: "/",
+    test: true
+  });
+  const results = await Promise.allSettled(matching.map(async record => {
+    try {
+      await webPush.sendNotification(record.subscription, payload);
+      return { endpoint: record.endpoint, ok: true };
+    } catch (error) {
+      if (error.statusCode === 404 || error.statusCode === 410) {
+        savePushSubscriptions(readPushSubscriptions().filter(item => item.endpoint !== record.endpoint));
+      }
+      console.error("Push test failed:", error.statusCode || "", error.message || error);
+      throw error;
+    }
+  }));
+  const succeeded = results.filter(result => result.status === "fulfilled").length;
+  const failed = results.length - succeeded;
+  if (!succeeded) {
+    const reason = results.find(result => result.status === "rejected")?.reason;
+    return res.status(502).json({
+      error: "The server could not deliver a push to any registered device. " + (reason?.statusCode ? "Push provider returned HTTP " + reason.statusCode + "." : "Check the service logs and VAPID key configuration."),
+      subscribedDevices: matching.length,
+      failedDevices: failed
+    });
+  }
+  res.json({
+    ok: true,
+    message: "Test push sent to " + succeeded + " device" + (succeeded === 1 ? "" : "s") + ".",
+    subscribedDevices: matching.length,
+    deliveredToPushService: succeeded,
+    failedDevices: failed
+  });
+});
+
 // Authenticated in-app notifications. Enforce both the role and the account-specific recipient.
 function notificationBelongsToAccount(item, account) {
   if (!item || !account || typeof item.role !== "string" || item.role !== account.role) return false;

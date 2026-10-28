@@ -21,7 +21,6 @@
     .restaurant-dashboard-page .site-header,
     .restaurant-dashboard-page #homeView,
     .restaurant-dashboard-page .site-footer,
-    .restaurant-dashboard-page #notificationPanel,
     .restaurant-dashboard-page #toast { display: none !important; }
     .restaurant-dashboard-page #dashboardView { width: min(1100px, 100%); margin: 0 auto; padding: 28px 20px 56px; }
     .restaurant-dashboard-page .dashboard-header { background: #fff; border: 1px solid #dfe9e1; border-radius: 16px; padding: 20px; margin-bottom: 20px; }
@@ -42,7 +41,7 @@
         <a class="nav-link" href="/restaurant-login.html">Restaurant login</a>
          <a class="nav-link" href="/agent-login.html">Delivery agent login</a>
         <button type="button" class="nav-link hidden" id="dashboardNav" data-view="dashboard">Dashboard</button>
-        <button type="button" class="nav-link hidden" id="notificationToggle" aria-expanded="false">🔔 Notifications <span id="notificationCount" class="notification-count hidden">0</span></button>
+        <button type="button" class="nav-link hidden" id="restaurantUnusedNotificationToggle" aria-expanded="false">🔔 Notifications <span class="notification-count hidden">0</span></button>
         <button type="button" class="primary-button" id="cartJump">
           Cart (<span id="cartCount">0</span>)
         </button>
@@ -135,7 +134,7 @@
           <h1 id="dashboardTitle">Dashboard</h1>
           <p id="accountLabel"></p>
         </div>
-        <button type="button" id="logoutButton" class="secondary-button">Log out</button>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><button type="button" id="notificationToggle" class="secondary-button" aria-expanded="false">🔔 Notifications <span id="notificationCount" class="notification-count hidden">0</span></button><button type="button" id="logoutButton" class="secondary-button">Log out</button></div>
       </div>
       <div id="earningsPanel"></div>
       <div id="dashboardContent">
@@ -168,7 +167,7 @@
     </form>
   </section>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <aside id="notificationPanel" class="notification-panel hidden" aria-label="Notifications"><div class="notification-panel-heading"><strong>Notifications</strong><button type="button" id="notificationClose" aria-label="Close notifications">×</button></div><div class="notification-push-controls"><p id="pushSetupStatus" class="small-note" role="status">Set up background alerts so you can receive order updates when ChowOnCampus is closed.</p><button type="button" id="notificationEnablePush" class="secondary-button full-width">Enable background alerts</button><button type="button" id="notificationPushTest" class="secondary-button full-width">Send test alert</button></div><div id="notificationList"><p class="muted">Loading notifications…</p></div></aside>
+  <aside id="notificationPanel" class="notification-panel hidden" aria-label="Notifications"><div class="notification-panel-heading"><strong>Notifications</strong><div class="notification-panel-actions"><button type="button" id="notificationClear" class="secondary-button" title="Clear your notifications">Clear</button><button type="button" id="notificationClose" aria-label="Close notifications">×</button></div></div><div class="notification-push-controls"><p id="pushSetupStatus" class="small-note" role="status">Set up background alerts so you can receive order updates when ChowOnCampus is closed.</p><button type="button" id="notificationEnablePush" class="secondary-button full-width">Enable background alerts</button><button type="button" id="notificationPushTest" class="secondary-button full-width">Send test alert</button></div><div id="notificationList"><p class="muted">Loading notifications…</p></div></aside>
   <script src="/notifications.js?v=push-diagnostics-2" defer></script>
 </body>
 </html>

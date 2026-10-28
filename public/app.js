@@ -1432,6 +1432,13 @@ async function initialize() {
     const result = await api("/api/me");
     state.account = result.account;
     updateNavigation();
+    const currentParams = new URLSearchParams(location.search);
+    // Students use their dedicated dashboard as the signed-in home. Keep Paystack callbacks
+    // on the checkout page so payment verification can finish normally.
+    if (state.account?.role === "student" && location.pathname === "/" && currentParams.get("payment") !== "paystack") {
+      location.replace("/student-dashboard.html");
+      return;
+    }
     const isRestaurantDashboardPage = document.body.classList.contains("restaurant-dashboard-page");
     const isStudentDashboardPage = document.body.classList.contains("student-dashboard-page");
     if (isRestaurantDashboardPage && state.account?.role !== "restaurant") {

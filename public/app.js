@@ -934,9 +934,14 @@ async function loadDashboard() {
       const result = await api("/api/agents/available");
       state.availableAgents = result.agents;
       state.agents = [];
+    } else if (account.role === "agent") {
+      state.agents = [];
+      state.availableAgents = [];
+      state.agentProfile = await api("/api/agents/me");
     } else {
       state.agents = [];
       state.availableAgents = [];
+      state.agentProfile = null;
     }
 
     const { orders } = await api("/api/orders");
@@ -1058,11 +1063,17 @@ async function loadDashboard() {
         order.assignedAgentId === account.agentId && ["Ready for pickup", "Out for delivery"].includes(order.status)
       );
       const completedDeliveryOrders = orders.filter(order => order.assignedAgentId === account.agentId && order.status === "Completed");
+      const agentOnline = Boolean(state.agentProfile?.online);
       $("#dashboardContent").innerHTML = `
         <div class="restaurant-welcome">
-          <div><span class="eyebrow">DELIVERY AGENT WORKSPACE</span><h2>Welcome, ${escapeHtml(account.name)}!</h2><p>Manage your assigned deliveries here. Open the full-page student chat on an active order to coordinate pickup and delivery.</p></div>
-          <div class="student-dashboard-actions"><button class="secondary-button" type="button" id="refreshAgentOrders">↻ Refresh deliveries</button></div>
+          <div><span class="eyebrow">DELIVERY AGENT WORKSPACE</span><h2>Welcome, ${escapeHtml(account.name)}!</h2><p>Go online when you are available. Allow GPS permission so pickup requests can be offered to the nearest agent. Your location is used only while you are online.</p></div>
+          <div class="student-dashboard-actions"><button class="${agentOnline ? "danger-button" : "primary-button"}" type="button" id="toggleAgentOnline">${agentOnline ? "Go offline" : "Go online"}</button><button class="secondary-button" type="button" id="refreshAgentOrders">↻ Refresh deliveries</button></div>
         </div>
+        <section class="dashboard-order-section">
+          <div class="dashboard-section-heading"><div><span class="eyebrow">LIVE LOCATION</span><h2>${agentOnline ? "You are online" : "You are offline"}</h2><p>${agentOnline ? "Your latest GPS position helps rank pickup offers by distance from the restaurant." : "Switch online when you are ready to receive delivery requests."}</p></div><span class="status">${agentOnline ? "ONLINE" : "OFFLINE"}</span></div>
+          <p id="agentGpsStatus" class="muted" role="status">${agentOnline ? "Starting GPS… allow location access and keep this page open." : "GPS tracking is stopped while offline."}</p>
+          <p class="tiny muted">GPS must have updated within the last 2 minutes for nearest-agent dispatch. Browser GPS can pause when this page is closed or suspended.</p>
+        </section>
         <section class="dashboard-order-section">
           <div class="dashboard-section-heading"><div><h2>Active deliveries</h2><p>Use the full-page chat while the order is ready for pickup or out for delivery.</p></div><span class="count-pill">${activeDeliveryOrders.length}</span></div>
           ${activeDeliveryOrders.length ? `<div class="order-list">${activeDeliveryOrders.map(renderOrderCard).join("")}</div>` : `<div class="empty-state">You have no active deliveries right now. New assignments will appear here.</div>`}
@@ -1071,6 +1082,7 @@ async function loadDashboard() {
           <div class="dashboard-section-heading"><div><h2>Completed deliveries</h2><p>Your recent completed orders.</p></div><span class="count-pill">${completedDeliveryOrders.length}</span></div>
           ${completedDeliveryOrders.length ? `<div class="order-list">${completedDeliveryOrders.slice(0,10).map(renderOrderCard).join("")}</div>` : `<div class="empty-state">No completed deliveries yet.</div>`}
         </section>`;
+      if (agentOnline) startAgentGps(); else stopAgentGps();
     } else {
       const studentOrders = orders.filter(studentOrderIsVisible);
       $("#dashboardContent").innerHTML = `

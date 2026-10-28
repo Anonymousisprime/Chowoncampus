@@ -443,7 +443,15 @@ function notifyOrderParties(order, title, message) {
   createNotification({ role: "student", username: order.customerPhone }, title, message, order.id);
   createNotification({ role: "restaurant", restaurantId: order.restaurantId }, title, `${order.id}: ${message}`, order.id);
   createNotification({ role: "admin" }, title, `${order.id}: ${message}`, order.id);
-  if (order.assignedAgentId) createNotification({ role: "agent", agentId: order.assignedAgentId }, title, `${order.id}: ${message}`, order.id);
+
+  // Let every delivery agent know a paid order has arrived, even if they are not
+  // currently on the website. The actual pickup offer is still sent separately
+  // when the restaurant marks the order ready.
+  const agentMessage = `${order.id}: A paid order has arrived at ${order.restaurantName}. No pickup action is needed yet; you will receive a separate offer when it is ready.`;
+  const agentTargets = readAgentRecords().filter(agent => agent && agent.id);
+  for (const agent of agentTargets) {
+    createNotification({ role: "agent", agentId: agent.id }, "New paid order — awaiting preparation", agentMessage, order.id);
+  }
 }
 
 function notifyOrderStatusChanged(order, previousStatus, newStatus) {

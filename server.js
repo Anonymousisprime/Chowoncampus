@@ -2167,28 +2167,43 @@ function assignReadyOrders() {
 
   for (const order of waiting) {
     const tried = new Set(Array.isArray(order.offeredAgentIds) ? order.offeredAgentIds : []);
-    const eligible = records.filter(agent =>
-      agent.online && !busyAgentIds.has(agent.id) && !agent.activeOrderId && !tried.has(agent.id)
-    );
-    if (!eligible.length) continue;
-
-    // Pickup is at the restaurant. Never use the student's delivery pin as a
-    // substitute for restaurant coordinates; without a pickup pin use fair rotation.
+    // A GPS fix is considered current for two minutes. Never use an old location
+    // to claim that an agent is the nearest one.
+    const locationFreshMs = 2 * 60 * 1000;
+    const nowMs = Date.now();
     const targetLatitude = order.restaurantLatitude;
     const targetLongitude = order.restaurantLongitude;
     const hasTargetCoords = targetLatitude !== null && targetLatitude !== undefined &&
       targetLongitude !== null && targetLongitude !== undefined &&
       Number.isFinite(Number(targetLatitude)) && Number.isFinite(Number(targetLongitude));
+    const eligible = records.filter(agent => {
+      if (!agent.online || busyAgentIds.has(agent.id) || agent.activeOrderId || tried.has(agent.id)) return false;
+      const hasAgentCoords = agent.latitude !== null && agent.latitude !== undefined &&
+        agent.longitude !== null && agent.longitude !== undefined &&
+        Number.isFinite(Number(agent.latitude)) && Number.isFinite(Number(agent.longitude));
+      const locationIsFresh = agent.locationUpdatedAt &&
+        nowMs - new Date(agent.locationUpdatedAt).getTime() <= locationFreshMs &&
+        nowMs - new Date(agent.locationUpdatedAt).getTime() >= 0;
+      // When the restaurant has a pin, only agents with a fresh GPS fix can be
+      // ranked and contacted. Without a pin, retain the existing fair-rotation fallback.
+      if (hasTargetCoords) return hasAgentCoords && locationIsFresh;
+      return true;
+    });
+    if (!eligible.length) {
+      if (hasTargetCoords) {
+        createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Waiting for nearby agent GPS",
+          `Order ${order.id} is ready, but no available agent has a fresh GPS location yet. Keep the pickup pin saved and ask online agents to enable location.`, order.id);
+      }
+      continue;
+    }
+
+    // Pickup is at the restaurant. Never use the student's delivery pin as a
+    // substitute for restaurant coordinates; without a pickup pin use fair rotation.
     eligible.sort((a, b) => {
-      const aHas = Number.isFinite(Number(a.latitude)) && Number.isFinite(Number(a.longitude)) &&
-        a.latitude !== null && a.longitude !== null && hasTargetCoords;
-      const bHas = Number.isFinite(Number(b.latitude)) && Number.isFinite(Number(b.longitude)) &&
-        b.latitude !== null && b.longitude !== null && hasTargetCoords;
-      if (aHas && bHas) {
+      if (hasTargetCoords) {
         return distanceKm(targetLatitude, targetLongitude, a.latitude, a.longitude) -
           distanceKm(targetLatitude, targetLongitude, b.latitude, b.longitude);
       }
-      if (aHas !== bHas) return aHas ? -1 : 1;
       return new Date(a.lastAssignedAt || 0) - new Date(b.lastAssignedAt || 0);
     });
 
@@ -2365,6 +2380,8 @@ app.patch("/api/agent/location", requireRole("agent"), (req, res) => {
     agent.longitude = longitude;
     agent.locationUpdatedAt = new Date().toISOString();
     saveAgentRecords(records);
+    // A newly received GPS fix may make this agent eligible for a waiting order.
+    assignReadyOrders();
     res.json({ ok: true, message: "Agent location updated." });
   } catch (error) {
     res.status(500).json({ error: "Could not update agent location." });

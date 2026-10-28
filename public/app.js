@@ -32,6 +32,59 @@ const money = amount => new Intl.NumberFormat("en-NG", {
 }).format(amount);
 
 const isLocalDemo = ["localhost", "127.0.0.1"].includes(location.hostname);
+let agentGpsWatchId = null;
+let agentGpsLastSent = 0;
+let agentGpsTimer = null;
+
+function stopAgentGps() {
+  if (agentGpsWatchId !== null && navigator.geolocation) navigator.geolocation.clearWatch(agentGpsWatchId);
+  agentGpsWatchId = null;
+  clearInterval(agentGpsTimer);
+  agentGpsTimer = null;
+  agentGpsLastSent = 0;
+}
+
+async function publishAgentGps(position) {
+  if (state.account?.role !== "agent" || !state.agentProfile?.online) return;
+  if (Date.now() - agentGpsLastSent < 12000) return;
+  try {
+    await api("/api/agent/location", {
+      method: "PATCH",
+      body: JSON.stringify({ latitude: position.coords.latitude, longitude: position.coords.longitude })
+    });
+    agentGpsLastSent = Date.now();
+    const status = $("#agentGpsStatus");
+    if (status) status.textContent = "GPS active · updated " + new Date().toLocaleTimeString();
+  } catch (error) {
+    const status = $("#agentGpsStatus");
+    if (status) status.textContent = "GPS update failed: " + error.message;
+  }
+}
+
+function startAgentGps() {
+  if (state.account?.role !== "agent" || !state.agentProfile?.online) return stopAgentGps();
+  if (!navigator.geolocation) {
+    const status = $("#agentGpsStatus");
+    if (status) status.textContent = "GPS is not supported by this browser.";
+    return;
+  }
+  if (agentGpsWatchId !== null) return;
+  const status = $("#agentGpsStatus");
+  if (status) status.textContent = "Requesting GPS permission. Keep this page open while online.";
+  agentGpsWatchId = navigator.geolocation.watchPosition(publishAgentGps, error => {
+    const target = $("#agentGpsStatus");
+    if (target) target.textContent = error.code === 1
+      ? "Location permission denied. Allow location access in browser settings."
+      : "GPS unavailable. Check device location services.";
+  }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 });
+  agentGpsTimer = setInterval(() => {
+    if (state.account?.role !== "agent" || !state.agentProfile?.online) return stopAgentGps();
+    navigator.geolocation.getCurrentPosition(publishAgentGps, () => {}, {
+      enableHighAccuracy: true, maximumAge: 10000, timeout: 15000
+    });
+  }, 20000);
+}
+
 
 async function api(url, options = {}) {
   const response = await fetch(url, {

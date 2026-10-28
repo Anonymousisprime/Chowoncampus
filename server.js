@@ -7,6 +7,7 @@ const path = require("path");
 const crypto = require("crypto");
 
 const { Pool } = require("pg");
+const webPush = require("web-push");
 const storagePool = process.env.DATABASE_URL
   ? new Pool({ connectionString: process.env.DATABASE_URL, max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 })
   : null;
@@ -20,7 +21,9 @@ const storageFiles = {
   "restaurant-locations.json": "restaurantLocations",
   "added-restaurants.json": "addedRestaurants",
   "delivery-agents.json": "deliveryAgents",
+  "agent-payments.json": "agentPayments",
   "notifications.json": "notifications",
+  "push-subscriptions.json": "pushSubscriptions",
   "account-passwords.json": "accountPasswords",
   "admin-accounts.json": "adminAccounts",
   "disabled-admins.json": "disabledAdmins"
@@ -45,16 +48,16 @@ async function initializePersistentStorage() {
     ["restaurant-locations.json", {}],
     ["added-restaurants.json", []],
     ["delivery-agents.json", []],
+    ["agent-payments.json", []],
     ["notifications.json", []],
+    ["push-subscriptions.json", []],
     ["account-passwords.json", {}],
     ["admin-accounts.json", []],
     ["disabled-admins.json", []]
   ];
   if (process.env.LOAD_TEST_MODE === "true") {
-    // Dedicated load-test environment: never load any live/legacy local data.
-    for (const [filename, fallback] of definitions) {
-      storageCache.set(storageFiles[filename], JSON.parse(JSON.stringify(fallback)));
-    }
+    // QA-only: never read production database or legacy files.
+    for (const [filename, fallback] of definitions) storageCache.set(storageFiles[filename], JSON.parse(JSON.stringify(fallback)));
     console.log("Load-test mode: initialized isolated empty test data.");
     return;
   }
@@ -206,8 +209,12 @@ async function start() {
 const app = express();
 const PORT = process.env.PORT || 3000;
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const LOAD_TEST_MODE = process.env.LOAD_TEST_MODE === "true";
+// Fixed delivery fee for every order.
+const FIXED_DELIVERY_FEE = 300;
+const STUDENT_PAYMENT_FEE_RATE = 0.01;
 
-app.use(express.json({ limit: "50kb" }));
+app.use(express.json({ limit: "50kb", verify: (req, res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
 app.use(express.static(path.join(__dirname, "public")));
 app.use((req, res, next) => {
   const sendJson = res.json.bind(res);
@@ -264,27 +271,27 @@ let agents = [];
 let accounts = [
   {
     username: (process.env.ADMIN_USERNAME || "coc_owner_2026").trim().toLowerCase(),
-    password: process.env.ADMIN_PASSWORD || (process.env.LOAD_TEST_MODE === "true" ? crypto.randomBytes(32).toString("hex") : ""),
+    password: process.env.ADMIN_PASSWORD || "",
     role: "admin",
     name: "Chowoncampus Admin"
   },
   {
     username: (process.env.SUPERADMIN_USERNAME || "Anonymousisprime").trim().toLowerCase(),
-    password: process.env.SUPERADMIN_PASSWORD || (process.env.LOAD_TEST_MODE === "true" ? crypto.randomBytes(32).toString("hex") : ""),
+    password: process.env.SUPERADMIN_PASSWORD || "",
     role: "admin",
     isSuperAdmin: true,
     name: "Anonymous Is Prime — Ultimate Admin"
   },
   {
     username: "campusbites",
-    password: process.env.CAMPUSBITES_PASSWORD || (process.env.LOAD_TEST_MODE === "true" ? crypto.randomBytes(32).toString("hex") : ""),
+    password: process.env.CAMPUSBITES_PASSWORD || "",
     role: "restaurant",
     restaurantId: "CB",
     name: "Campus Bites"
   },
   {
     username: "mamaskitchen",
-    password: process.env.MAMASKITCHEN_PASSWORD || (process.env.LOAD_TEST_MODE === "true" ? crypto.randomBytes(32).toString("hex") : ""),
+    password: process.env.MAMASKITCHEN_PASSWORD || "",
     role: "restaurant",
     restaurantId: "MK",
     name: "Mama's Kitchen"
@@ -369,6 +376,10 @@ function readAgentRecords() {
 function saveAgentRecords(records) {
   saveStoredJson(AGENTS_FILE, records);
 }
+const AGENT_PAYMENTS_FILE = path.join(__dirname, "agent-payments.json");
+function readAgentPayments() { return readStoredJson(AGENT_PAYMENTS_FILE, []); }
+function saveAgentPayments(records) { saveStoredJson(AGENT_PAYMENTS_FILE, records); }
+const AGENT_EARNING_PER_DELIVERY = Math.max(0, Math.round(Number(process.env.AGENT_EARNING_PER_DELIVERY || 100)));
 const agentRecords = readAgentRecords();
 agents = agentRecords.map(record => ({
   id: record.id,
@@ -402,16 +413,74 @@ function saveOrders(orders) {
 const NOTIFICATIONS_FILE = path.join(__dirname, "notifications.json");
 function readNotifications() { return readStoredJson(NOTIFICATIONS_FILE, []); }
 function saveNotifications(items) { saveStoredJson(NOTIFICATIONS_FILE, items.slice(0, 2000)); }
+
+const PUSH_SUBSCRIPTIONS_FILE = path.join(__dirname, "push-subscriptions.json");
+function readPushSubscriptions() { return readStoredJson(PUSH_SUBSCRIPTIONS_FILE, []); }
+function savePushSubscriptions(items) { saveStoredJson(PUSH_SUBSCRIPTIONS_FILE, items.slice(-5000)); }
+const PUSH_VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || "";
+const PUSH_VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || "";
+const PUSH_VAPID_CONFIGURED = Boolean(PUSH_VAPID_PUBLIC_KEY && PUSH_VAPID_PRIVATE_KEY);
+if (PUSH_VAPID_CONFIGURED) webPush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:support@chowoncampus.com", PUSH_VAPID_PUBLIC_KEY, PUSH_VAPID_PRIVATE_KEY);
+function pushSubscriptionBelongsToTarget(subscription, target) {
+  if (!subscription || !target || subscription.role !== target.role) return false;
+  if (target.role === "admin") return true;
+  if (target.role === "student") return Boolean(target.username && subscription.username === target.username);
+  if (target.role === "restaurant") return Boolean(target.restaurantId && subscription.restaurantId === target.restaurantId);
+  if (target.role === "agent") return Boolean(target.agentId && subscription.agentId === target.agentId);
+  return false;
+}
+function sendPushToTarget(target, payload) {
+  if (!PUSH_VAPID_CONFIGURED) return;
+  for (const record of readPushSubscriptions().filter(item => pushSubscriptionBelongsToTarget(item, target))) {
+    webPush.sendNotification(record.subscription, JSON.stringify(payload)).catch(error => {
+      if (error.statusCode === 404 || error.statusCode === 410) {
+        savePushSubscriptions(readPushSubscriptions().filter(item => item.endpoint !== record.endpoint));
+      } else console.error("Push notification delivery failed:", error.statusCode || "", error.message || error);
+    });
+  }
+}
+
 function createNotification(target, title, message, orderId = null) {
   const items = readNotifications();
   items.unshift({ id: crypto.randomUUID(), ...target, title, message, orderId, createdAt: new Date().toISOString(), read: false });
   saveNotifications(items);
+  sendPushToTarget(target, { title, body: message, orderId, url: "/" });
 }
 function notifyOrderParties(order, title, message) {
   createNotification({ role: "student", username: order.customerPhone }, title, message, order.id);
   createNotification({ role: "restaurant", restaurantId: order.restaurantId }, title, `${order.id}: ${message}`, order.id);
   createNotification({ role: "admin" }, title, `${order.id}: ${message}`, order.id);
-  if (order.assignedAgentId) createNotification({ role: "agent", agentId: order.assignedAgentId }, title, `${order.id}: ${message}`, order.id);
+
+  // Let every delivery agent know a paid order has arrived, even if they are not
+  // currently on the website. The actual pickup offer is still sent separately
+  // when the restaurant marks the order ready.
+  const agentMessage = `${order.id}: A paid order has arrived at ${order.restaurantName}. No pickup action is needed yet; you will receive a separate offer when it is ready.`;
+  const agentTargets = readAgentRecords().filter(agent => agent && agent.id);
+  for (const agent of agentTargets) {
+    createNotification({ role: "agent", agentId: agent.id }, "New paid order — awaiting preparation", agentMessage, order.id);
+  }
+}
+
+function notifyOrderStatusChanged(order, previousStatus, newStatus) {
+  const title = "Order update";
+  let studentMessage = `Your order status is now: ${newStatus}.`;
+  if (newStatus === "Ready for pickup") {
+    studentMessage = "Your order is ready and is being prepared for dispatch.";
+  } else if (newStatus === "Out for delivery") {
+    studentMessage = "Your order is on its way. Please be ready to collect it at the gate.";
+  } else if (newStatus === "Completed") {
+    studentMessage = "Your order has been delivered. Thank you for using ChowOnCampus!";
+  } else if (newStatus === "Cancelled") {
+    studentMessage = "Your order has been cancelled. Open ChowOnCampus for details.";
+  }
+
+  createNotification({ role: "student", username: order.customerPhone }, title, studentMessage, order.id);
+  createNotification({ role: "restaurant", restaurantId: order.restaurantId }, title,
+    `Order ${order.id}: status changed from ${previousStatus} to ${newStatus}.`, order.id);
+  createNotification({ role: "admin" }, title,
+    `Order ${order.id}: status changed from ${previousStatus} to ${newStatus}.`, order.id);
+  if (order.assignedAgentId) createNotification({ role: "agent", agentId: order.assignedAgentId }, title,
+    `Order ${order.id}: status changed from ${previousStatus} to ${newStatus}.`, order.id);
 }
 
 function safeAccount(account) {
@@ -470,7 +539,7 @@ function requireRole(...roles) {
 }
 
 function publicOrder(order) {
-  const { chatMessages, ...safeOrder } = order;
+  const { chatMessages, paymentEmail, paystackAuthorizationUrl, paystackSubaccountCode, ...safeOrder } = order;
   return safeOrder;
 }
 
@@ -523,11 +592,16 @@ app.post("/api/student/register", (req, res) => {
   if (name.length < 2 || name.length > 100) return res.status(400).json({ error: "Enter your name (2–100 characters)." });
   if (!phone) return res.status(400).json({ error: "Enter a valid phone number, e.g. 08012345678." });
   if (password.length < 10 || password.length > 128) return res.status(400).json({ error: "Use a password between 10 and 128 characters." });
+  const consents = req.body.consents || {};
+  if (consents.terms !== true || consents.privacy !== true || consents.delivery !== true) {
+    return res.status(400).json({ error: "Read and agree to the Terms of Service, Privacy Policy, and Delivery & Cancellation Policy before creating an account." });
+  }
   try {
     const students = readStudents();
     if (students.some(student => student.phone === phone)) return res.status(409).json({ error: "An account already exists for this phone number. Please log in." });
     const passwordData = hashPassword(password);
-    const student = { id: crypto.randomUUID(), name, phone, passwordSalt: passwordData.salt, passwordHash: passwordData.hash, role: "student", verifiedPhone: false, createdAt: new Date().toISOString() };
+    const consentedAt = new Date().toISOString();
+    const student = { id: crypto.randomUUID(), name, phone, passwordSalt: passwordData.salt, passwordHash: passwordData.hash, role: "student", verifiedPhone: false, policyConsent: { termsAcceptedAt: consentedAt, privacyAcceptedAt: consentedAt, deliveryPolicyAcceptedAt: consentedAt }, createdAt: consentedAt };
     students.push(student);
     saveStudents(students);
     const account = { username: student.phone, role: "student", name: student.name };
@@ -537,6 +611,105 @@ app.post("/api/student/register", (req, res) => {
     res.status(201).json({ account, message: "Account created. Your phone number has not been verified." });
   } catch (error) {
     res.status(500).json({ error: error.message || "Could not create your account." });
+  }
+});
+
+// Student self-service password recovery uses Twilio Verify SMS so only the phone holder can reset the account.
+// Configure TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_VERIFY_SERVICE_SID in Render.
+const passwordResetAttempts = new Map();
+function resetRateLimit(key, limit, windowMs) {
+  const now = Date.now();
+  const previous = passwordResetAttempts.get(key) || [];
+  const recent = previous.filter(time => now - time < windowMs);
+  if (recent.length >= limit) {
+    passwordResetAttempts.set(key, recent);
+    return false;
+  }
+  recent.push(now);
+  passwordResetAttempts.set(key, recent);
+  return true;
+}
+function hasTwilioVerifyConfig() {
+  return Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_VERIFY_SERVICE_SID);
+}
+async function twilioVerifyRequest(pathname, values) {
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  const serviceSid = process.env.TWILIO_VERIFY_SERVICE_SID;
+  const response = await fetch("https://verify.twilio.com/v2/Services/" + encodeURIComponent(serviceSid) + pathname, {
+    method: "POST",
+    headers: {
+      "Authorization": "Basic " + Buffer.from(sid + ":" + token).toString("base64"),
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams(values)
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    console.error("Twilio Verify request failed:", response.status, result.code || "unknown");
+    throw new Error("SMS verification is temporarily unavailable. Please try again later.");
+  }
+  return result;
+}
+
+app.post("/api/student/forgot-password/start", async (req, res) => {
+  const phone = normalizeNigerianPhone(req.body.phone);
+  if (!phone) return res.status(400).json({ error: "Enter a valid phone number." });
+  const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
+  if (!resetRateLimit("reset-start:ip:" + ip, 8, 15 * 60 * 1000) ||
+      !resetRateLimit("reset-start:phone:" + phone, 3, 15 * 60 * 1000)) {
+    return res.status(429).json({ error: "Too many attempts. Please wait 15 minutes before trying again." });
+  }
+  if (!hasTwilioVerifyConfig()) {
+    return res.status(503).json({ error: "Password recovery SMS is not configured yet. Please contact ChowOnCampus support for help." });
+  }
+  try {
+    const studentExists = readStudents().some(student => student.phone === phone && !student.banned);
+    // Keep the response the same whether or not the phone belongs to an account.
+    if (studentExists) {
+      await twilioVerifyRequest("/Verifications", { To: phone, Channel: "sms" });
+    }
+    res.json({ ok: true, message: "If an eligible student account exists for that number, a verification code has been sent. Check your SMS." });
+  } catch (error) {
+    res.status(503).json({ error: error.message || "Could not send a verification code. Please try again later." });
+  }
+});
+
+app.post("/api/student/forgot-password/reset", async (req, res) => {
+  const phone = normalizeNigerianPhone(req.body.phone);
+  const code = String(req.body.code || "").trim();
+  const password = String(req.body.password || "");
+  const confirmPassword = String(req.body.confirmPassword || "");
+  if (!phone) return res.status(400).json({ error: "Enter a valid phone number." });
+  if (!/^\d{4,10}$/.test(code)) return res.status(400).json({ error: "Enter the verification code from your SMS." });
+  if (password.length < 10 || password.length > 128) return res.status(400).json({ error: "Use a password between 10 and 128 characters." });
+  if (password !== confirmPassword) return res.status(400).json({ error: "The new passwords do not match." });
+  const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
+  if (!resetRateLimit("reset-check:ip:" + ip, 10, 15 * 60 * 1000) ||
+      !resetRateLimit("reset-check:phone:" + phone, 6, 15 * 60 * 1000)) {
+    return res.status(429).json({ error: "Too many attempts. Please wait 15 minutes before trying again." });
+  }
+  if (!hasTwilioVerifyConfig()) {
+    return res.status(503).json({ error: "Password recovery SMS is not configured yet. Please contact ChowOnCampus support for help." });
+  }
+  try {
+    const students = readStudents();
+    const student = students.find(item => item.phone === phone && !item.banned);
+    if (!student) return res.status(400).json({ error: "We could not verify this reset request. Check the phone number and code, then try again." });
+    const verification = await twilioVerifyRequest("/VerificationCheck", { To: phone, Code: code });
+    if (verification.status !== "approved") {
+      return res.status(400).json({ error: "That code is invalid or expired. Request a new code and try again." });
+    }
+    const hashed = hashPassword(password);
+    student.passwordSalt = hashed.salt;
+    student.passwordHash = hashed.hash;
+    saveStudents(students);
+    for (const [token, session] of sessions.entries()) {
+      if (session.role === "student" && session.username === phone) sessions.delete(token);
+    }
+    res.json({ ok: true, message: "Password reset successfully. You can now log in with your new password." });
+  } catch (error) {
+    res.status(503).json({ error: error.message || "Could not reset your password. Please try again later." });
   }
 });
 
@@ -564,26 +737,110 @@ app.post("/api/student/login", (req, res) => {
   }
 });
 
-// Authenticated in-app notifications. Each account only sees notifications addressed to it.
+
+app.get("/api/push/public-key", (req, res) => {
+  res.json({ configured: PUSH_VAPID_CONFIGURED, publicKey: PUSH_VAPID_CONFIGURED ? PUSH_VAPID_PUBLIC_KEY : null });
+});
+app.post("/api/push/subscribe", requireLogin, (req, res) => {
+  if (!PUSH_VAPID_CONFIGURED) return res.status(503).json({ error: "Push notifications need VAPID keys configured on the hosting service." });
+  const subscription = req.body && req.body.subscription;
+  if (!subscription || typeof subscription.endpoint !== "string" || !subscription.keys || !subscription.keys.p256dh || !subscription.keys.auth) {
+    return res.status(400).json({ error: "The browser did not provide a valid push subscription." });
+  }
+  const account = req.account;
+  const record = { endpoint: subscription.endpoint, subscription, role: account.role, username: account.username || null, restaurantId: account.restaurantId || null, agentId: account.agentId || null, updatedAt: new Date().toISOString() };
+  const subscriptions = readPushSubscriptions().filter(item => item.endpoint !== record.endpoint);
+  subscriptions.push(record);
+  savePushSubscriptions(subscriptions);
+  res.json({ ok: true, message: "Push notifications enabled on this device." });
+});
+app.delete("/api/push/subscribe", requireLogin, (req, res) => {
+  const endpoint = String(req.body && req.body.endpoint || "");
+  if (!endpoint) return res.status(400).json({ error: "Push subscription endpoint is required." });
+  savePushSubscriptions(readPushSubscriptions().filter(item => item.endpoint !== endpoint || !pushSubscriptionBelongsToTarget(item, req.account)));
+  res.json({ ok: true });
+});
+
+// Device-level diagnostics so staff can confirm whether background push is actually set up.
+app.get("/api/push/status", requireLogin, (req, res) => {
+  const matching = readPushSubscriptions().filter(item => pushSubscriptionBelongsToTarget(item, req.account));
+  res.json({
+    configured: PUSH_VAPID_CONFIGURED,
+    subscribedDevices: matching.length,
+    role: req.account.role
+  });
+});
+app.post("/api/push/test", requireLogin, async (req, res) => {
+  if (!PUSH_VAPID_CONFIGURED) {
+    return res.status(503).json({ error: "Background push is not configured on the server. VAPID keys are missing." });
+  }
+  const matching = readPushSubscriptions().filter(item => pushSubscriptionBelongsToTarget(item, req.account));
+  if (!matching.length) {
+    return res.status(409).json({ error: "This account has no registered devices yet. Allow notifications and enable them on this device first." });
+  }
+  const payload = JSON.stringify({
+    title: "ChowOnCampus test alert",
+    body: "Background notifications are working on this device.",
+    url: "/",
+    test: true
+  });
+  const results = await Promise.allSettled(matching.map(async record => {
+    try {
+      await webPush.sendNotification(record.subscription, payload);
+      return { endpoint: record.endpoint, ok: true };
+    } catch (error) {
+      if (error.statusCode === 404 || error.statusCode === 410) {
+        savePushSubscriptions(readPushSubscriptions().filter(item => item.endpoint !== record.endpoint));
+      }
+      console.error("Push test failed:", error.statusCode || "", error.message || error);
+      throw error;
+    }
+  }));
+  const succeeded = results.filter(result => result.status === "fulfilled").length;
+  const failed = results.length - succeeded;
+  if (!succeeded) {
+    const reason = results.find(result => result.status === "rejected")?.reason;
+    return res.status(502).json({
+      error: "The server could not deliver a push to any registered device. " + (reason?.statusCode ? "Push provider returned HTTP " + reason.statusCode + "." : "Check the service logs and VAPID key configuration."),
+      subscribedDevices: matching.length,
+      failedDevices: failed
+    });
+  }
+  res.json({
+    ok: true,
+    message: "Test push sent to " + succeeded + " device" + (succeeded === 1 ? "" : "s") + ".",
+    subscribedDevices: matching.length,
+    deliveredToPushService: succeeded,
+    failedDevices: failed
+  });
+});
+
+// Authenticated in-app notifications. Enforce both the role and the account-specific recipient.
+function notificationBelongsToAccount(item, account) {
+  if (!item || !account || typeof item.role !== "string" || item.role !== account.role) return false;
+  if (account.role === "admin") return true;
+  if (account.role === "student") {
+    return Boolean(account.username && item.username && item.username === account.username);
+  }
+  if (account.role === "restaurant") {
+    return Boolean(account.restaurantId && item.restaurantId && item.restaurantId === account.restaurantId);
+  }
+  if (account.role === "agent") {
+    return Boolean(account.agentId && item.agentId && item.agentId === account.agentId);
+  }
+  return false;
+}
 app.get("/api/notifications", requireLogin, (req, res) => {
   const account = req.account;
-  const notifications = readNotifications().filter(item => item.role === account.role && (
-    item.role === "admin" ||
-    (item.role === "student" && item.username === account.username) ||
-    (item.role === "restaurant" && item.restaurantId === account.restaurantId) ||
-    (item.role === "agent" && item.agentId === account.agentId)
-  )).slice(0, 100);
+  const notifications = readNotifications()
+    .filter(item => notificationBelongsToAccount(item, account))
+    .slice(0, 100);
   res.json({ notifications, unreadCount: notifications.filter(item => !item.read).length });
 });
 app.patch("/api/notifications/:id/read", requireLogin, (req, res) => {
   const account = req.account;
   const items = readNotifications();
-  const item = items.find(n => n.id === req.params.id && n.role === account.role && (
-    n.role === "admin" ||
-    (n.role === "student" && n.username === account.username) ||
-    (n.role === "restaurant" && n.restaurantId === account.restaurantId) ||
-    (n.role === "agent" && n.agentId === account.agentId)
-  ));
+  const item = items.find(n => n.id === req.params.id && notificationBelongsToAccount(n, account));
   if (!item) return res.status(404).json({ error: "Notification not found." });
   item.read = true;
   saveNotifications(items);
@@ -613,6 +870,18 @@ app.get("/api/menu", (req, res) => {
       })
     };
   }) });
+});
+
+// Public quote endpoint: server-calculated fee based on restaurant and customer GPS/map pins.
+app.post("/api/delivery/quote", (req, res) => {
+  const restaurant = restaurants.find(item => item.id === req.body.restaurantId);
+  if (!restaurant) return res.status(400).json({ error: "Choose a valid restaurant." });
+  const latitude = Number(req.body.latitude);
+  const longitude = Number(req.body.longitude);
+  const hasDeliveryPin = req.body.latitude !== undefined && req.body.longitude !== undefined &&
+    Number.isFinite(latitude) && Number.isFinite(longitude) &&
+    Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
+  res.json(calculateDeliveryQuote(restaurant, hasDeliveryPin ? latitude : null, hasDeliveryPin ? longitude : null));
 });
 
 // Restaurant partners can save their pickup pin using GPS or the map picker.
@@ -906,7 +1175,24 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     });
   }
 
-  const deliveryFee = 300;
+  // Mandatory one-time takeaway packaging fee is server-calculated and cannot be removed by the customer.
+  const takeawayFee = 200;
+  subtotal += takeawayFee;
+  cleanItems.push({
+    id: "takeaway-packaging",
+    name: "Takeaway packaging (required)",
+    price: takeawayFee,
+    qty: 1
+  });
+
+  const deliveryQuote = calculateDeliveryQuote(
+    restaurant,
+    hasCoordinates ? Number(latitude) : null,
+    hasCoordinates ? Number(longitude) : null
+  );
+  const deliveryFee = deliveryQuote.deliveryFee;
+  const baseTotal = subtotal + deliveryFee;
+  const paymentFee = Math.round(baseTotal * STUDENT_PAYMENT_FEE_RATE);
 
   const order = {
     id: `COC-${Date.now()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`,
@@ -914,19 +1200,27 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     customerPhone: customerPhone.trim(),
     hostel: [deliveryLocation.hostel, deliveryLocation.block && `Block ${deliveryLocation.block}`, deliveryLocation.room && `Room ${deliveryLocation.room}`, deliveryLocation.landmark && `Near ${deliveryLocation.landmark}`].filter(Boolean).join(", "),
     deliveryLocation,
+    deliveryDistanceKm: deliveryQuote.distanceKm,
+    estimatedRoadDistanceKm: deliveryQuote.estimatedRoadDistanceKm,
+    deliveryPricingDistanceBased: deliveryQuote.distanceBased,
+    deliveryPricingMessage: deliveryQuote.message,
     restaurantLocation: restaurant.location || "",
     restaurantLatitude: Number.isFinite(Number(restaurant.latitude)) && restaurant.latitude !== null ? Number(restaurant.latitude) : null,
     restaurantLongitude: Number.isFinite(Number(restaurant.longitude)) && restaurant.longitude !== null ? Number(restaurant.longitude) : null,
     restaurantId: restaurant.id,
     restaurantName: restaurant.name,
     items: cleanItems,
+    takeawayFee,
     subtotal,
     deliveryFee,
-    total: subtotal + deliveryFee,
+    baseTotal,
+    paymentFeeRate: STUDENT_PAYMENT_FEE_RATE,
+    paymentFee,
+    total: baseTotal + paymentFee,
     status: "Awaiting payment",
     statusHistory: [{ status: "Awaiting payment", at: new Date().toISOString(), by: "system" }],
     updatedAt: new Date().toISOString(),
-    paymentStatus: "Unpaid — demo only",
+    paymentStatus: IS_PRODUCTION ? "Unpaid" : "Unpaid — demo only",
     idempotencyKey: cleanRequestId || null,
     assignedAgentId: null,
     chatMessages: [],
@@ -938,11 +1232,12 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     const orders = readOrders();
     orders.unshift(order);
     saveOrders(orders);
-    notifyOrderParties(order, "New order placed", `${order.customerName} placed an order at ${order.restaurantName}.`);
+    // Keep unpaid production orders out of restaurant fulfilment until Paystack confirms payment.
+    if (!IS_PRODUCTION) notifyOrderParties(order, "New order placed", order.customerName + " placed an order at " + order.restaurantName + ".");
 
     res.status(201).json({
       order: publicOrder(order),
-      message: "Demo order created. No payment has been made."
+      message: IS_PRODUCTION ? "Order created. Complete payment to confirm it." : "Demo order created. No payment has been made."
     });
   } catch (error) {
     console.error(error);
@@ -950,47 +1245,242 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
   }
 });
 
-// Local testing only: simulates payment without charging money.
-app.post("/api/orders/:id/demo-payment", (req, res) => {
-  if (IS_PRODUCTION) {
-    return res.status(404).json({
-      error: "Demo payments are disabled in production."
-    });
+// Paystack checkout is initialized server-side; the secret key is never sent to the browser.
+function hasPaystackConfig() {
+  const key = String(process.env.PAYSTACK_SECRET_KEY || "").trim();
+  // Production checkout must never silently run with a test key.
+  return IS_PRODUCTION ? /^sk_live_/.test(key) : /^sk_test_/.test(key);
+}
+
+// Each restaurant has its own Paystack subaccount. Keep these codes in Render environment
+// variables, never in browser code or committed source. Example: PAYSTACK_SUBACCOUNT_CB=ACCT_...
+function getPaystackSubaccountCode(restaurantId) {
+  const suffix = String(restaurantId || "").replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
+  const code = String(process.env["PAYSTACK_SUBACCOUNT_" + suffix] || "").trim();
+  return /^ACCT_[A-Za-z0-9]+$/.test(code) ? code : null;
+}
+
+async function paystackRequest(url, options = {}) {
+  // QA-only mock gateway. It is active only on the isolated LOAD_TEST_MODE service.
+  if (LOAD_TEST_MODE) {
+    if (url === "/transaction/initialize") {
+      const input = JSON.parse(options.body || "{}");
+      return { authorization_url: "https://example.invalid/chowoncampus-qa-payment", reference: input.reference };
+    }
+    if (url.startsWith("/transaction/verify/")) {
+      const reference = decodeURIComponent(url.slice("/transaction/verify/".length));
+      const order = readOrders().find(item => item.paystackReference === reference);
+      if (!order) throw new Error("QA mock could not find the payment reference.");
+      return {
+        status: "success",
+        reference,
+        amount: Math.round(Number(order.total) * 100),
+        currency: "NGN",
+        channel: "qa-mock",
+        metadata: {
+          order_id: order.id,
+          restaurant_id: order.restaurantId,
+          restaurant_share_kobo: Math.round(Number(order.subtotal) * 100),
+          platform_share_kobo: Math.round((Number(order.deliveryFee) + Number(order.paymentFee || 0)) * 100)
+        },
+        customer: { email: order.paymentEmail }
+      };
+    }
+    throw new Error("Unsupported QA mock payment endpoint: " + url);
   }
+  const response = await fetch("https://api.paystack.co" + url, {
+    ...options,
+    headers: {
+      Authorization: "Bearer " + process.env.PAYSTACK_SECRET_KEY,
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    }
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || result.status !== true) {
+    console.error("Paystack request failed:", response.status, result.message || "unknown error");
+    throw new Error("Payment provider could not complete the request. Please try again.");
+  }
+  return result.data;
+}
 
+app.post("/api/orders/:id/paystack/initialize", requireRole("student"), async (req, res) => {
+  if (!IS_PRODUCTION && !LOAD_TEST_MODE) return res.status(400).json({ error: "Use the local demo payment flow outside production." });
+  if (!hasPaystackConfig()) return res.status(503).json({ error: "Online payments are not configured yet. Please contact support." });
+  const orders = readOrders();
+  const order = orders.find(item => item.id === req.params.id);
+  if (!order) return res.status(404).json({ error: "Order not found." });
+  if (order.customerPhone !== req.account.username) return res.status(403).json({ error: "You can only pay for your own order." });
+  const subaccountCode = getPaystackSubaccountCode(order.restaurantId);
+  if (!subaccountCode) return res.status(503).json({ error: "This restaurant is not configured for secure split payments yet. Please contact ChowOnCampus support." });
+  if (["Paid — Paystack verified", "Paid — demo verified"].includes(order.paymentStatus)) {
+    return res.status(409).json({ error: "This order has already been paid." });
+  }
+  if (order.paymentStatus === "Payment pending" && order.paystackReference && order.paystackAuthorizationUrl &&
+      order.paystackSplitConfigured === true && order.paystackSubaccountCode === subaccountCode) {
+    return res.json({ authorizationUrl: order.paystackAuthorizationUrl, reference: order.paystackReference, orderId: order.id });
+  }
+  // Do not reuse a checkout link initialized before split payments were enabled or for another subaccount.
+  if (order.paymentStatus === "Payment pending") {
+    order.paymentStatus = "Unpaid";
+    order.paystackReference = null;
+    order.paystackAuthorizationUrl = null;
+    order.paystackSplitConfigured = false;
+  }
+  const email = String(req.body.email || order.paymentEmail || "").trim().toLowerCase();
+  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: "Enter a valid email address for your payment receipt." });
+  }
+  if (order.status === "Cancelled") return res.status(400).json({ error: "This order has been cancelled." });
+  if (!Number.isSafeInteger(Number(order.total)) || Number(order.total) <= 0) {
+    return res.status(400).json({ error: "The order total is invalid. Please contact support." });
+  }
+  const reference = "COC-" + crypto.randomBytes(16).toString("hex");
+  const baseUrl = String(process.env.PUBLIC_APP_URL || ((req.headers["x-forwarded-proto"] || req.protocol) + "://" + req.get("host"))).replace(/\/$/, "");
+  const amountKobo = Math.round(Number(order.total) * 100);
+  const restaurantShareKobo = Math.round(Number(order.subtotal) * 100);
+  const platformShareKobo = Math.round((Number(order.deliveryFee) + Number(order.paymentFee || 0)) * 100);
+  if (!Number.isSafeInteger(amountKobo) || amountKobo <= 0 ||
+      !Number.isSafeInteger(restaurantShareKobo) || restaurantShareKobo < 0 ||
+      !Number.isSafeInteger(platformShareKobo) || platformShareKobo < 0 ||
+      restaurantShareKobo + platformShareKobo !== amountKobo) {
+    return res.status(400).json({ error: "The order payment split does not balance. Please recreate the order or contact support." });
+  }
   try {
-    const orders = readOrders();
-    const order = orders.find(o => o.id === req.params.id);
-
-    if (!order) {
-      return res.status(404).json({ error: "Order not found." });
-    }
-
-    if (order.paymentStatus !== "Unpaid — demo only") {
-      return res.status(400).json({
-        error: "This order cannot be simulated as paid."
-      });
-    }
-
-    order.paymentStatus = "Paid — demo verified";
-    order.status = "Confirmed";
-    order.demoPaymentAt = new Date().toISOString();
-    order.updatedAt = order.demoPaymentAt;
-    order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [{ status: "Awaiting payment", at: order.createdAt, by: "system" }];
-    order.statusHistory.push({ status: "Confirmed", at: order.updatedAt, by: "demo payment" });
-
-    saveOrders(orders);
-
-    res.json({
-      order: publicOrder(order),
-      message: "Demo payment simulated. No money was charged."
+    const payment = await paystackRequest("/transaction/initialize", {
+      method: "POST",
+      body: JSON.stringify({
+        email,
+        amount: amountKobo,
+        currency: "NGN",
+        reference,
+        subaccount: subaccountCode,
+        transaction_charge: platformShareKobo,
+        bearer: "account",
+        callback_url: baseUrl + "/?payment=paystack&orderId=" + encodeURIComponent(order.id),
+        metadata: {
+          order_id: order.id,
+          customer_phone: order.customerPhone,
+          restaurant_id: order.restaurantId,
+          restaurant_share_kobo: restaurantShareKobo,
+          platform_share_kobo: platformShareKobo,
+          payment_fee_kobo: Math.round(Number(order.paymentFee || 0) * 100)
+        }
+      })
     });
+    order.paymentEmail = email;
+    order.paystackReference = reference;
+    order.paystackAuthorizationUrl = payment.authorization_url;
+    order.paystackSubaccountCode = subaccountCode;
+    order.paystackSplitConfigured = true;
+    order.restaurantShare = Number(order.subtotal);
+    order.platformShare = Number(order.deliveryFee) + Number(order.paymentFee || 0);
+    order.paymentInitializationAt = new Date().toISOString();
+    order.paymentStatus = "Payment pending";
+    order.updatedAt = order.paymentInitializationAt;
+    saveOrders(orders);
+    return res.json({ authorizationUrl: payment.authorization_url, reference, orderId: order.id });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Could not update the order." });
+    console.error("Paystack initialization failed for order:", order.id, error.message);
+    return res.status(502).json({ error: error.message || "Could not start payment. Please try again." });
   }
 });
 
+app.post("/api/payments/paystack/webhook", async (req, res) => {
+  if (!hasPaystackConfig()) return res.sendStatus(503);
+  const signature = String(req.headers["x-paystack-signature"] || "");
+  const rawBody = req.rawBody;
+  if (!signature || !rawBody) return res.sendStatus(400);
+  const expected = crypto.createHmac("sha512", process.env.PAYSTACK_SECRET_KEY).update(rawBody).digest();
+  let received;
+  try { received = Buffer.from(signature, "hex"); } catch { return res.sendStatus(401); }
+  if (received.length !== expected.length || !crypto.timingSafeEqual(received, expected)) return res.sendStatus(401);
+
+  const event = req.body || {};
+  if (event.event !== "charge.success" || !event.data) return res.sendStatus(200);
+  const payment = event.data;
+  const orderId = String(payment.metadata?.order_id || "");
+  const reference = String(payment.reference || "");
+  if (!orderId || !reference) return res.sendStatus(200);
+  try {
+    const orders = readOrders();
+    const order = orders.find(item => item.id === orderId);
+    if (!order || order.paystackReference !== reference) return res.sendStatus(200);
+    const validPayment = payment.status === "success" &&
+      Number(payment.amount) === Math.round(Number(order.total) * 100) &&
+      payment.currency === "NGN" &&
+      String(payment.metadata?.restaurant_id || "") === String(order.restaurantId) &&
+      Number(payment.metadata?.restaurant_share_kobo) === Math.round(Number(order.subtotal) * 100) &&
+      Number(payment.metadata?.platform_share_kobo) === Math.round((Number(order.deliveryFee) + Number(order.paymentFee || 0)) * 100) &&
+      String(payment.customer?.email || "").toLowerCase() === String(order.paymentEmail || "").toLowerCase();
+    if (!validPayment) {
+      console.warn("Paystack webhook did not match order amount or customer:", order.id);
+      return res.sendStatus(200);
+    }
+    if (order.paymentStatus !== "Paid — Paystack verified" && order.status !== "Cancelled") {
+      const changedAt = new Date().toISOString();
+      order.paymentStatus = "Paid — Paystack verified";
+      order.paidAt = changedAt;
+      order.paymentChannel = String(payment.channel || "");
+      order.status = "Confirmed";
+      order.updatedAt = changedAt;
+      order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+      order.statusHistory.push({ status: "Confirmed", at: changedAt, by: "Paystack webhook" });
+      saveOrders(orders);
+      notifyOrderParties(order, "Payment verified — new order", order.customerName + " paid for an order at " + order.restaurantName + ".");
+      return res.json({ received: true });
+    }
+    return res.sendStatus(200);
+  } catch (error) {
+    console.error("Paystack webhook processing failed:", error.message);
+    return res.sendStatus(500);
+  }
+});
+
+app.post("/api/payments/paystack/verify", requireRole("student"), async (req, res) => {
+  if (!hasPaystackConfig()) return res.status(503).json({ error: "Online payments are not configured yet." });
+  const orderId = String(req.body.orderId || "").trim();
+  const reference = String(req.body.reference || "").trim();
+  if (!orderId || !reference || reference.length > 100) return res.status(400).json({ error: "Order ID and payment reference are required." });
+  const orders = readOrders();
+  const order = orders.find(item => item.id === orderId);
+  if (!order) return res.status(404).json({ error: "Order not found." });
+  if (order.customerPhone !== req.account.username) return res.status(403).json({ error: "You can only verify your own order." });
+  if (order.paymentStatus === "Paid — Paystack verified" && order.paystackReference === reference) {
+    return res.json({ ok: true, order: publicOrder(order), message: "Payment was already verified." });
+  }
+  if (order.paystackReference !== reference) return res.status(400).json({ error: "This payment reference does not match the order." });
+  if (order.status === "Cancelled") return res.status(400).json({ error: "This order has been cancelled." });
+  try {
+    const payment = await paystackRequest("/transaction/verify/" + encodeURIComponent(reference));
+    const expectedAmount = Math.round(Number(order.total) * 100);
+    if (payment.status !== "success" || payment.reference !== reference ||
+        Number(payment.amount) !== expectedAmount || payment.currency !== "NGN" ||
+        String(payment.metadata?.order_id || "") !== order.id ||
+        String(payment.metadata?.restaurant_id || "") !== String(order.restaurantId) ||
+        Number(payment.metadata?.restaurant_share_kobo) !== Math.round(Number(order.subtotal) * 100) ||
+        Number(payment.metadata?.platform_share_kobo) !== Math.round((Number(order.deliveryFee) + Number(order.paymentFee || 0)) * 100) ||
+        String(payment.customer?.email || "").toLowerCase() !== String(order.paymentEmail || "").toLowerCase()) {
+      return res.status(400).json({ error: "Payment could not be verified against this order. If you were charged, contact support with your payment reference." });
+    }
+    const changedAt = new Date().toISOString();
+    order.paymentStatus = "Paid — Paystack verified";
+    order.paidAt = changedAt;
+    order.paymentChannel = String(payment.channel || "");
+    order.status = "Confirmed";
+    order.updatedAt = changedAt;
+    order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+    order.statusHistory.push({ status: "Confirmed", at: changedAt, by: "Paystack verification" });
+    saveOrders(orders);
+    notifyOrderParties(order, "Payment verified — new order", order.customerName + " paid for an order at " + order.restaurantName + ".");
+    return res.json({ ok: true, order: publicOrder(order), message: "Payment verified successfully. Your order is confirmed." });
+  } catch (error) {
+    console.error("Paystack verification failed for order:", order.id, error.message);
+    return res.status(502).json({ error: "We could not verify the payment right now. If you were charged, contact support with your payment reference." });
+  }
+});
+
+// Local testing only: simulates payment without charging money.
 // View orders: restaurants see their orders, agents see assigned orders.
 app.get("/api/orders", requireLogin, (req, res) => {
   try {
@@ -998,15 +1488,29 @@ app.get("/api/orders", requireLogin, (req, res) => {
 
     if (req.account.role === "restaurant") {
       orders = orders.filter(
-        order => order.restaurantId === req.account.restaurantId
+        order => order.restaurantId === req.account.restaurantId &&
+          ["Paid — demo verified", "Paid — Paystack verified"].includes(order.paymentStatus)
       );
     } else if (req.account.role === "agent") {
       orders = orders.filter(
-        order => order.assignedAgentId === req.account.agentId
+        order => order.assignedAgentId === req.account.agentId &&
+          ["Paid — demo verified", "Paid — Paystack verified"].includes(order.paymentStatus)
       );
     } else if (req.account.role === "student") {
-      // Students may only view orders placed using their verified phone number.
-      orders = orders.filter(order => order.customerPhone === req.account.username);
+      // Students see active orders and a short post-delivery feedback window only.
+      // Older completed/cancelled orders remain available for admin review.
+      const activeStatuses = new Set(["Awaiting payment", "Confirmed", "Preparing", "Ready for pickup", "Out for delivery"]);
+      const feedbackWindowMs = 2 * 60 * 1000;
+      orders = orders.filter(order => {
+        if (order.customerPhone !== req.account.username) return false;
+        if (activeStatuses.has(order.status)) return true;
+        if (order.status !== "Completed") return false;
+        const history = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+        const completedEvent = [...history].reverse().find(event => event.status === "Completed");
+        const completedAt = order.deliveredAt || order.completedAt || completedEvent?.at;
+        const completedTime = completedAt ? new Date(completedAt).getTime() : NaN;
+        return Number.isFinite(completedTime) && Date.now() - completedTime < feedbackWindowMs;
+      });
     } else if (req.account.role !== "admin") {
       return res.status(403).json({ error: "You don't have permission to view orders." });
     }
@@ -1098,7 +1602,7 @@ app.get("/api/ratings/summary", requireLogin, (req, res) => {
       restaurantName: order.restaurantName, restaurantRating: order.rating.restaurantRating,
       agentId: order.assignedAgentId || null, agentRating: order.rating.agentRating,
       foodRatings: order.rating.foodRatings || [], comment: order.rating.comment || "",
-      ratedAt: order.rating.ratedAt
+      ratedAt: order.rating.ratedAt, deliveredAt: order.deliveredAt || order.completedAt || null
     }))
   });
 });
@@ -1113,17 +1617,38 @@ function canUseDeliveryChat(account, order) {
   ));
 }
 
+const DELIVERY_CHAT_GRACE_MS = 2 * 60 * 1000;
+
 function deliveryChatIsOpen(order) {
-  return ["Ready for pickup", "Out for delivery"].includes(order.status);
+  if (["Ready for pickup", "Out for delivery"].includes(order.status)) return true;
+  if (order.status !== "Completed") return false;
+  const deliveredAt = new Date(order.deliveredAt || order.completedAt || 0).getTime();
+  return Number.isFinite(deliveredAt) && deliveredAt > 0 && Date.now() <= deliveredAt + DELIVERY_CHAT_GRACE_MS;
+}
+
+function removeExpiredDeliveryChat(order) {
+  if (order.status !== "Completed") return false;
+  const deliveredAt = new Date(order.deliveredAt || order.completedAt || 0).getTime();
+  if (!Number.isFinite(deliveredAt) || !deliveredAt || Date.now() <= deliveredAt + DELIVERY_CHAT_GRACE_MS) return false;
+  if (!Object.prototype.hasOwnProperty.call(order, "chatMessages")) return false;
+  delete order.chatMessages;
+  return true;
 }
 
 app.get("/api/orders/:id/chat", requireRole("student", "agent", "restaurant"), (req, res) => {
   try {
-    const order = readOrders().find(item => item.id === req.params.id);
-    if (!order) return res.status(404).json({ error: "Order not found." });
+    const orders = readOrders();
+    const requestedOrderId = String(req.params.id || "").trim();
+    const order = orders.find(item => String(item.id || "").trim() === requestedOrderId) || orders.find(item => String(item.id || "").trim().toLowerCase() === requestedOrderId.toLowerCase());
+    if (!order) {
+      console.warn("Delivery chat order lookup failed", { storedOrderCount: orders.length });
+      return res.status(404).json({ error: "This order could not be found by the chat service. Refresh your deliveries and open the chat again." });
+    }
     if (!canUseDeliveryChat(req.account, order)) return res.status(403).json({ error: "Only the ordering student and assigned delivery agent can access this chat." });
-    if (!deliveryChatIsOpen(order)) return res.status(410).json({ active: false, messages: [], error: "Chat is available only while the order is ready for pickup or out for delivery." });
-    res.json({ active: true, messages: Array.isArray(order.chatMessages) ? order.chatMessages : [] });
+    if (removeExpiredDeliveryChat(order)) saveOrders(orders);
+    if (!deliveryChatIsOpen(order)) return res.status(410).json({ active: false, messages: [], error: "This temporary chat closed two minutes after delivery." });
+    const deliveredAt = new Date(order.deliveredAt || order.completedAt || 0).getTime();
+    res.json({ active: true, expiresAt: order.status === "Completed" ? new Date(deliveredAt + DELIVERY_CHAT_GRACE_MS).toISOString() : null, messages: Array.isArray(order.chatMessages) ? order.chatMessages : [] });
   } catch (error) {
     res.status(500).json({ error: "Could not load delivery chat." });
   }
@@ -1134,9 +1659,17 @@ app.post("/api/orders/:id/chat", requireRole("student", "agent", "restaurant"), 
   if (!message || message.length > 500) return res.status(400).json({ error: "Message must be between 1 and 500 characters." });
   try {
     const orders = readOrders();
-    const order = orders.find(item => item.id === req.params.id);
-    if (!order) return res.status(404).json({ error: "Order not found." });
+    const requestedOrderId = String(req.params.id || "").trim();
+    const order = orders.find(item => String(item.id || "").trim() === requestedOrderId) || orders.find(item => String(item.id || "").trim().toLowerCase() === requestedOrderId.toLowerCase());
+    if (!order) {
+      console.warn("Delivery chat send lookup failed", { storedOrderCount: orders.length });
+      return res.status(404).json({ error: "This order could not be found by the chat service. Refresh your deliveries and open the chat again." });
+    }
     if (!canUseDeliveryChat(req.account, order)) return res.status(403).json({ error: "Only the ordering student and assigned delivery agent can send messages here." });
+    if (removeExpiredDeliveryChat(order)) {
+      saveOrders(orders);
+      return res.status(410).json({ error: "This temporary chat closed two minutes after delivery." });
+    }
     if (!deliveryChatIsOpen(order)) return res.status(410).json({ error: "This temporary chat has closed." });
     order.chatMessages = Array.isArray(order.chatMessages) ? order.chatMessages : [];
     if (order.chatMessages.length >= 100) order.chatMessages.shift();
@@ -1213,6 +1746,60 @@ app.get("/api/admin/restaurants", requireRole("admin"), (req, res) => {
 });
 
 // Admin-only restaurant deletion. Completed order history is preserved.
+// Admin-only location overview. Student pins are their latest saved delivery points;
+ // agent GPS is shown only while the agent is online; restaurant pins are pickup locations.
+app.get("/api/admin/locations", requireRole("admin"), (req, res) => {
+  try {
+    const inNigeria = (latitude, longitude) =>
+      Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude)) &&
+      Number(latitude) >= 4 && Number(latitude) <= 14 &&
+      Number(longitude) >= 2 && Number(longitude) <= 15;
+    const orders = readOrders().slice().sort((a, b) =>
+      new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    );
+    const students = readStudents().map(student => {
+      const latestOrder = orders.find(order => order.customerPhone === student.phone &&
+        Number.isFinite(Number(order.deliveryLocation?.latitude)) &&
+        Number.isFinite(Number(order.deliveryLocation?.longitude)) &&
+        order.deliveryLocation?.latitude !== null && order.deliveryLocation?.longitude !== null);
+      const pin = latestOrder ? latestOrder.deliveryLocation : null;
+      return {
+        id: student.id,
+        name: student.name,
+        username: student.username || student.phone,
+        latitude: pin && inNigeria(pin.latitude, pin.longitude) ? Number(pin.latitude) : null,
+        longitude: pin && inNigeria(pin.latitude, pin.longitude) ? Number(pin.longitude) : null,
+        locationLabel: pin ? (latestOrder.hostel || pin.hostel || "Saved delivery point") : "",
+        updatedAt: pin ? (latestOrder.updatedAt || latestOrder.createdAt || null) : null,
+        locationType: "latest-delivery-pin"
+      };
+    });
+    const agentRows = readAgentRecords().map(agent => ({
+      id: agent.id,
+      name: agent.name,
+      username: agent.username,
+      online: Boolean(agent.online),
+      latitude: agent.online && inNigeria(agent.latitude, agent.longitude) ? Number(agent.latitude) : null,
+      longitude: agent.online && inNigeria(agent.latitude, agent.longitude) ? Number(agent.longitude) : null,
+      updatedAt: agent.online ? (agent.locationUpdatedAt || null) : null,
+      locationType: "agent-gps"
+    }));
+    const restaurantRows = restaurants.map(restaurant => ({
+      id: restaurant.id,
+      name: restaurant.name,
+      locationLabel: restaurant.location || "",
+      latitude: inNigeria(restaurant.latitude, restaurant.longitude) ? Number(restaurant.latitude) : null,
+      longitude: inNigeria(restaurant.latitude, restaurant.longitude) ? Number(restaurant.longitude) : null,
+      updatedAt: restaurantLocationCoordinates[restaurant.id]?.updatedAt || null,
+      locationType: "restaurant-pickup"
+    }));
+    res.json({ students, agents: agentRows, restaurants: restaurantRows });
+  } catch (error) {
+    console.error("Could not load admin location overview:", error.message);
+    res.status(500).json({ error: "Could not load location data. Please refresh and try again." });
+  }
+});
+
 app.delete("/api/admin/restaurants/:id", requireRole("admin"), (req, res) => {
   const restaurantId = String(req.params.id || "");
   const restaurant = restaurants.find(item => item.id === restaurantId);
@@ -1298,6 +1885,89 @@ function requireSuperAdmin(req, res, next) {
   req.account = session;
   next();
 }
+
+// Ultimate admin can reset a student, restaurant, or agent password when they lose access.
+app.post("/api/superadmin/reset-password", requireSuperAdmin, (req, res) => {
+  const role = String(req.body.role || "");
+  const id = String(req.body.id || "").trim();
+  const password = String(req.body.password || "");
+  if (!["student", "restaurant", "agent"].includes(role)) {
+    return res.status(400).json({ error: "Choose a student, restaurant, or agent account." });
+  }
+  if (!id) return res.status(400).json({ error: "Choose an account to reset." });
+  if (password.length < 10 || password.length > 128) {
+    return res.status(400).json({ error: "Temporary password must be 10–128 characters." });
+  }
+
+  try {
+    let username = "";
+    let targetName = "";
+    const hashed = hashPassword(password);
+
+    if (role === "student") {
+      const records = readStudents();
+      const student = records.find(item => item.id === id);
+      if (!student) return res.status(404).json({ error: "Student account not found." });
+      student.passwordSalt = hashed.salt;
+      student.passwordHash = hashed.hash;
+      saveStudents(records);
+      username = student.phone;
+      targetName = student.name;
+    } else if (role === "agent") {
+      const records = readAgentRecords();
+      const agent = records.find(item => item.id === id);
+      if (!agent) return res.status(404).json({ error: "Delivery agent not found." });
+      agent.passwordSalt = hashed.salt;
+      agent.passwordHash = hashed.hash;
+      saveAgentRecords(records);
+      username = agent.username;
+      targetName = agent.name;
+      const staffAccount = accounts.find(item => item.role === "agent" && item.agentId === id);
+      if (staffAccount) {
+        staffAccount.passwordSalt = hashed.salt;
+        staffAccount.passwordHash = hashed.hash;
+        staffAccount.password = "";
+      }
+    } else {
+      const restaurant = restaurants.find(item => item.id === id);
+      if (!restaurant) return res.status(404).json({ error: "Restaurant not found." });
+      const staffAccount = accounts.find(item => item.role === "restaurant" && item.restaurantId === id);
+      if (!staffAccount) return res.status(404).json({ error: "Restaurant login account not found." });
+      username = staffAccount.username;
+      targetName = restaurant.name;
+      staffAccount.passwordSalt = hashed.salt;
+      staffAccount.passwordHash = hashed.hash;
+      staffAccount.password = "";
+    }
+
+    if (role !== "student") {
+      const overrides = readAccountPasswords();
+      overrides[role + ":" + username] = {
+        passwordSalt: hashed.salt,
+        passwordHash: hashed.hash,
+        changedAt: new Date().toISOString(),
+        resetBy: req.account.username
+      };
+      saveAccountPasswords(overrides);
+    }
+
+    for (const [token, session] of sessions.entries()) {
+      if (session.role === role && (session.username === username ||
+          (role === "agent" && session.agentId === id) ||
+          (role === "restaurant" && session.restaurantId === id))) {
+        sessions.delete(token);
+      }
+    }
+
+    res.json({
+      ok: true,
+      message: "Password reset for " + targetName + ". Share the temporary password securely and ask them to change it after logging in."
+    });
+  } catch (error) {
+    console.error("Ultimate admin password reset failed:", error.message);
+    res.status(500).json({ error: "Could not reset that password. Please try again." });
+  }
+});
 
 app.get("/api/superadmin/admins", requireSuperAdmin, (req, res) => {
   const disabled = readStoredJson(path.join(__dirname, "disabled-admins.json"), []);
@@ -1489,6 +2159,35 @@ function distanceKm(aLat, aLon, bLat, bLon) {
   return 6371 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
 
+function calculateDeliveryQuote(restaurant, deliveryLatitude, deliveryLongitude) {
+  const hasRestaurantPin = restaurant &&
+    restaurant.latitude !== null && restaurant.latitude !== undefined &&
+    restaurant.longitude !== null && restaurant.longitude !== undefined &&
+    Number.isFinite(Number(restaurant.latitude)) && Number.isFinite(Number(restaurant.longitude));
+  const hasDeliveryPin = deliveryLatitude !== null && deliveryLatitude !== undefined &&
+    deliveryLongitude !== null && deliveryLongitude !== undefined &&
+    Number.isFinite(Number(deliveryLatitude)) && Number.isFinite(Number(deliveryLongitude));
+  let distanceKmValue = null;
+  let estimatedRoadDistanceKm = null;
+  if (hasRestaurantPin && hasDeliveryPin) {
+    distanceKmValue = Math.round(distanceKm(
+      Number(restaurant.latitude), Number(restaurant.longitude),
+      Number(deliveryLatitude), Number(deliveryLongitude)
+    ) * 10) / 10;
+    // Distance is informational only; it never changes the delivery fee.
+    estimatedRoadDistanceKm = Math.round(distanceKmValue * 1.3 * 10) / 10;
+  }
+  return {
+    deliveryFee: FIXED_DELIVERY_FEE,
+    distanceKm: distanceKmValue,
+    estimatedRoadDistanceKm,
+    distanceBased: false,
+    baseFee: FIXED_DELIVERY_FEE,
+    perKm: 0,
+    message: "Fixed delivery fee: ₦300 for every order."
+  };
+}
+
 function assignReadyOrders() {
   const records = readAgentRecords();
   const orders = readOrders();
@@ -1502,28 +2201,44 @@ function assignReadyOrders() {
 
   for (const order of waiting) {
     const tried = new Set(Array.isArray(order.offeredAgentIds) ? order.offeredAgentIds : []);
-    const eligible = records.filter(agent =>
-      agent.online && !busyAgentIds.has(agent.id) && !agent.activeOrderId && !tried.has(agent.id)
-    );
-    if (!eligible.length) continue;
-
-    // Pickup is at the restaurant. Never use the student's delivery pin as a
-    // substitute for restaurant coordinates; without a pickup pin use fair rotation.
-    const targetLatitude = order.restaurantLatitude;
-    const targetLongitude = order.restaurantLongitude;
+    // A GPS fix is considered current for two minutes. Never use an old location
+    // to claim that an agent is the nearest one.
+    const locationFreshMs = 2 * 60 * 1000;
+    const nowMs = Date.now();
+    const pinnedRestaurant = restaurants.find(item => item.id === order.restaurantId);
+    const targetLatitude = order.restaurantLatitude ?? pinnedRestaurant?.latitude;
+    const targetLongitude = order.restaurantLongitude ?? pinnedRestaurant?.longitude;
     const hasTargetCoords = targetLatitude !== null && targetLatitude !== undefined &&
       targetLongitude !== null && targetLongitude !== undefined &&
       Number.isFinite(Number(targetLatitude)) && Number.isFinite(Number(targetLongitude));
+    const eligible = records.filter(agent => {
+      if (!agent.online || busyAgentIds.has(agent.id) || agent.activeOrderId || tried.has(agent.id)) return false;
+      const hasAgentCoords = agent.latitude !== null && agent.latitude !== undefined &&
+        agent.longitude !== null && agent.longitude !== undefined &&
+        Number.isFinite(Number(agent.latitude)) && Number.isFinite(Number(agent.longitude));
+      const locationIsFresh = agent.locationUpdatedAt &&
+        nowMs - new Date(agent.locationUpdatedAt).getTime() <= locationFreshMs &&
+        nowMs - new Date(agent.locationUpdatedAt).getTime() >= 0;
+      // When the restaurant has a pin, only agents with a fresh GPS fix can be
+      // ranked and contacted. Without a pin, retain the existing fair-rotation fallback.
+      if (hasTargetCoords) return hasAgentCoords && locationIsFresh;
+      return true;
+    });
+    if (!eligible.length) {
+      if (hasTargetCoords) {
+        createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Waiting for nearby agent GPS",
+          `Order ${order.id} is ready, but no available agent has a fresh GPS location yet. Keep the pickup pin saved and ask online agents to enable location.`, order.id);
+      }
+      continue;
+    }
+
+    // Pickup is at the restaurant. Never use the student's delivery pin as a
+    // substitute for restaurant coordinates; without a pickup pin use fair rotation.
     eligible.sort((a, b) => {
-      const aHas = Number.isFinite(Number(a.latitude)) && Number.isFinite(Number(a.longitude)) &&
-        a.latitude !== null && a.longitude !== null && hasTargetCoords;
-      const bHas = Number.isFinite(Number(b.latitude)) && Number.isFinite(Number(b.longitude)) &&
-        b.latitude !== null && b.longitude !== null && hasTargetCoords;
-      if (aHas && bHas) {
+      if (hasTargetCoords) {
         return distanceKm(targetLatitude, targetLongitude, a.latitude, a.longitude) -
           distanceKm(targetLatitude, targetLongitude, b.latitude, b.longitude);
       }
-      if (aHas !== bHas) return aHas ? -1 : 1;
       return new Date(a.lastAssignedAt || 0) - new Date(b.lastAssignedAt || 0);
     });
 
@@ -1619,6 +2334,12 @@ app.patch("/api/admin/agents/:id/availability", requireRole("admin"), (req, res)
     if (!agent) return res.status(404).json({ error: "Delivery agent not found." });
     agent.online = req.body.online;
     agent.availabilityUpdatedAt = new Date().toISOString();
+    // Do not retain a live location after an agent goes offline.
+    if (!agent.online) {
+      agent.latitude = null;
+      agent.longitude = null;
+      agent.locationUpdatedAt = null;
+    }
     saveAgentRecords(records);
     agents = records.map(record => ({ id: record.id, name: record.name, username: record.username, online: Boolean(record.online), activeOrderId: record.activeOrderId || null, createdAt: record.createdAt || null }));
     if (agent.online) assignReadyOrders();
@@ -1633,7 +2354,17 @@ app.get("/api/agents/me", requireRole("agent"), (req, res) => {
   try {
     const agent = readAgentRecords().find(item => item.id === req.account.agentId);
     if (!agent) return res.status(404).json({ error: "Agent account not found." });
-    res.json({ id: agent.id, name: agent.name, username: agent.username, online: Boolean(agent.online), activeOrderId: agent.activeOrderId || null });
+    const successfulDeliveries = readOrders().filter(order =>
+      String(order.assignedAgentId || "") === String(agent.id) && order.status === "Completed"
+    ).length;
+    res.json({
+      id: agent.id,
+      name: agent.name,
+      username: agent.username,
+      online: Boolean(agent.online),
+      activeOrderId: agent.activeOrderId || null,
+      successfulDeliveries
+    });
   } catch (error) {
     res.status(500).json({ error: error.message || "Could not load agent profile." });
   }
@@ -1684,6 +2415,8 @@ app.patch("/api/agent/location", requireRole("agent"), (req, res) => {
     agent.longitude = longitude;
     agent.locationUpdatedAt = new Date().toISOString();
     saveAgentRecords(records);
+    // A newly received GPS fix may make this agent eligible for a waiting order.
+    assignReadyOrders();
     res.json({ ok: true, message: "Agent location updated." });
   } catch (error) {
     res.status(500).json({ error: "Could not update agent location." });
@@ -1699,6 +2432,12 @@ app.patch("/api/agent/availability", requireRole("agent"), (req, res) => {
     if (!agent) return res.status(404).json({ error: "Agent account not found." });
     agent.online = req.body.online;
     agent.availabilityUpdatedAt = new Date().toISOString();
+    // Do not keep or expose a live GPS fix after the agent goes offline.
+    if (!agent.online) {
+      agent.latitude = null;
+      agent.longitude = null;
+      agent.locationUpdatedAt = null;
+    }
     saveAgentRecords(records);
     agents = records.map(record => ({ id: record.id, name: record.name, username: record.username, online: Boolean(record.online), activeOrderId: record.activeOrderId || null, createdAt: record.createdAt || null }));
     if (agent.online) assignReadyOrders();
@@ -1792,6 +2531,10 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
         });
       }
 
+      if (newStatus === "Completed" && order.status !== "Out for delivery") {
+        return res.status(400).json({ error: "Confirm delivery only after the order is marked Out for delivery." });
+      }
+
       if (!["Out for delivery", "Completed"].includes(newStatus)) {
         return res.status(403).json({
           error: "Delivery agents cannot set that status."
@@ -1812,10 +2555,10 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
     // Fulfilment requires a verified payment state.
     if (
       newStatus !== "Cancelled" &&
-      order.paymentStatus !== "Paid — demo verified"
+      !["Paid — demo verified", "Paid — Paystack verified"].includes(order.paymentStatus)
     ) {
       return res.status(400).json({
-        error: "This order is unpaid. Real payment verification must be integrated before fulfilment."
+        error: "This order is unpaid. Complete and verify payment before fulfilment."
       });
     }
 
@@ -1824,14 +2567,13 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
       const changedAt = new Date().toISOString();
       order.status = newStatus;
       order.updatedAt = changedAt;
-      order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [{ status: order.status, at: order.createdAt, by: "system" }];
+      order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [{ status: previousStatus, at: order.createdAt, by: "system" }];
       order.statusHistory.push({ status: newStatus, at: changedAt, by: req.account.role });
     }
 
-    // Erase the temporary delivery chat as soon as the order is completed or cancelled.
-    if (newStatus === "Completed" || newStatus === "Cancelled") {
-      delete order.chatMessages;
-    }
+    // Delivery chat stays available for two minutes after successful delivery,
+    // then its messages are removed on the next chat request.
+    if (newStatus === "Cancelled") delete order.chatMessages;
 
     // Starting delivery accepts the 60-second pickup offer.
     if (newStatus === "Out for delivery" && order.assignedAgentId === req.account.agentId) {
@@ -1839,15 +2581,19 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
       order.assignmentExpiresAt = null;
     }
 
-    // Record agent earnings only once when the order is completed.
-    if (newStatus === "Completed" && !order.agentEarningsRecorded) {
-      order.agentEarningsRecorded = true;
-      order.agentEarnings = 100;
-      order.completedAt = new Date().toISOString();
+    // Stamp completion once, for restaurant history, ratings and agent earnings.
+    if (newStatus === "Completed" && previousStatus !== "Completed") {
+      const deliveredAt = new Date().toISOString();
+      order.completedAt = deliveredAt;
+      order.deliveredAt = deliveredAt;
+      if (!order.agentEarningsRecorded) {
+        order.agentEarningsRecorded = true;
+        order.agentEarnings = AGENT_EARNING_PER_DELIVERY;
+      }
     }
 
     saveOrders(orders);
-    if (previousStatus !== newStatus) notifyOrderParties(order, "Order status updated", `Status changed from ${previousStatus} to ${newStatus}.`);
+    if (previousStatus !== newStatus) notifyOrderStatusChanged(order, previousStatus, newStatus);
     if (newStatus === "Ready for pickup") assignReadyOrders();
     if (newStatus === "Completed" || newStatus === "Cancelled") {
       const records = readAgentRecords();
@@ -1865,36 +2611,135 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
   }
 });
 
-// Monthly completed delivery earnings
+// Monthly delivery earnings and payment history. Amounts are calculated from completed deliveries,
+// while payout records are written only by an administrator and persist in PostgreSQL-backed app storage.
+function normalizeEarningsMonth(value) {
+  const input = typeof value === "string" ? value : "";
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(input)) return null;
+  const [year, month] = input.split("-").map(Number);
+  if (year < 2020 || year > 2100) return null;
+  return { key: input, year, monthIndex: month - 1 };
+}
+
+function monthlyAgentEarnings(orders, agentId, monthInfo) {
+  const completed = orders.filter(order => {
+    if (String(order.assignedAgentId || "") !== String(agentId) || !order.agentEarningsRecorded || !order.completedAt) return false;
+    const date = new Date(order.completedAt);
+    return !Number.isNaN(date.getTime()) && date.getUTCMonth() === monthInfo.monthIndex && date.getUTCFullYear() === monthInfo.year;
+  });
+  return {
+    completedDeliveries: completed.length,
+    earned: completed.reduce((sum, order) => sum + Math.max(0, Number(order.agentEarnings ?? AGENT_EARNING_PER_DELIVERY) || 0), 0)
+  };
+}
+
+function agentPaymentSummary(agentId, monthKey, payments) {
+  return payments.filter(payment => String(payment.agentId) === String(agentId) && payment.month === monthKey)
+    .reduce((sum, payment) => sum + Math.max(0, Number(payment.amount) || 0), 0);
+}
+
 app.get("/api/earnings", requireRole("admin", "agent"), (req, res) => {
   try {
-    const orders = readOrders();
     const now = new Date();
-    const month = now.getMonth();
-    const year = now.getFullYear();
+    const defaultMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+    const monthInfo = normalizeEarningsMonth(req.query.month || defaultMonth);
+    if (!monthInfo) return res.status(400).json({ error: "Choose a valid month in YYYY-MM format." });
+    const orders = readOrders();
+    const payments = readAgentPayments();
+    const monthPayments = payments.filter(payment => payment.month === monthInfo.key)
+      .sort((a, b) => String(b.paidAt).localeCompare(String(a.paidAt)));
 
-    const completed = orders.filter(order => {
-      if (!order.agentEarningsRecorded || !order.completedAt) return false;
+    if (req.account.role === "agent") {
+      const agent = readAgentRecords().find(item => item.id === req.account.agentId);
+      if (!agent) return res.status(404).json({ error: "Agent account not found." });
+      const totals = monthlyAgentEarnings(orders, agent.id, monthInfo);
+      const paid = agentPaymentSummary(agent.id, monthInfo.key, payments);
+      return res.json({
+        month: monthInfo.key,
+        agent: { id: agent.id, name: agent.name, ...totals, paid, outstanding: Math.max(0, totals.earned - paid) },
+        payments: monthPayments.filter(payment => payment.agentId === agent.id).map(payment => ({
+          id: payment.id, month: payment.month, amount: payment.amount, reference: payment.reference || "",
+          note: payment.note || "", paidAt: payment.paidAt, paidBy: payment.paidBy
+        })),
+        note: "Earnings are bookkeeping records. Payments shown here are marked as paid by an administrator."
+      });
+    }
 
-      if (
-        req.account.role === "agent" &&
-        order.assignedAgentId !== req.account.agentId
-      ) {
-        return false;
-      }
+    const agentsForSummary = readAgentRecords().map(agent => {
+      const totals = monthlyAgentEarnings(orders, agent.id, monthInfo);
+      const paid = agentPaymentSummary(agent.id, monthInfo.key, payments);
+      return { id: agent.id, name: agent.name, username: agent.username, ...totals, paid, outstanding: Math.max(0, totals.earned - paid) };
+    }).sort((a, b) => a.name.localeCompare(b.name));
 
-      const date = new Date(order.completedAt);
-      return date.getMonth() === month && date.getFullYear() === year;
-    });
-
+    const paymentRows = monthPayments.map(payment => ({
+      id: payment.id, agentId: payment.agentId, agentName: payment.agentName || "Delivery agent",
+      month: payment.month, amount: payment.amount, reference: payment.reference || "",
+      note: payment.note || "", paidAt: payment.paidAt, paidBy: payment.paidBy
+    }));
     res.json({
-      month: `${year}-${String(month + 1).padStart(2, "0")}`,
-      completedDeliveries: completed.length,
-      earned: completed.length * 100,
-      note: "Demo bookkeeping only. Agent payouts are not automated."
+      month: monthInfo.key,
+      agents: agentsForSummary,
+      payments: paymentRows,
+      totals: {
+        completedDeliveries: agentsForSummary.reduce((sum, agent) => sum + agent.completedDeliveries, 0),
+        earned: agentsForSummary.reduce((sum, agent) => sum + agent.earned, 0),
+        paid: agentsForSummary.reduce((sum, agent) => sum + agent.paid, 0),
+        outstanding: agentsForSummary.reduce((sum, agent) => sum + agent.outstanding, 0)
+      },
+      note: "Record a payout only after the transfer has actually been made. This feature does not send money automatically."
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error.message || "Could not load monthly agent earnings." });
+  }
+});
+
+app.post("/api/admin/agent-payments", requireRole("admin"), (req, res) => {
+  try {
+    const agentId = String(req.body.agentId || "").trim();
+    const monthInfo = normalizeEarningsMonth(req.body.month);
+    if (!agentId) return res.status(400).json({ error: "Choose a delivery agent." });
+    if (!monthInfo) return res.status(400).json({ error: "Choose a valid month in YYYY-MM format." });
+
+    const agent = readAgentRecords().find(item => item.id === agentId);
+    if (!agent) return res.status(404).json({ error: "Delivery agent not found." });
+
+    const orders = readOrders();
+    const payments = readAgentPayments();
+    const totals = monthlyAgentEarnings(orders, agentId, monthInfo);
+    const paid = agentPaymentSummary(agentId, monthInfo.key, payments);
+    const outstanding = Math.max(0, totals.earned - paid);
+    const amount = req.body.amount === undefined || req.body.amount === "" ? outstanding : Number(req.body.amount);
+    const reference = String(req.body.reference || "").trim().slice(0, 120);
+    const note = String(req.body.note || "").trim().slice(0, 300);
+
+    if (!Number.isSafeInteger(amount) || amount <= 0) return res.status(400).json({ error: "Enter a whole-number payout amount greater than ₦0." });
+    if (amount > outstanding) return res.status(400).json({ error: `Payout exceeds the outstanding balance of ₦${outstanding.toLocaleString("en-NG")}.` });
+    if (outstanding <= 0) return res.status(409).json({ error: "There is no unpaid balance for this agent in that month." });
+
+    const payment = {
+      id: "PAY-" + crypto.randomBytes(6).toString("hex").toUpperCase(),
+      agentId: agent.id,
+      agentName: agent.name,
+      month: monthInfo.key,
+      amount,
+      reference,
+      note,
+      paidAt: new Date().toISOString(),
+      paidBy: req.account.username
+    };
+    payments.unshift(payment);
+    saveAgentPayments(payments);
+    createNotification(
+      { role: "agent", agentId: agent.id },
+      "Monthly earnings payment recorded",
+      `An administrator recorded a ₦${amount.toLocaleString("en-NG")} payment for ${monthInfo.key}.${reference ? " Reference: " + reference + "." : ""}`
+    );
+    res.status(201).json({
+      payment: { id: payment.id, agentId: payment.agentId, agentName: payment.agentName, month: payment.month, amount: payment.amount, reference: payment.reference, note: payment.note, paidAt: payment.paidAt, paidBy: payment.paidBy },
+      message: "Payment record saved. This records a payment; it does not transfer money."
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Could not record the agent payment." });
   }
 });
 
@@ -1912,86 +2757,157 @@ app.use("/api", (req, res) => {
   res.status(404).json({ error: "API endpoint not found." });
 });
 
-async function runIsolatedLoadTest() {
-  const base = `http://127.0.0.1:${PORT}`;
-  const startedAt = Date.now();
-  const suffix = String(Date.now()).slice(-8);
-  const phone = "080" + suffix;
-  const password = "LoadTestPass!2026";
-  const results = { target: "isolated load-test instance", concurrentOrders: 50, registration: false, successfulOrders: 0, failedOrders: 0, uniqueOrderIds: 0, duplicateRetryPassed: false, elapsedMs: 0, errors: [] };
-
-  try {
-    const registerResponse = await fetch(base + "/api/student/register", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "ChowOnCampus Load Test", phone, password })
-    });
-    const registerBody = await registerResponse.json().catch(() => ({}));
-    const cookie = (registerResponse.headers.get("set-cookie") || "").split(";")[0];
-    results.registration = registerResponse.status === 201 && Boolean(cookie);
-    if (!results.registration) throw new Error("Test student registration failed: HTTP " + registerResponse.status + " " + JSON.stringify(registerBody));
-
-    const requests = Array.from({ length: 50 }, (_, index) => {
-      const requestId = "load-test-" + suffix + "-" + index;
-      const body = {
-        hostel: "LOAD TEST — NOT A REAL DELIVERY",
-        block: "TEST",
-        room: String(index + 1),
-        landmark: "Automated stress test",
-        restaurantId: "CB",
-        items: [{ id: "cb1", qty: 1 }],
-        requestId
-      };
-      return { requestId, body };
-    });
-
-    const outcomes = await Promise.all(requests.map(async request => {
-      const response = await fetch(base + "/api/orders", {
-        method: "POST",
-        headers: { "content-type": "application/json", cookie },
-        body: JSON.stringify(request.body)
-      });
-      const data = await response.json().catch(() => ({}));
-      return { status: response.status, data, request };
-    }));
-    results.successfulOrders = outcomes.filter(x => x.status === 201 && x.data?.order?.id).length;
-    results.failedOrders = outcomes.length - results.successfulOrders;
-    results.uniqueOrderIds = new Set(outcomes.filter(x => x.data?.order?.id).map(x => x.data.order.id)).size;
-    const failures = outcomes.filter(x => x.status !== 201 || !x.data?.order?.id);
-    results.errors = failures.slice(0, 5).map(x => ({ status: x.status, error: x.data?.error || "Missing order ID" }));
-
-    const retryTarget = outcomes.find(x => x.status === 201 && x.data?.order?.id);
-    if (retryTarget) {
-      const retryResponse = await fetch(base + "/api/orders", {
-        method: "POST",
-        headers: { "content-type": "application/json", cookie },
-        body: JSON.stringify(retryTarget.request.body)
-      });
-      const retryData = await retryResponse.json().catch(() => ({}));
-      results.duplicateRetryPassed = retryResponse.status === 200 && retryData?.order?.id === retryTarget.data.order.id;
-    }
-
-    results.elapsedMs = Date.now() - startedAt;
-    console.log("LOAD_TEST_RESULT " + JSON.stringify(results));
-    if (results.successfulOrders !== 50 || results.uniqueOrderIds !== 50 || !results.duplicateRetryPassed) {
-      console.error("LOAD_TEST_STATUS FAIL");
-    } else {
-      console.log("LOAD_TEST_STATUS PASS");
-    }
-  } catch (error) {
-    results.elapsedMs = Date.now() - startedAt;
-    results.errors.push(String(error?.message || error));
-    console.log("LOAD_TEST_RESULT " + JSON.stringify(results));
-    console.error("LOAD_TEST_STATUS FAIL");
-  }
-}
-
 app.listen(PORT, () => {
   console.log(`Chowoncampus running at http://localhost:${PORT}`);
-  if (process.env.LOAD_TEST_MODE === "true") {
-    setTimeout(() => runIsolatedLoadTest(), 1000);
-  }
+  if (LOAD_TEST_MODE) setTimeout(() => runIsolatedOrderLifecycleTest().catch(error => console.error("QA runner failed:", error)), 1500);
 });
+
+
+async function runIsolatedOrderLifecycleTest() {
+  const base = `http://127.0.0.1:${PORT}`;
+  const startedAt = Date.now();
+  const suffix = String(Date.now()).slice(-7);
+  const results = { target: "isolated ChowOnCampus QA service", checks: {}, errors: [], elapsedMs: 0 };
+  const assert = (condition, message) => { if (!condition) throw new Error(message); };
+  async function request(pathname, options = {}) {
+    const headers = { ...(options.cookie ? { cookie: options.cookie } : {}) };
+    if (options.body !== undefined) headers["content-type"] = "application/json";
+    const response = await fetch(base + pathname, {
+      method: options.method || "GET",
+      headers,
+      ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {})
+    });
+    const data = await response.json().catch(() => ({}));
+    const setCookie = response.headers.get("set-cookie");
+    return { status: response.status, data, cookie: setCookie ? setCookie.split(";")[0] : null };
+  }
+  const check = (name, passed, details = "") => {
+    results.checks[name] = { passed: Boolean(passed), details };
+    assert(passed, name + (details ? ": " + details : ""));
+  };
+  try {
+    const adminUsername = String(process.env.ADMIN_USERNAME || "coc_owner_2026").toLowerCase();
+    const adminLogin = await request("/api/login", { method: "POST", body: { username: adminUsername, password: process.env.ADMIN_PASSWORD } });
+    check("1. Admin test login", adminLogin.status === 200 && Boolean(adminLogin.cookie), "isolated QA credentials only");
+    const adminCookie = adminLogin.cookie;
+
+    const studentPhone = "080" + suffix;
+    const student = await request("/api/student/register", {
+      method: "POST",
+      body: {
+        name: "QA Lifecycle Student",
+        phone: studentPhone,
+        password: "QAStudentPass!2026",
+        consents: { terms: true, privacy: true, delivery: true }
+      }
+    });
+    check("2. Student order account", student.status === 201 && Boolean(student.cookie), "test-only student registered");
+    const studentCookie = student.cookie;
+
+    const restaurantLogin = await request("/api/login", {
+      method: "POST",
+      body: { username: "campusbites", password: process.env.CAMPUSBITES_PASSWORD }
+    });
+    check("3. Restaurant login", restaurantLogin.status === 200 && Boolean(restaurantLogin.cookie), "Campus Bites test account");
+    const restaurantCookie = restaurantLogin.cookie;
+    const pin = await request("/api/restaurant/location-coordinates", {
+      method: "PATCH", cookie: restaurantCookie, body: { latitude: 7.55, longitude: 4.55 }
+    });
+    check("4. Restaurant pickup pin", pin.status === 200, JSON.stringify(pin.data));
+
+    const farUsername = "qafar" + suffix;
+    const nearUsername = "qaneer" + suffix;
+    const agentPassword = "QAAgentPass!2026";
+    const farCreated = await request("/api/admin/agents", {
+      method: "POST", cookie: adminCookie,
+      body: { name: "QA Agent Far", username: farUsername, password: agentPassword }
+    });
+    const nearCreated = await request("/api/admin/agents", {
+      method: "POST", cookie: adminCookie,
+      body: { name: "QA Agent Near", username: nearUsername, password: agentPassword }
+    });
+    check("5. Create isolated delivery agents", farCreated.status === 201 && nearCreated.status === 201, "two temporary agents created");
+    const farAgentId = farCreated.data?.agent?.id;
+    const nearAgentId = nearCreated.data?.agent?.id;
+
+    const farLogin = await request("/api/login", { method: "POST", body: { username: farUsername, password: agentPassword } });
+    const nearLogin = await request("/api/login", { method: "POST", body: { username: nearUsername, password: agentPassword } });
+    check("6. Agent logins", farLogin.status === 200 && nearLogin.status === 200, "both test agents authenticated");
+    const farCookie = farLogin.cookie;
+    const nearCookie = nearLogin.cookie;
+
+    const farGps = await request("/api/agent/location", { method: "PATCH", cookie: farCookie, body: { latitude: 7.56, longitude: 4.56 } });
+    const nearGps = await request("/api/agent/location", { method: "PATCH", cookie: nearCookie, body: { latitude: 7.5501, longitude: 4.5501 } });
+    const farOnline = await request("/api/agent/availability", { method: "PATCH", cookie: farCookie, body: { online: true } });
+    const nearOnline = await request("/api/agent/availability", { method: "PATCH", cookie: nearCookie, body: { online: true } });
+    check("7. Fresh GPS and online state", farGps.status === 200 && nearGps.status === 200 && farOnline.status === 200 && nearOnline.status === 200, "near/far coordinates saved in QA storage");
+
+    const created = await request("/api/orders", {
+      method: "POST", cookie: studentCookie,
+      body: {
+        hostel: "QA TEST — NOT A REAL DELIVERY", block: "TEST", room: "01",
+        landmark: "Automated lifecycle test", restaurantId: "CB",
+        items: [{ id: "cb1", qty: 1 }], requestId: "qa-lifecycle-" + suffix
+      }
+    });
+    const orderId = created.data?.order?.id;
+    check("8. Order creation and unique ID", created.status === 201 && /^COC-/.test(orderId || ""), created.data?.message || "");
+    const createdOrder = created.data.order;
+    check("9. Server-calculated fees", createdOrder.takeawayFee === 200 && createdOrder.deliveryFee === 300 && createdOrder.total > createdOrder.baseTotal, "mandatory packaging, delivery and 1% fee");
+
+    const init = await request("/api/orders/" + encodeURIComponent(orderId) + "/paystack/initialize", {
+      method: "POST", cookie: studentCookie, body: { email: "qa-" + suffix + "@example.com" }
+    });
+    check("10. Mock Paystack checkout initialization", init.status === 200 && Boolean(init.data.reference), JSON.stringify(init.data));
+    const verified = await request("/api/payments/paystack/verify", {
+      method: "POST", cookie: studentCookie, body: { orderId, reference: init.data.reference }
+    });
+    check("11. Payment verification and confirmation", verified.status === 200 && verified.data.order?.paymentStatus === "Paid — Paystack verified" && verified.data.order?.status === "Confirmed", verified.data?.message || JSON.stringify(verified.data));
+    const restaurantOrders = await request("/api/orders", { cookie: restaurantCookie });
+    check("12. Restaurant sees paid order", restaurantOrders.status === 200 && restaurantOrders.data.orders?.some(item => item.id === orderId && item.status === "Confirmed"), "paid order visible to the correct restaurant");
+
+    const preparing = await request("/api/orders/" + encodeURIComponent(orderId) + "/status", { method: "PATCH", cookie: restaurantCookie, body: { status: "Preparing" } });
+    check("13. Restaurant starts preparation", preparing.status === 200 && preparing.data.order?.status === "Preparing", JSON.stringify(preparing.data));
+    const ready = await request("/api/orders/" + encodeURIComponent(orderId) + "/status", { method: "PATCH", cookie: restaurantCookie, body: { status: "Ready for pickup" } });
+    check("14. Restaurant marks ready", ready.status === 200 && ready.data.order?.status === "Ready for pickup", JSON.stringify(ready.data));
+
+    let orderAfterOffer = (await request("/api/orders", { cookie: studentCookie })).data.orders?.find(item => item.id === orderId);
+    check("15. Nearest agent receives first offer", orderAfterOffer?.assignedAgentId === nearAgentId, "expected nearest agent " + nearAgentId + ", got " + orderAfterOffer?.assignedAgentId);
+    const expiryDeadline = Date.now() + 70000;
+    while (Date.now() < expiryDeadline) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      orderAfterOffer = (await request("/api/orders", { cookie: studentCookie })).data.orders?.find(item => item.id === orderId);
+      if (orderAfterOffer?.assignedAgentId === farAgentId) break;
+    }
+    check("16. Unaccepted offer falls back after 60 seconds", orderAfterOffer?.assignedAgentId === farAgentId, "expected fallback agent " + farAgentId + ", got " + orderAfterOffer?.assignedAgentId);
+
+    const accepted = await request("/api/agent/assignments/" + encodeURIComponent(orderId) + "/accept", { method: "POST", cookie: farCookie, body: {} });
+    check("17. Fallback agent accepts pickup", accepted.status === 200, JSON.stringify(accepted.data));
+    const outForDelivery = await request("/api/orders/" + encodeURIComponent(orderId) + "/status", { method: "PATCH", cookie: farCookie, body: { status: "Out for delivery" } });
+    check("18. Agent starts delivery", outForDelivery.status === 200 && outForDelivery.data.order?.status === "Out for delivery", JSON.stringify(outForDelivery.data));
+    const completed = await request("/api/orders/" + encodeURIComponent(orderId) + "/status", { method: "PATCH", cookie: farCookie, body: { status: "Completed" } });
+    check("19. Agent completes delivery", completed.status === 200 && completed.data.order?.status === "Completed" && Boolean(completed.data.order?.deliveredAt), JSON.stringify(completed.data));
+
+    const studentFinal = await request("/api/orders", { cookie: studentCookie });
+    const restaurantFinal = await request("/api/orders", { cookie: restaurantCookie });
+    const studentFinalOrder = studentFinal.data.orders?.find(item => item.id === orderId);
+    const restaurantFinalOrder = restaurantFinal.data.orders?.find(item => item.id === orderId);
+    check("20. Student view reflects completion", studentFinalOrder?.status === "Completed", studentFinalOrder?.status || "missing");
+    check("21. Restaurant view reflects completion", restaurantFinalOrder?.status === "Completed", restaurantFinalOrder?.status || "missing");
+
+    results.orderId = orderId;
+    results.agentSelection = { nearestAgentId: nearAgentId, fallbackAgentId: farAgentId };
+    results.elapsedMs = Date.now() - startedAt;
+    results.status = "PASS";
+  } catch (error) {
+    results.errors.push(String(error?.stack || error));
+    results.elapsedMs = Date.now() - startedAt;
+    results.status = "FAIL";
+  }
+  console.log("ORDER_LIFECYCLE_TEST_RESULT " + JSON.stringify(results));
+  console.log("ORDER_LIFECYCLE_TEST_STATUS " + results.status);
+}
+
 }
 
 start().catch(error => {

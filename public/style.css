@@ -843,3 +843,11 @@ button,input,select,textarea{max-width:100%;min-width:0}
 
 /* Keep restaurant dashboard panels fully hidden until selected. */
 .restaurant-view-panel[hidden]{display:none!important}
+
+
+/* Background push setup and test controls */
+.notification-push-controls{display:grid;gap:9px;padding:12px 0 14px;border-bottom:1px solid #edf1ed;margin-bottom:4px}
+.notification-push-controls .small-note{margin:0;font-size:.82rem;line-height:1.45;color:#53665a;overflow-wrap:anywhere}
+.notification-push-controls .small-note.error{color:#a33434}
+.notification-push-controls button{min-height:42px}
+.notification-push-controls button:disabled{opacity:.6;cursor:wait}

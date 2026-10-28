@@ -15,7 +15,7 @@
   <meta property="og:image" content="/chowoncampus-logo.svg">
   <meta name="description" content="Chowoncampus — order your favourite campus meals with ease.">
   <title>Student Dashboard | Chowoncampus</title>
-  <link rel="stylesheet" href="/style.css?v=push-diagnostics-2">
+  <link rel="stylesheet" href="/style.css?v=foodback-ui-1">
   <style>
     body.student-dashboard-page{background:#f3f7f4;min-height:100vh}
     .student-dashboard-page .site-header{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.96);border-bottom:1px solid #dfe9e1;backdrop-filter:blur(12px)}
@@ -37,10 +37,46 @@
     .student-dashboard-page .dashboard-order-section h2{margin-top:0}
     .student-dashboard-page .notification-panel{z-index:100}
     @media(max-width:600px){.student-dashboard-page .navbar{padding:10px 12px}.student-dashboard-page .brand-logo{max-width:150px}.student-dashboard-page .nav-actions{gap:6px}.student-dashboard-page .nav-actions>a[href="/restaurants.html"]{padding:9px 10px;font-size:13px}.student-dashboard-page #dashboardView{padding:18px 12px 42px}.student-dashboard-page .dashboard-header{padding:20px;border-radius:16px}.student-dashboard-page .dashboard-order-section{padding:15px}.student-dashboard-page #dashboardContent>.restaurant-welcome{padding:16px}}
+    /* Aligned student workspace sidebar inspired by the approved demo */
+    .student-dashboard-page .site-header{display:none!important}
+    .student-side-nav{position:fixed;inset:0 auto 0 0;width:218px;background:linear-gradient(180deg,#052f23,#06452e);color:#fff;padding:20px 13px;display:flex;flex-direction:column;z-index:40}
+    .student-side-brand{display:flex;align-items:center;gap:9px;padding:4px 6px 28px;color:#fff;text-decoration:none;font-weight:900;font-size:16px}
+    .student-side-brand img{width:34px;height:34px;object-fit:contain;background:#fff;border-radius:9px;padding:3px}
+    .student-side-links{display:grid;gap:5px}
+    .student-side-links a,.student-side-links button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:12px 11px;border:0;border-radius:10px;background:transparent;color:#dceee4;text-decoration:none;font:700 13px/1.25 inherit;cursor:pointer}
+    .student-side-links a:hover,.student-side-links a.active,.student-side-links button:hover{background:#16764e;color:#fff}
+    .student-side-links .side-divider{height:1px;background:#ffffff20;margin:12px 6px}
+    .student-side-footer{margin-top:auto;color:#b9d4c4;font-size:12px;line-height:1.5;padding:10px}
+    .student-dashboard-page #dashboardView{width:calc(100% - 250px);max-width:1500px;margin:0 18px 0 240px;padding:28px 0 64px}
+    .student-dashboard-page #dashboardView.hidden{display:block!important}
+    .student-dashboard-page .dashboard-header{margin-top:0}
+    @media(max-width:650px){
+      .student-side-nav{position:sticky;top:0;inset:auto;width:100%;height:auto;padding:9px 10px;display:block}
+      .student-side-brand{padding:0 4px 8px;font-size:15px}
+      .student-side-brand img{width:29px;height:29px}
+      .student-side-links{display:flex;overflow-x:auto;gap:4px}
+      .student-side-links a,.student-side-links button{white-space:nowrap;width:auto;flex:0 0 auto;padding:10px;font-size:12px}
+      .student-side-links .side-divider,.student-side-footer{display:none}
+      .student-dashboard-page #dashboardView{width:auto;margin:0;padding:16px 12px 42px}
+    }
   </style>
-  <script src="/app.js?v=student-track-order-1" defer></script>
+  <script src="/app.js?v=foodback-student-1" defer></script>
 </head>
 <body class="student-dashboard-page">
+  <aside class="student-side-nav" aria-label="Student navigation">
+    <a class="student-side-brand" href="/student-dashboard.html"><img src="/chowoncampus-icon.png?v=2" alt=""><span>ChowOnCampus</span></a>
+    <nav class="student-side-links">
+      <a class="active" href="/student-dashboard.html">⌂ <span>Home / My Orders</span></a>
+      <a href="/restaurants.html">▦ <span>Browse Restaurants</span></a>
+      <a href="/foodback.html">▣ <span>FoodBack Wallet</span></a>
+      <a href="/foodback.html?view=refer">♧ <span>Refer &amp; Earn</span></a>
+      <a href="/student-dashboard.html#reviews">☆ <span>Reviews</span></a>
+      <div class="side-divider"></div>
+      <a href="/student-dashboard.html">⚙ <span>Account</span></a>
+      <button type="button" id="sideLogoutButton">↪ <span>Log out</span></button>
+    </nav>
+    <div class="student-side-footer">Good food. Great rewards.<br>Campus vibes!</div>
+  </aside>
   <header class="site-header">
     <nav class="navbar">
       <a href="#" id="brandHome" class="brand" aria-label="Chowoncampus home"><img class="brand-logo" src="/chowoncampus-logo.svg" alt="Chowoncampus Delivery Service"></a>

@@ -350,6 +350,8 @@ let deliveryMap = null;
 let deliveryMarker = null;
 let deliveryMapReady = false;
 let deliveryQuoteRequestId = 0;
+let deliveryAreaConfig = null;
+let deliveryAreaCircle = null;
 
 function updateDeliveryQuoteDisplay(quote) {
   const feeElement = $("#deliveryFee");
@@ -409,12 +411,41 @@ function isWithinNigeria(latitude, longitude) {
   return Number.isFinite(lat) && Number.isFinite(lon) && lat >= 4 && lat <= 14 && lon >= 2 && lon <= 15;
 }
 
+async function loadDeliveryAreaConfig(force = false) {
+  if (deliveryAreaConfig && !force) return deliveryAreaConfig;
+  try { deliveryAreaConfig = await api("/api/delivery-area"); return deliveryAreaConfig; }
+  catch { deliveryAreaConfig = { available: false, configured: false }; return deliveryAreaConfig; }
+}
+function distanceBetweenMeters(lat1, lon1, lat2, lon2) {
+  const radians = value => value * Math.PI / 180;
+  const dLat = radians(lat2 - lat1), dLon = radians(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(radians(lat1)) * Math.cos(radians(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
+}
+function deliveryPinAllowed(latitude, longitude) {
+  const config = deliveryAreaConfig;
+  if (!config?.available) return { ok: false, message: "ChowOnCampus delivery area has not been configured by the Ultimate Admin yet. Ordering is temporarily unavailable." };
+  const distance = distanceBetweenMeters(Number(latitude), Number(longitude), Number(config.centerLatitude), Number(config.centerLongitude));
+  if (distance > Number(config.radiusMeters)) return { ok: false, message: "Sorry! ChowOnCampus currently delivers only within the approved Redeemer's University delivery area. Your selected location is outside our delivery area." };
+  return { ok: true, distanceMeters: Math.round(distance) };
+}
 function setDeliveryPin(latitude, longitude, zoom = 17, message = "Delivery pin selected.") {
   const lat = Number(latitude), lon = Number(longitude);
   if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return;
   if (!isWithinNigeria(lat, lon)) {
     const status = $("#locationMessage");
     if (status) status.textContent = "That pin is outside Nigeria. Please use GPS again or choose your delivery point on the Nigeria map.";
+    return;
+  }
+  const areaCheck = deliveryPinAllowed(lat, lon);
+  if (!areaCheck.ok) {
+    $("#deliveryLatitude").value = "";
+    $("#deliveryLongitude").value = "";
+    if (deliveryMarker && deliveryMap) { deliveryMap.removeLayer(deliveryMarker); deliveryMarker = null; }
+    refreshDeliveryQuote();
+    const status = $("#locationMessage");
+    if (status) status.textContent = areaCheck.message;
+    if ($("#checkoutMessage")) showMessage("#checkoutMessage", areaCheck.message);
     return;
   }
   $("#deliveryLatitude").value = lat.toFixed(6);
@@ -442,8 +473,14 @@ async function initDeliveryMap() {
     $("#deliveryLatitude").value = "";
     $("#deliveryLongitude").value = "";
   }
-  const start = savedPinIsValid ? [Number(savedLat), Number(savedLon)] : [9.0820, 8.6753];
-  const zoom = savedPinIsValid ? 15 : 6;
+  const areaConfig = await loadDeliveryAreaConfig();
+  const hasAreaCenter = areaConfig?.configured && areaConfig.centerLatitude !== null && areaConfig.centerLongitude !== null;
+  if (!areaConfig?.available) {
+    const status = $("#locationMessage");
+    if (status) status.textContent = "Delivery area setup is required before orders can be placed. The Ultimate Admin must configure and enable the approved area.";
+  }
+  const start = savedPinIsValid ? [Number(savedLat), Number(savedLon)] : hasAreaCenter ? [Number(areaConfig.centerLatitude), Number(areaConfig.centerLongitude)] : [9.0820, 8.6753];
+  const zoom = savedPinIsValid || hasAreaCenter ? 15 : 6;
   try {
     await loadLeaflet();
     if (!$("#deliveryLocationMap")) return;
@@ -452,6 +489,9 @@ async function initDeliveryMap() {
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
     }).addTo(deliveryMap);
+    if (hasAreaCenter && Number(areaConfig.radiusMeters) > 0) {
+      deliveryAreaCircle = window.L.circle([Number(areaConfig.centerLatitude), Number(areaConfig.centerLongitude)], { radius: Number(areaConfig.radiusMeters), color: "#176b45", fillColor: "#2e9d63", fillOpacity: 0.08, weight: 2 }).addTo(deliveryMap);
+    }
     deliveryMap.on("click", event => setDeliveryPin(event.latlng.lat, event.latlng.lng, 17, "Map pin selected."));
     deliveryMapReady = true;
     if (hasSavedPin) deliveryMarker = window.L.marker(start).addTo(deliveryMap);
@@ -470,6 +510,13 @@ async function placeOrder(event) {
     return;
   }
   if (!state.cart.length) return showMessage("#checkoutMessage", "Add food to your bag first.");
+  const areaConfig = await loadDeliveryAreaConfig(true);
+  if (!areaConfig?.available) return showMessage("#checkoutMessage", "ChowOnCampus delivery area has not been configured by the Ultimate Admin yet. Please contact support before ordering.");
+  const pinLat = $("#deliveryLatitude")?.value ?? "";
+  const pinLon = $("#deliveryLongitude")?.value ?? "";
+  if (pinLat === "" || pinLon === "") return showMessage("#checkoutMessage", "Before payment, choose your exact delivery point using GPS or the map. We deliver only inside the approved campus delivery area.");
+  const pinCheck = deliveryPinAllowed(Number(pinLat), Number(pinLon));
+  if (!pinCheck.ok) return showMessage("#checkoutMessage", pinCheck.message);
   const paymentMethod = $("#paymentMethod")?.value || "paystack";
   const emailInput = $("#paymentEmail");
   if (paymentMethod === "paystack" && !isLocalDemo && (!emailInput || !emailInput.value.trim() || !emailInput.validity.valid)) {

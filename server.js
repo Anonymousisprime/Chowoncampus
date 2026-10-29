@@ -639,7 +639,7 @@ function addFoodBackCredit(student, amount, description, orderId, kind) {
   student.foodbackLedger.unshift({
     id: crypto.randomUUID(), type: "credit", kind, amount: value, description,
     orderId: orderId || null, createdAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + 90 * 24 * 60 * 75 * 1000).toISOString()
+    expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString()
   });
   student.foodbackLedger = student.foodbackLedger.slice(0, 500);
 }
@@ -663,7 +663,7 @@ function awardFoodBackForCompletedOrder(order) {
       const config = readFoodBackConfig();
       const launchStart = config.launchStartAt ? new Date(config.launchStartAt).getTime() : NaN;
       const launchConfigured = Number.isFinite(launchStart);
-      const launchEnd = launchStart + 7 * 24 * 60 * 75 * 1000;
+      const launchEnd = launchStart + 7 * 24 * 60 * 60 * 1000;
       const orderTime = now.getTime();
       const registeredAt = new Date(customer.createdAt || 0).getTime();
       const registeredDuringLaunch = launchConfigured && registeredAt >= launchStart && registeredAt < launchEnd;
@@ -788,7 +788,7 @@ app.get("/api/foodback", requireRole("student"), (req, res) => {
     const used = (student.foodbackLedger || []).filter(item => item.type === "debit").reduce((sum, item) => sum + Math.abs(Number(item.amount) || 0), 0);
     const config = readFoodBackConfig();
     const launchStart = config.launchStartAt ? new Date(config.launchStartAt).getTime() : null;
-    const launchActive = launchStart !== null && Number.isFinite(launchStart) && Date.now() >= launchStart && Date.now() < launchStart + 7 * 24 * 60 * 75 * 1000;
+    const launchActive = launchStart !== null && Number.isFinite(launchStart) && Date.now() >= launchStart && Date.now() < launchStart + 7 * 24 * 60 * 60 * 1000;
     res.json({
       referralCode: student.referralCode || null,
       referralLink: "https://chowoncampus.onrender.com/student-signup.html?ref=" + encodeURIComponent(student.referralCode || ""),
@@ -850,8 +850,8 @@ app.post("/api/student/forgot-password/start", async (req, res) => {
   const phone = normalizeNigerianPhone(req.body.phone);
   if (!phone) return res.status(400).json({ error: "Enter a valid phone number." });
   const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
-  if (!resetRateLimit("reset-start:ip:" + ip, 8, 15 * 75 * 1000) ||
-      !resetRateLimit("reset-start:phone:" + phone, 3, 15 * 75 * 1000)) {
+  if (!resetRateLimit("reset-start:ip:" + ip, 8, 15 * 60 * 1000) ||
+      !resetRateLimit("reset-start:phone:" + phone, 3, 15 * 60 * 1000)) {
     return res.status(429).json({ error: "Too many attempts. Please wait 15 minutes before trying again." });
   }
   if (!hasTwilioVerifyConfig()) {
@@ -879,8 +879,8 @@ app.post("/api/student/forgot-password/reset", async (req, res) => {
   if (password.length < 10 || password.length > 128) return res.status(400).json({ error: "Use a password between 10 and 128 characters." });
   if (password !== confirmPassword) return res.status(400).json({ error: "The new passwords do not match." });
   const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
-  if (!resetRateLimit("reset-check:ip:" + ip, 10, 15 * 75 * 1000) ||
-      !resetRateLimit("reset-check:phone:" + phone, 6, 15 * 75 * 1000)) {
+  if (!resetRateLimit("reset-check:ip:" + ip, 10, 15 * 60 * 1000) ||
+      !resetRateLimit("reset-check:phone:" + phone, 6, 15 * 60 * 1000)) {
     return res.status(429).json({ error: "Too many attempts. Please wait 15 minutes before trying again." });
   }
   if (!hasTwilioVerifyConfig()) {
@@ -1740,7 +1740,7 @@ app.get("/api/orders", requireLogin, (req, res) => {
       // Students see active orders and a short post-delivery feedback window only.
       // Older completed/cancelled orders remain available for admin review.
       const activeStatuses = new Set(["Awaiting payment", "Awaiting admin approval", "Confirmed", "Preparing", "Ready for pickup", "Out for delivery"]);
-      const feedbackWindowMs = 2 * 75 * 1000;
+      const feedbackWindowMs = 2 * 60 * 1000;
       orders = orders.filter(order => {
         if (order.customerPhone !== req.account.username) return false;
         if (activeStatuses.has(order.status)) return true;
@@ -1857,7 +1857,7 @@ function canUseDeliveryChat(account, order) {
   ));
 }
 
-const DELIVERY_CHAT_GRACE_MS = 2 * 75 * 1000;
+const DELIVERY_CHAT_GRACE_MS = 2 * 60 * 1000;
 
 function deliveryChatIsOpen(order) {
   if (["Ready for pickup", "Out for delivery"].includes(order.status)) return true;
@@ -2794,7 +2794,7 @@ function assignReadyOrders() {
     const tried = new Set(Array.isArray(order.offeredAgentIds) ? order.offeredAgentIds : []);
     // A GPS fix is considered current for two minutes. Never use an old location
     // to claim that an agent is the nearest one.
-    const locationFreshMs = 2 * 75 * 1000;
+    const locationFreshMs = 2 * 60 * 1000;
     const nowMs = Date.now();
     const pinnedRestaurant = restaurants.find(item => item.id === order.restaurantId);
     const targetLatitude = order.restaurantLatitude ?? pinnedRestaurant?.latitude;

@@ -27,7 +27,8 @@ const storageFiles = {
   "account-passwords.json": "accountPasswords",
   "admin-accounts.json": "adminAccounts",
   "disabled-admins.json": "disabledAdmins",
-  "foodback-config.json": "foodbackConfig"
+  "foodback-config.json": "foodbackConfig",
+  "feedback-conversations.json": "feedbackConversations"
 };
 
 function readLocalJson(filename, fallback) {
@@ -55,7 +56,8 @@ async function initializePersistentStorage() {
     ["account-passwords.json", {}],
     ["admin-accounts.json", []],
     ["disabled-admins.json", []],
-    ["foodback-config.json", { launchStartAt: null }]
+    ["foodback-config.json", { launchStartAt: null }],
+    ["feedback-conversations.json", []]
   ];
   if (!storagePool) {
     for (const [filename, fallback] of definitions) {
@@ -2265,6 +2267,189 @@ app.delete("/api/superadmin/admins/:username", requireSuperAdmin, (req, res) => 
   saveAccountPasswords(overrides);
   res.json({ ok: true, message: "Admin account deleted and active sessions revoked." });
 });
+
+
+// Private student feedback conversations and Ultimate Admin FoodBack awards.
+const FEEDBACK_FILE = path.join(__dirname, "feedback-conversations.json");
+function readFeedbackConversations() {
+  const value = readStoredJson(FEEDBACK_FILE, []);
+  return Array.isArray(value) ? value : [];
+}
+function saveFeedbackConversations(items) {
+  saveStoredJson(FEEDBACK_FILE, items);
+}
+function publicFeedbackThread(thread) {
+  return {
+    id: thread.id,
+    studentId: thread.studentId,
+    studentName: thread.studentName,
+    studentPhone: thread.studentPhone,
+    mode: thread.mode,
+    category: thread.category,
+    subject: thread.subject,
+    status: thread.status,
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+    endedAt: thread.endedAt || null,
+    messages: (thread.messages || []).map(message => ({
+      id: message.id,
+      senderRole: message.senderRole,
+      senderName: message.senderName,
+      body: message.body,
+      createdAt: message.createdAt
+    }))
+  };
+}
+
+app.get("/api/superadmin/student-feedback", requireSuperAdmin, (req, res) => {
+  try {
+    const threads = readFeedbackConversations()
+      .sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt))
+      .map(publicFeedbackThread);
+    res.json({ threads, students: readStudents().map(s => ({ id: s.id, name: s.name, phone: s.phone, banned: Boolean(s.banned) })) });
+  } catch (error) {
+    console.error("Could not load student feedback:", error);
+    res.status(500).json({ error: "Could not load student feedback." });
+  }
+});
+
+app.post("/api/superadmin/student-feedback", requireSuperAdmin, (req, res) => {
+  const studentId = String(req.body.studentId || "").trim();
+  const category = String(req.body.category || "General Feedback").trim().slice(0, 60);
+  const subject = String(req.body.subject || "").trim().slice(0, 120);
+  const body = String(req.body.message || "").trim();
+  const mode = req.body.mode === "conversation" ? "conversation" : "message";
+  if (!studentId) return res.status(400).json({ error: "Choose a student." });
+  if (!body || body.length > 2000) return res.status(400).json({ error: "Feedback must be between 1 and 2,000 characters." });
+  const students = readStudents();
+  const student = students.find(item => item.id === studentId);
+  if (!student) return res.status(404).json({ error: "Student account not found." });
+  const now = new Date().toISOString();
+  const thread = {
+    id: crypto.randomUUID(),
+    studentId: student.id,
+    studentName: student.name,
+    studentPhone: student.phone,
+    mode,
+    category,
+    subject: subject || category,
+    status: mode === "conversation" ? "open" : "ended",
+    endedAt: mode === "message" ? now : null,
+    createdAt: now,
+    updatedAt: now,
+    lastReadAtStudent: null,
+    lastReadAtAdmin: now,
+    messages: [{
+      id: crypto.randomUUID(),
+      senderRole: "admin",
+      senderUsername: req.account.username,
+      senderName: "ChowOnCampus Ultimate Admin",
+      body,
+      createdAt: now
+    }]
+  };
+  const threads = readFeedbackConversations();
+  threads.push(thread);
+  saveFeedbackConversations(threads);
+  res.status(201).json({ ok: true, thread: publicFeedbackThread(thread), message: mode === "conversation" ? "Private conversation started." : "Feedback sent to the student." });
+});
+
+app.post("/api/superadmin/student-feedback/:id/reply", requireSuperAdmin, (req, res) => {
+  const body = String(req.body.message || "").trim();
+  if (!body || body.length > 2000) return res.status(400).json({ error: "Reply must be between 1 and 2,000 characters." });
+  const threads = readFeedbackConversations();
+  const thread = threads.find(item => item.id === req.params.id);
+  if (!thread) return res.status(404).json({ error: "Feedback conversation not found." });
+  if (thread.status !== "open" || thread.mode !== "conversation") return res.status(409).json({ error: "This conversation has ended. Start a new conversation to continue." });
+  const now = new Date().toISOString();
+  thread.messages.push({ id: crypto.randomUUID(), senderRole: "admin", senderUsername: req.account.username, senderName: "ChowOnCampus Ultimate Admin", body, createdAt: now });
+  thread.updatedAt = now;
+  thread.lastReadAtAdmin = now;
+  saveFeedbackConversations(threads);
+  res.json({ ok: true, thread: publicFeedbackThread(thread) });
+});
+
+app.post("/api/superadmin/student-feedback/:id/end", requireSuperAdmin, (req, res) => {
+  const threads = readFeedbackConversations();
+  const thread = threads.find(item => item.id === req.params.id);
+  if (!thread) return res.status(404).json({ error: "Feedback conversation not found." });
+  if (thread.status !== "open") return res.status(409).json({ error: "This conversation has already ended." });
+  const now = new Date().toISOString();
+  thread.status = "ended";
+  thread.endedAt = now;
+  thread.updatedAt = now;
+  saveFeedbackConversations(threads);
+  res.json({ ok: true, thread: publicFeedbackThread(thread), message: "Conversation ended. The student can no longer reply to this thread." });
+});
+
+app.get("/api/student/feedback", requireRole("student"), (req, res) => {
+  const students = readStudents();
+  const student = students.find(item => item.phone === req.account.username);
+  if (!student) return res.status(404).json({ error: "Student account not found." });
+  const threads = readFeedbackConversations();
+  const now = new Date().toISOString();
+  let changed = false;
+  for (const thread of threads) {
+    if (thread.studentId === student.id && thread.lastReadAtStudent !== now) {
+      thread.lastReadAtStudent = now;
+      changed = true;
+    }
+  }
+  if (changed) saveFeedbackConversations(threads);
+  res.json({ threads: threads.filter(item => item.studentId === student.id)
+    .sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt))
+    .map(publicFeedbackThread) });
+});
+
+app.post("/api/student/feedback/:id/reply", requireRole("student"), (req, res) => {
+  const body = String(req.body.message || "").trim();
+  if (!body || body.length > 2000) return res.status(400).json({ error: "Reply must be between 1 and 2,000 characters." });
+  const student = readStudents().find(item => item.phone === req.account.username);
+  if (!student) return res.status(404).json({ error: "Student account not found." });
+  const threads = readFeedbackConversations();
+  const thread = threads.find(item => item.id === req.params.id && item.studentId === student.id);
+  if (!thread) return res.status(404).json({ error: "Feedback conversation not found." });
+  if (thread.status !== "open" || thread.mode !== "conversation") return res.status(409).json({ error: "This is one-way feedback or the Ultimate Admin has ended the conversation." });
+  const now = new Date().toISOString();
+  thread.messages.push({ id: crypto.randomUUID(), senderRole: "student", senderUsername: student.phone, senderName: student.name, body, createdAt: now });
+  thread.updatedAt = now;
+  thread.lastReadAtStudent = now;
+  saveFeedbackConversations(threads);
+  res.json({ ok: true, thread: publicFeedbackThread(thread) });
+});
+
+// Manual awards do not draw from a capped pool. The Ultimate Admin can award any
+// positive safe-integer amount; every credit is auditable in the student's wallet ledger.
+app.post("/api/superadmin/foodback-awards", requireSuperAdmin, (req, res) => {
+  const studentId = String(req.body.studentId || "").trim();
+  const amount = Number(req.body.amount);
+  const reason = String(req.body.reason || "").trim().slice(0, 300);
+  if (!studentId) return res.status(400).json({ error: "Choose a student." });
+  if (!Number.isSafeInteger(amount) || amount <= 0) return res.status(400).json({ error: "Enter a positive whole-number FoodBack amount." });
+  if (!reason) return res.status(400).json({ error: "Enter a reason for this award." });
+  const students = readStudents();
+  const student = students.find(item => item.id === studentId);
+  if (!student) return res.status(404).json({ error: "Student account not found." });
+  const balance = Math.max(0, Number(student.foodbackBalance) || 0);
+  if (!Number.isSafeInteger(balance + amount)) return res.status(400).json({ error: "This award would exceed the supported precise balance range. Use a smaller amount." });
+  if (!Array.isArray(student.foodbackLedger)) student.foodbackLedger = [];
+  const now = new Date().toISOString();
+  student.foodbackBalance = balance + amount;
+  student.foodbackLedger.push({
+    id: crypto.randomUUID(),
+    type: "credit",
+    kind: "admin-award",
+    amount,
+    reason,
+    description: "FoodBack award from ChowOnCampus Ultimate Admin: " + reason,
+    awardedBy: req.account.username,
+    createdAt: now,
+    expiresAt: null
+  });
+  saveStudents(students);
+  res.status(201).json({ ok: true, student: { id: student.id, name: student.name, phone: student.phone, foodbackBalance: student.foodbackBalance }, amount, message: amount.toLocaleString("en-NG") + " FoodBack awarded successfully." });
+});
+
 
 // Admin-only student directory. Never return password hashes or salts.
 app.get("/api/admin/students", requireRole("admin"), (req, res) => {

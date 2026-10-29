@@ -1553,7 +1553,16 @@ app.post("/api/orders/:id/paystack/initialize", requireRole("student"), async (r
     return res.status(400).json({ error: "The order total is invalid. Please contact support." });
   }
   const reference = "COC-" + crypto.randomBytes(16).toString("hex");
-  const baseUrl = String(process.env.PUBLIC_APP_URL || ((req.headers["x-forwarded-proto"] || req.protocol) + "://" + req.get("host"))).replace(/\/$/, "");
+  // Never build a payment return URL from the incoming Host header; use the configured public URL.
+  let baseUrl = String(process.env.PUBLIC_APP_URL || "").trim();
+  if (!baseUrl && req.get("host") === "chowoncampus.onrender.com") baseUrl = "https://chowoncampus.onrender.com";
+  try {
+    const publicUrl = new URL(baseUrl);
+    if (publicUrl.protocol !== "https:" || publicUrl.username || publicUrl.password || publicUrl.search || publicUrl.hash) throw new Error("invalid public URL");
+    baseUrl = publicUrl.origin;
+  } catch {
+    return res.status(503).json({ error: "Secure payment return URL is not configured. Please contact ChowOnCampus support." });
+  }
   const amountKobo = Math.round(Number(order.total) * 100);
   const restaurantShareKobo = Math.round(Number(order.subtotal) * 100);
   const platformShareKobo = Math.round((Number(order.deliveryFee) + Number(order.paymentFee || 0)) * 100);

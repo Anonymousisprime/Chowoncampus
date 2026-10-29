@@ -2846,8 +2846,18 @@ function assignReadyOrders() {
     agent.lastAssignedAt = now.toISOString();
     busyAgentIds.add(agent.id);
 
+    const deliveryDestination = String(order.hostel || order.deliveryLocation?.hostel || "Address not provided");
+    const destinationLatitude = Number(order.deliveryLocation?.latitude);
+    const destinationLongitude = Number(order.deliveryLocation?.longitude);
+    const hasDestinationPin = order.deliveryLocation?.latitude !== null && order.deliveryLocation?.latitude !== undefined &&
+      order.deliveryLocation?.longitude !== null && order.deliveryLocation?.longitude !== undefined &&
+      Number.isFinite(destinationLatitude) && Number.isFinite(destinationLongitude) &&
+      Math.abs(destinationLatitude) <= 90 && Math.abs(destinationLongitude) <= 180;
+    const destinationMap = hasDestinationPin
+      ? ` Map: https://maps.google.com/?q=${destinationLatitude},${destinationLongitude}.`
+      : "";
     createNotification({ role: "agent", agentId: agent.id }, "Pickup request — 60 seconds to accept",
-      `Order ${order.id} is ready for pickup. Accept by starting delivery within 60 seconds or it will be offered to another agent.`, order.id);
+      `Order ${order.id} is ready for pickup at ${order.restaurantName}. DELIVERY DESTINATION: ${deliveryDestination}.${destinationMap} Review the destination before accepting. Accept within 60 seconds or it will be offered to another agent.`, order.id);
     createNotification({ role: "student", username: order.customerPhone }, "Finding a delivery agent",
       `A pickup request for order ${order.id} has been sent to ${agent.name}.`, order.id);
     createNotification({ role: "admin" }, "Pickup request sent",

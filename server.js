@@ -565,10 +565,20 @@ function saveFoodBackConfig(config) {
   saveStoredJson(FOODBACK_CONFIG_FILE, config);
 }
 const DELIVERY_AREA_CONFIG_FILE = path.join(__dirname, "delivery-area-config.json");
-function readDeliveryAreaConfig() {
-  return readStoredJson(DELIVERY_AREA_CONFIG_FILE, { enabled: false, centerLatitude: null, centerLongitude: null, radiusMeters: 1200 });
+// Fixed initial delivery zone centred on Redeemer's University, Ede.
+// This is a campus-centred radius, not an editable admin setting.
+const FIXED_RUN_DELIVERY_AREA = Object.freeze({
+  enabled: true,
+  centerLatitude: 7.67998,
+  centerLongitude: 4.45982,
+  radiusMeters: 800,
+  fixed: true,
+  label: "Redeemer's University campus"
+});
+function readDeliveryAreaConfig() { return { ...FIXED_RUN_DELIVERY_AREA }; }
+function saveDeliveryAreaConfig() {
+  // Deliberately locked to the Redeemer's University campus zone for now.
 }
-function saveDeliveryAreaConfig(config) { saveStoredJson(DELIVERY_AREA_CONFIG_FILE, config); }
 function validCoordinatePair(latitude, longitude) {
   if (latitude === null || latitude === undefined || latitude === "" ||
       longitude === null || longitude === undefined || longitude === "") return false;
@@ -579,7 +589,7 @@ function getDeliveryAreaCheck(latitude, longitude) {
   const config = readDeliveryAreaConfig();
   if (!config.enabled || !validCoordinatePair(config.centerLatitude, config.centerLongitude) ||
       !Number.isFinite(Number(config.radiusMeters)) || Number(config.radiusMeters) < 100) {
-    return { ok: false, error: "ChowOnCampus delivery area has not been configured by the Ultimate Admin yet. Please contact support before ordering." };
+    return { ok: false, error: "ChowOnCampus delivery is currently limited to Redeemer's University campus." };
   }
   if (!validCoordinatePair(latitude, longitude)) {
     return { ok: false, error: "Choose your exact delivery point using GPS or the map before continuing to payment." };
@@ -1060,7 +1070,9 @@ app.get("/api/delivery-area", (req, res) => {
     centerLatitude: configured ? Number(config.centerLatitude) : null,
     centerLongitude: configured ? Number(config.centerLongitude) : null,
     radiusMeters: configured ? Number(config.radiusMeters) : null,
-    message: Boolean(config.enabled) && configured ? "Delivery is available inside the approved delivery area." : "Delivery area setup is required before orders can be placed."
+    fixed: true,
+    label: "Redeemer’s University campus",
+    message: "Delivery is currently limited to the fixed Redeemer’s University campus zone."
   });
 });
 
@@ -1964,20 +1976,7 @@ app.get("/api/superadmin/delivery-area", requireSuperAdmin, (req, res) => {
   res.json({ ...config, enabled: Boolean(config.enabled) });
 });
 app.post("/api/superadmin/delivery-area", requireSuperAdmin, (req, res) => {
-  const enabled = req.body.enabled === true;
-  const centerLatitude = Number(req.body.centerLatitude);
-  const centerLongitude = Number(req.body.centerLongitude);
-  const radiusMeters = Number(req.body.radiusMeters);
-  if (!validCoordinatePair(centerLatitude, centerLongitude) ||
-      centerLatitude < 4 || centerLatitude > 14 || centerLongitude < 2 || centerLongitude > 15) {
-    return res.status(400).json({ error: "Choose a valid delivery-area center in Nigeria using the map or GPS." });
-  }
-  if (!Number.isFinite(radiusMeters) || !Number.isInteger(radiusMeters) || radiusMeters < 100 || radiusMeters > 10000) {
-    return res.status(400).json({ error: "Delivery radius must be a whole number between 100 and 10,000 metres." });
-  }
-  const config = { enabled, centerLatitude, centerLongitude, radiusMeters, updatedAt: new Date().toISOString(), updatedBy: req.account.username };
-  saveDeliveryAreaConfig(config);
-  res.json({ ok: true, ...config, message: enabled ? "Delivery area saved and enforcement enabled. Orders are allowed only inside this radius." : "Delivery-area enforcement is paused. Customers cannot place orders until it is enabled." });
+  return res.status(403).json({ error: "Delivery is fixed to the Redeemer's University campus zone for now and cannot be changed in the admin dashboard." });
 });
 app.post("/api/admin/foodback-config", requireSuperAdmin, (req, res) => {
   const raw = String(req.body.launchStartAt || "").trim();

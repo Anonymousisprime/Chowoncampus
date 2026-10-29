@@ -424,9 +424,9 @@ function distanceBetweenMeters(lat1, lon1, lat2, lon2) {
 }
 function deliveryPinAllowed(latitude, longitude) {
   const config = deliveryAreaConfig;
-  if (!config?.available) return { ok: false, message: "ChowOnCampus delivery area has not been configured by the Ultimate Admin yet. Ordering is temporarily unavailable." };
+  if (!config?.available) return { ok: false, message: "ChowOnCampus delivery is currently limited to Redeemer’s University campus." };
   const distance = distanceBetweenMeters(Number(latitude), Number(longitude), Number(config.centerLatitude), Number(config.centerLongitude));
-  if (distance > Number(config.radiusMeters)) return { ok: false, message: "Sorry! ChowOnCampus currently delivers only within the approved Redeemer's University delivery area. Your selected location is outside our delivery area." };
+  if (distance > Number(config.radiusMeters)) return { ok: false, message: "Sorry! ChowOnCampus currently delivers only within the Redeemer’s University campus zone. Your selected location is outside the campus delivery area." };
   return { ok: true, distanceMeters: Math.round(distance) };
 }
 function setDeliveryPin(latitude, longitude, zoom = 17, message = "Delivery pin selected.") {
@@ -477,7 +477,7 @@ async function initDeliveryMap() {
   const hasAreaCenter = areaConfig?.configured && areaConfig.centerLatitude !== null && areaConfig.centerLongitude !== null;
   if (!areaConfig?.available) {
     const status = $("#locationMessage");
-    if (status) status.textContent = "Delivery area setup is required before orders can be placed. The Ultimate Admin must configure and enable the approved area.";
+    if (status) status.textContent = "ChowOnCampus is currently delivering only within the Redeemer’s University campus zone.";
   }
   const start = savedPinIsValid ? [Number(savedLat), Number(savedLon)] : hasAreaCenter ? [Number(areaConfig.centerLatitude), Number(areaConfig.centerLongitude)] : [9.0820, 8.6753];
   const zoom = savedPinIsValid || hasAreaCenter ? 15 : 6;
@@ -511,7 +511,7 @@ async function placeOrder(event) {
   }
   if (!state.cart.length) return showMessage("#checkoutMessage", "Add food to your bag first.");
   const areaConfig = await loadDeliveryAreaConfig(true);
-  if (!areaConfig?.available) return showMessage("#checkoutMessage", "ChowOnCampus delivery area has not been configured by the Ultimate Admin yet. Please contact support before ordering.");
+  if (!areaConfig?.available) return showMessage("#checkoutMessage", "ChowOnCampus delivery is currently limited to Redeemer’s University campus.");
   const pinLat = $("#deliveryLatitude")?.value ?? "";
   const pinLon = $("#deliveryLongitude")?.value ?? "";
   if (pinLat === "" || pinLon === "") return showMessage("#checkoutMessage", "Before payment, choose your exact delivery point using GPS or the map. We deliver only inside the approved campus delivery area.");

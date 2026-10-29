@@ -2837,7 +2837,7 @@ function assignReadyOrders() {
     const now = new Date();
     order.assignedAgentId = agent.id;
     order.assignmentOfferedAt = now.toISOString();
-    order.assignmentExpiresAt = new Date(now.getTime() + 60 * 1000).toISOString();
+    order.assignmentExpiresAt = new Date(now.getTime() + 75 * 1000).toISOString();
     order.offeredAgentIds = [...tried, agent.id];
     order.updatedAt = now.toISOString();
     order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
@@ -2856,14 +2856,14 @@ function assignReadyOrders() {
     const destinationMap = hasDestinationPin
       ? ` Map: https://maps.google.com/?q=${destinationLatitude},${destinationLongitude}.`
       : "";
-    createNotification({ role: "agent", agentId: agent.id }, "Pickup request — 60 seconds to accept",
-      `Order ${order.id} is ready for pickup at ${order.restaurantName}. DELIVERY DESTINATION: ${deliveryDestination}.${destinationMap} Review the destination before accepting. Accept within 60 seconds or it will be offered to another agent.`, order.id);
+    createNotification({ role: "agent", agentId: agent.id }, "Pickup request — 75 seconds to accept",
+      `Order ${order.id} is ready for pickup at ${order.restaurantName}. DELIVERY DESTINATION: ${deliveryDestination}.${destinationMap} Review the destination before accepting. Accept within 75 seconds or it will be offered to another agent.`, order.id);
     createNotification({ role: "student", username: order.customerPhone }, "Finding a delivery agent",
       `A pickup request for order ${order.id} has been sent to ${agent.name}.`, order.id);
     createNotification({ role: "admin" }, "Pickup request sent",
-      `${agent.name} has 60 seconds to accept order ${order.id}.`, order.id);
+      `${agent.name} has 75 seconds to accept order ${order.id}.`, order.id);
     createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Delivery agent notified",
-      `${agent.name} has 60 seconds to accept pickup for ${order.id}.`, order.id);
+      `${agent.name} has 75 seconds to accept pickup for ${order.id}.`, order.id);
     changed = true;
   }
 
@@ -2879,7 +2879,7 @@ function assignReadyOrders() {
   return changed;
 }
 
-// If an agent does not accept within 60 seconds, release the order and offer it
+// If an agent does not accept within 75 seconds, release the order and offer it
 // to the next available agent. Starting delivery counts as accepting the offer.
 function expireUnacceptedOffers() {
   const orders = readOrders();
@@ -2900,7 +2900,7 @@ function expireUnacceptedOffers() {
       agentsChanged = true;
     }
     createNotification({ role: "agent", agentId: previousAgentId }, "Pickup request expired",
-      `The 60-second window for order ${order.id} expired. The order will be offered to another agent.`, order.id);
+      `The 75-second window for order ${order.id} expired. The order will be offered to another agent.`, order.id);
     order.assignedAgentId = null;
     order.assignmentExpiresAt = null;
     order.updatedAt = new Date().toISOString();
@@ -2971,7 +2971,7 @@ app.get("/api/agents/me", requireRole("agent"), (req, res) => {
   }
 });
 
-// Agent explicitly accepts a pickup offer within its 60-second window.
+// Agent explicitly accepts a pickup offer within its 75-second window.
 app.post("/api/agent/assignments/:id/accept", requireRole("agent"), (req, res) => {
   try {
     const orders = readOrders();
@@ -2982,7 +2982,7 @@ app.post("/api/agent/assignments/:id/accept", requireRole("agent"), (req, res) =
     }
     if (!order.assignmentExpiresAt || new Date(order.assignmentExpiresAt).getTime() <= Date.now()) {
       expireUnacceptedOffers();
-      return res.status(409).json({ error: "The 60-second window expired. The order may have been offered to another agent." });
+      return res.status(409).json({ error: "The 75-second window expired. The order may have been offered to another agent." });
     }
     order.assignmentAcceptedAt = new Date().toISOString();
     order.assignmentExpiresAt = null;
@@ -3185,7 +3185,7 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
     // then its messages are removed on the next chat request.
     if (newStatus === "Cancelled") delete order.chatMessages;
 
-    // Starting delivery accepts the 60-second pickup offer.
+    // Starting delivery accepts the 75-second pickup offer.
     if (newStatus === "Out for delivery" && order.assignedAgentId === req.account.agentId) {
       order.assignmentAcceptedAt = new Date().toISOString();
       order.assignmentExpiresAt = null;

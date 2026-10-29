@@ -2306,7 +2306,7 @@ app.get("/api/superadmin/student-feedback", requireSuperAdmin, (req, res) => {
     const threads = readFeedbackConversations()
       .sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt))
       .map(publicFeedbackThread);
-    res.json({ threads, students: readStudents().map(s => ({ id: s.id, name: s.name, phone: s.phone, banned: Boolean(s.banned) })) });
+    res.json({ threads, students: readStudents().map(s => ({ id: s.id, name: s.name, phone: s.phone, banned: Boolean(s.banned), foodbackBalance: Math.max(0, Number(s.foodbackBalance) || 0) })) });
   } catch (error) {
     console.error("Could not load student feedback:", error);
     res.status(500).json({ error: "Could not load student feedback." });

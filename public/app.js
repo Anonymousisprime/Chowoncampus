@@ -780,7 +780,7 @@ function renderOrderCard(order) {
   const canAssign = state.account.role === "admin" && order.status !== "Completed" && !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval");
   const canReviewFoodBack = state.account.role === "admin" && state.account.isSuperAdmin && order.paymentMethod === "foodback" && order.status === "Awaiting admin approval";
   const canShowAvailableAgents = state.account.role === "restaurant" && order.status === "Ready for pickup" && !order.assignedAgentId;
-  const canChangeStatus = statuses.length > 0 && !(order.status === "Completed") && !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval");
+  const canChangeStatus = statuses.length > 0 && !(order.status === "Completed") && !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval") && !(state.account.role === "agent" && order.status === "Out for delivery");
   const canContactAgent = state.account.role === "restaurant" && order.assignedAgentId && ["Ready for pickup", "Out for delivery"].includes(order.status);
   const canDeliveryChat = ["Ready for pickup", "Out for delivery"].includes(order.status) && ((state.account.role === "restaurant" && order.assignedAgentId) || (state.account.role === "agent" && state.account.agentId === order.assignedAgentId));
 
@@ -847,6 +847,7 @@ function renderOrderCard(order) {
           <button class="secondary-button" data-save-status="${escapeHtml(order.id)}">Save status</button>
         </div>
       ` : ""}
+      ${state.account.role === "agent" && order.status === "Out for delivery" ? `<section class="agent-contact"><strong>Student handover code required</strong><p class="tiny muted">Ask the student to show the four-character code on their order dashboard. Enter it only after handing over the food.</p><form data-delivery-code-order="${escapeHtml(order.id)}" class="order-actions"><label>Four-character code<input name="deliveryCode" type="text" minlength="4" maxlength="4" pattern="[A-Za-z0-9]{4}" autocomplete="off" autocapitalize="characters" required placeholder="e.g. A7K2"></label><button class="primary-button" type="submit">Verify code &amp; complete delivery</button><p class="muted" data-delivery-code-message role="status"></p></form></section>` : ""}
       ${renderStudentRating(order)}
     </article>
   `;

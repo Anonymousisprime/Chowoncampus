@@ -209,6 +209,28 @@ const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const FIXED_DELIVERY_FEE = 300;
 const STUDENT_PAYMENT_FEE_RATE = 0.01;
 
+// Baseline browser security protections. CSP is deferred until inline scripts can be migrated safely.
+app.disable("x-powered-by");
+app.set("trust proxy", IS_PRODUCTION ? 1 : false);
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(self)");
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  if (IS_PRODUCTION) res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  if (req.path.startsWith("/api/")) res.setHeader("Cache-Control", "no-store");
+  // Reject cross-site browser writes. Paystack's signed webhook is verified separately.
+  if (req.path.startsWith("/api/") && !["GET", "HEAD", "OPTIONS"].includes(req.method) && req.path !== "/api/payments/paystack/webhook" && req.headers.origin) {
+    let origin;
+    try { origin = new URL(req.headers.origin).origin; } catch { return res.status(403).json({ error: "Request origin is not allowed." }); }
+    const requestOrigin = req.protocol + "://" + req.get("host");
+    let configuredOrigin = "";
+    if (process.env.PUBLIC_APP_URL) { try { configuredOrigin = new URL(process.env.PUBLIC_APP_URL).origin; } catch {} }
+    if (origin !== requestOrigin && (!configuredOrigin || origin !== configuredOrigin)) return res.status(403).json({ error: "Cross-site request blocked." });
+  }
+  next();
+});
 app.use(express.json({ limit: "24mb", verify: (req, res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
 app.use(express.static(path.join(__dirname, "public")));
 app.use((req, res, next) => {
@@ -229,6 +251,17 @@ app.use((req, res, next) => {
 // Demo storage only. Use a persistent database before public launch.
 const DATA_FILE = path.join(__dirname, "orders.json");
 const sessions = new Map();
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const requestLimitBuckets = new Map();
+function isRateLimited(key, limit, windowMs) {
+  const now = Date.now();
+  const bucket = requestLimitBuckets.get(key);
+  if (!bucket || now - bucket.startedAt >= windowMs) requestLimitBuckets.set(key, { startedAt: now, count: 1 });
+  else { bucket.count += 1; if (bucket.count > limit) return true; }
+  if (requestLimitBuckets.size > 5000) for (const [bucketKey, value] of requestLimitBuckets) if (now - value.startedAt > 60 * 60 * 1000) requestLimitBuckets.delete(bucketKey);
+  return false;
+}
+function requestIp(req) { return String(req.ip || req.socket.remoteAddress || "unknown").slice(0, 100); }
 const ACCOUNT_PASSWORDS_FILE = path.join(__dirname, "account-passwords.json");
 function readAccountPasswords() { return readStoredJson(ACCOUNT_PASSWORDS_FILE, {}); }
 function saveAccountPasswords(records) { saveStoredJson(ACCOUNT_PASSWORDS_FILE, records); }
@@ -497,7 +530,10 @@ function getSession(req) {
 
   try {
     const token = decodeURIComponent(cookie.slice("coc_session=".length));
-    return sessions.get(token) || null;
+    const session = sessions.get(token);
+    if (!session) return null;
+    if (!session.sessionCreatedAt || Date.now() - session.sessionCreatedAt > SESSION_TTL_MS) { sessions.delete(token); return null; }
+    return session;
   } catch {
     return null;
   }
@@ -688,6 +724,7 @@ function setSessionCookie(res, token) {
 
 // Student sign-up: no SMS verification yet. Phone numbers are collected but NOT marked verified.
 app.post("/api/student/register", (req, res) => {
+  if (isRateLimited("register:ip:" + requestIp(req), 8, 30 * 60 * 1000)) return res.status(429).json({ error: "Too many account-creation attempts. Please wait 30 minutes." });
   const name = String(req.body.name || "").trim();
   const phone = normalizeNigerianPhone(req.body.phone);
   const password = String(req.body.password || "");
@@ -716,7 +753,7 @@ app.post("/api/student/register", (req, res) => {
     saveStudents(students);
     const account = { username: student.phone, role: "student", name: student.name };
     const token = crypto.randomBytes(32).toString("hex");
-    sessions.set(token, account);
+    sessions.set(token, { ...account, sessionCreatedAt: Date.now() });
     setSessionCookie(res, token);
     res.status(201).json({ account, message: "Account created. Your phone number has not been verified." });
   } catch (error) {
@@ -862,6 +899,8 @@ app.post("/api/student/forgot-password/reset", async (req, res) => {
 app.post("/api/student/login", (req, res) => {
   const phone = normalizeNigerianPhone(req.body.phone);
   const password = String(req.body.password || "");
+  const ip = requestIp(req);
+  if (isRateLimited("student-login:ip:" + ip, 30, 15 * 60 * 1000) || (phone && isRateLimited("student-login:account:" + ip + ":" + phone, 8, 15 * 60 * 1000))) return res.status(429).json({ error: "Too many sign-in attempts. Please wait 15 minutes before trying again." });
   if (!phone || !password) return res.status(400).json({ error: "Enter a valid phone number and your password." });
 
   try {
@@ -874,7 +913,7 @@ app.post("/api/student/login", (req, res) => {
     }
     const account = { username: student.phone, role: "student", name: student.name };
     const token = crypto.randomBytes(32).toString("hex");
-    sessions.set(token, account);
+    sessions.set(token, { ...account, sessionCreatedAt: Date.now() });
     setSessionCookie(res, token);
     res.json({ account });
   } catch (error) {
@@ -1128,7 +1167,7 @@ app.put("/api/restaurant/menu", requireRole("restaurant"), (req, res) => {
 // Current login
 app.get("/api/me", (req, res) => {
   const session = getSession(req);
-  res.json({ account: session || null });
+  res.json({ account: session ? safeAccount(session) : null });
 });
 
 // Staff login endpoint is used by the separate admin login page and staff accounts.
@@ -1136,6 +1175,8 @@ app.get("/api/me", (req, res) => {
 app.post("/api/login", (req, res) => {
   const username = String(req.body.username || "").trim().toLowerCase();
   const password = String(req.body.password || "");
+  const ip = requestIp(req);
+  if (isRateLimited("staff-login:ip:" + ip, 30, 15 * 60 * 1000) || (username && isRateLimited("staff-login:account:" + ip + ":" + username, 8, 15 * 60 * 1000))) return res.status(429).json({ error: "Too many staff sign-in attempts. Please wait 15 minutes before trying again." });
 
   if (!username || !password) {
     return res.status(400).json({
@@ -1166,7 +1207,7 @@ app.post("/api/login", (req, res) => {
   }
 
   const token = crypto.randomBytes(32).toString("hex");
-  sessions.set(token, safeAccount(account));
+  sessions.set(token, { ...safeAccount(account), sessionCreatedAt: Date.now() });
 
   res.setHeader(
     "Set-Cookie",
@@ -1244,6 +1285,7 @@ app.post("/api/logout", (req, res) => {
 
 // Create an order. All prices are calculated on the server.
 app.post("/api/orders", requireRole("student"), (req, res) => {
+  if (isRateLimited("create-order:" + requestIp(req) + ":" + req.account.username, 10, 5 * 60 * 1000)) return res.status(429).json({ error: "Too many order attempts. Please wait a few minutes." });
   const { hostel, block, room, landmark, latitude, longitude, restaurantId, items, requestId } = req.body;
   const paymentMethod = String(req.body.paymentMethod || "paystack").trim().toLowerCase();
   if (!["paystack", "foodback"].includes(paymentMethod)) return res.status(400).json({ error: "Choose Paystack or FoodBack as your payment method." });
@@ -1439,6 +1481,12 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
   }
 });
 
+// Only redirect customers to the official Paystack-hosted checkout URL.
+function isTrustedPaystackCheckoutUrl(value) {
+  try { const url = new URL(String(value || "")); return url.protocol === "https:" && url.hostname === "checkout.paystack.com" && !url.username && !url.password; }
+  catch { return false; }
+}
+
 // Paystack checkout is initialized server-side; the secret key is never sent to the browser.
 function hasPaystackConfig() {
   const key = String(process.env.PAYSTACK_SECRET_KEY || "").trim();
@@ -1472,18 +1520,20 @@ async function paystackRequest(url, options = {}) {
 }
 
 app.post("/api/orders/:id/paystack/initialize", requireRole("student"), async (req, res) => {
+  if (isRateLimited("pay-init:" + requestIp(req) + ":" + req.account.username, 6, 10 * 60 * 1000)) return res.status(429).json({ error: "Too many payment attempts. Please wait 10 minutes." });
   if (!IS_PRODUCTION) return res.status(400).json({ error: "Use the local demo payment flow outside production." });
   if (!hasPaystackConfig()) return res.status(503).json({ error: "Online payments are not configured yet. Please contact support." });
   const orders = readOrders();
   const order = orders.find(item => item.id === req.params.id);
   if (!order) return res.status(404).json({ error: "Order not found." });
   if (order.customerPhone !== req.account.username) return res.status(403).json({ error: "You can only pay for your own order." });
+  if (String(order.paymentMethod || "paystack").toLowerCase() !== "paystack") return res.status(400).json({ error: "This order is not eligible for Paystack checkout." });
   const subaccountCode = getPaystackSubaccountCode(order.restaurantId);
   if (!subaccountCode) return res.status(503).json({ error: "This restaurant is not configured for secure split payments yet. Please contact ChowOnCampus support." });
   if (["Paid — Paystack verified", "Paid — demo verified"].includes(order.paymentStatus)) {
     return res.status(409).json({ error: "This order has already been paid." });
   }
-  if (order.paymentStatus === "Payment pending" && order.paystackReference && order.paystackAuthorizationUrl &&
+  if (order.paymentStatus === "Payment pending" && order.paystackReference && isTrustedPaystackCheckoutUrl(order.paystackAuthorizationUrl) &&
       order.paystackSplitConfigured === true && order.paystackSubaccountCode === subaccountCode) {
     return res.json({ authorizationUrl: order.paystackAuthorizationUrl, reference: order.paystackReference, orderId: order.id });
   }
@@ -1535,6 +1585,10 @@ app.post("/api/orders/:id/paystack/initialize", requireRole("student"), async (r
         }
       })
     });
+    if (!isTrustedPaystackCheckoutUrl(payment.authorization_url)) {
+      console.error("Paystack returned an unexpected checkout URL for order:", order.id);
+      return res.status(502).json({ error: "Payment provider returned an untrusted checkout address. Please contact support." });
+    }
     order.paymentEmail = email;
     order.paystackReference = reference;
     order.paystackAuthorizationUrl = payment.authorization_url;
@@ -1605,6 +1659,7 @@ app.post("/api/payments/paystack/webhook", async (req, res) => {
 });
 
 app.post("/api/payments/paystack/verify", requireRole("student"), async (req, res) => {
+  if (isRateLimited("pay-verify:" + requestIp(req) + ":" + req.account.username, 10, 10 * 60 * 1000)) return res.status(429).json({ error: "Too many verification attempts. Please wait 10 minutes." });
   if (!hasPaystackConfig()) return res.status(503).json({ error: "Online payments are not configured yet." });
   const orderId = String(req.body.orderId || "").trim();
   const reference = String(req.body.reference || "").trim();

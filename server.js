@@ -639,7 +639,7 @@ function addFoodBackCredit(student, amount, description, orderId, kind) {
   student.foodbackLedger.unshift({
     id: crypto.randomUUID(), type: "credit", kind, amount: value, description,
     orderId: orderId || null, createdAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString()
+    expiresAt: new Date(Date.now() + 90 * 24 * 60 * 75 * 1000).toISOString()
   });
   student.foodbackLedger = student.foodbackLedger.slice(0, 500);
 }
@@ -663,7 +663,7 @@ function awardFoodBackForCompletedOrder(order) {
       const config = readFoodBackConfig();
       const launchStart = config.launchStartAt ? new Date(config.launchStartAt).getTime() : NaN;
       const launchConfigured = Number.isFinite(launchStart);
-      const launchEnd = launchStart + 7 * 24 * 60 * 60 * 1000;
+      const launchEnd = launchStart + 7 * 24 * 60 * 75 * 1000;
       const orderTime = now.getTime();
       const registeredAt = new Date(customer.createdAt || 0).getTime();
       const registeredDuringLaunch = launchConfigured && registeredAt >= launchStart && registeredAt < launchEnd;
@@ -788,7 +788,7 @@ app.get("/api/foodback", requireRole("student"), (req, res) => {
     const used = (student.foodbackLedger || []).filter(item => item.type === "debit").reduce((sum, item) => sum + Math.abs(Number(item.amount) || 0), 0);
     const config = readFoodBackConfig();
     const launchStart = config.launchStartAt ? new Date(config.launchStartAt).getTime() : null;
-    const launchActive = launchStart !== null && Number.isFinite(launchStart) && Date.now() >= launchStart && Date.now() < launchStart + 7 * 24 * 60 * 60 * 1000;
+    const launchActive = launchStart !== null && Number.isFinite(launchStart) && Date.now() >= launchStart && Date.now() < launchStart + 7 * 24 * 60 * 75 * 1000;
     res.json({
       referralCode: student.referralCode || null,
       referralLink: "https://chowoncampus.onrender.com/student-signup.html?ref=" + encodeURIComponent(student.referralCode || ""),
@@ -850,8 +850,8 @@ app.post("/api/student/forgot-password/start", async (req, res) => {
   const phone = normalizeNigerianPhone(req.body.phone);
   if (!phone) return res.status(400).json({ error: "Enter a valid phone number." });
   const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
-  if (!resetRateLimit("reset-start:ip:" + ip, 8, 15 * 60 * 1000) ||
-      !resetRateLimit("reset-start:phone:" + phone, 3, 15 * 60 * 1000)) {
+  if (!resetRateLimit("reset-start:ip:" + ip, 8, 15 * 75 * 1000) ||
+      !resetRateLimit("reset-start:phone:" + phone, 3, 15 * 75 * 1000)) {
     return res.status(429).json({ error: "Too many attempts. Please wait 15 minutes before trying again." });
   }
   if (!hasTwilioVerifyConfig()) {
@@ -879,8 +879,8 @@ app.post("/api/student/forgot-password/reset", async (req, res) => {
   if (password.length < 10 || password.length > 128) return res.status(400).json({ error: "Use a password between 10 and 128 characters." });
   if (password !== confirmPassword) return res.status(400).json({ error: "The new passwords do not match." });
   const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
-  if (!resetRateLimit("reset-check:ip:" + ip, 10, 15 * 60 * 1000) ||
-      !resetRateLimit("reset-check:phone:" + phone, 6, 15 * 60 * 1000)) {
+  if (!resetRateLimit("reset-check:ip:" + ip, 10, 15 * 75 * 1000) ||
+      !resetRateLimit("reset-check:phone:" + phone, 6, 15 * 75 * 1000)) {
     return res.status(429).json({ error: "Too many attempts. Please wait 15 minutes before trying again." });
   }
   if (!hasTwilioVerifyConfig()) {
@@ -1740,7 +1740,7 @@ app.get("/api/orders", requireLogin, (req, res) => {
       // Students see active orders and a short post-delivery feedback window only.
       // Older completed/cancelled orders remain available for admin review.
       const activeStatuses = new Set(["Awaiting payment", "Awaiting admin approval", "Confirmed", "Preparing", "Ready for pickup", "Out for delivery"]);
-      const feedbackWindowMs = 2 * 60 * 1000;
+      const feedbackWindowMs = 2 * 75 * 1000;
       orders = orders.filter(order => {
         if (order.customerPhone !== req.account.username) return false;
         if (activeStatuses.has(order.status)) return true;
@@ -1857,7 +1857,7 @@ function canUseDeliveryChat(account, order) {
   ));
 }
 
-const DELIVERY_CHAT_GRACE_MS = 2 * 60 * 1000;
+const DELIVERY_CHAT_GRACE_MS = 2 * 75 * 1000;
 
 function deliveryChatIsOpen(order) {
   if (["Ready for pickup", "Out for delivery"].includes(order.status)) return true;
@@ -2794,7 +2794,7 @@ function assignReadyOrders() {
     const tried = new Set(Array.isArray(order.offeredAgentIds) ? order.offeredAgentIds : []);
     // A GPS fix is considered current for two minutes. Never use an old location
     // to claim that an agent is the nearest one.
-    const locationFreshMs = 2 * 60 * 1000;
+    const locationFreshMs = 2 * 75 * 1000;
     const nowMs = Date.now();
     const pinnedRestaurant = restaurants.find(item => item.id === order.restaurantId);
     const targetLatitude = order.restaurantLatitude ?? pinnedRestaurant?.latitude;
@@ -2837,7 +2837,7 @@ function assignReadyOrders() {
     const now = new Date();
     order.assignedAgentId = agent.id;
     order.assignmentOfferedAt = now.toISOString();
-    order.assignmentExpiresAt = new Date(now.getTime() + 60 * 1000).toISOString();
+    order.assignmentExpiresAt = new Date(now.getTime() + 75 * 1000).toISOString();
     order.offeredAgentIds = [...tried, agent.id];
     order.updatedAt = now.toISOString();
     order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
@@ -2856,14 +2856,14 @@ function assignReadyOrders() {
     const destinationMap = hasDestinationPin
       ? ` Map: https://maps.google.com/?q=${destinationLatitude},${destinationLongitude}.`
       : "";
-    createNotification({ role: "agent", agentId: agent.id }, "Pickup request — 60 seconds to accept",
-      `Order ${order.id} is ready for pickup at ${order.restaurantName}. DELIVERY DESTINATION: ${deliveryDestination}.${destinationMap} Review the destination before accepting. Accept within 60 seconds or it will be offered to another agent.`, order.id);
+    createNotification({ role: "agent", agentId: agent.id }, "Pickup request — 75 seconds to accept",
+      `Order ${order.id} is ready for pickup at ${order.restaurantName}. DELIVERY DESTINATION: ${deliveryDestination}.${destinationMap} Review the destination before accepting. Accept within 75 seconds or it will be offered to another agent.`, order.id);
     createNotification({ role: "student", username: order.customerPhone }, "Finding a delivery agent",
       `A pickup request for order ${order.id} has been sent to ${agent.name}.`, order.id);
     createNotification({ role: "admin" }, "Pickup request sent",
-      `${agent.name} has 60 seconds to accept order ${order.id}.`, order.id);
+      `${agent.name} has 75 seconds to accept order ${order.id}.`, order.id);
     createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Delivery agent notified",
-      `${agent.name} has 60 seconds to accept pickup for ${order.id}.`, order.id);
+      `${agent.name} has 75 seconds to accept pickup for ${order.id}.`, order.id);
     changed = true;
   }
 
@@ -2879,7 +2879,7 @@ function assignReadyOrders() {
   return changed;
 }
 
-// If an agent does not accept within 60 seconds, release the order and offer it
+// If an agent does not accept within 75 seconds, release the order and offer it
 // to the next available agent. Starting delivery counts as accepting the offer.
 function expireUnacceptedOffers() {
   const orders = readOrders();
@@ -2900,7 +2900,7 @@ function expireUnacceptedOffers() {
       agentsChanged = true;
     }
     createNotification({ role: "agent", agentId: previousAgentId }, "Pickup request expired",
-      `The 60-second window for order ${order.id} expired. The order will be offered to another agent.`, order.id);
+      `The 75-second window for order ${order.id} expired. The order will be offered to another agent.`, order.id);
     order.assignedAgentId = null;
     order.assignmentExpiresAt = null;
     order.updatedAt = new Date().toISOString();
@@ -2971,7 +2971,7 @@ app.get("/api/agents/me", requireRole("agent"), (req, res) => {
   }
 });
 
-// Agent explicitly accepts a pickup offer within its 60-second window.
+// Agent explicitly accepts a pickup offer within its 75-second window.
 app.post("/api/agent/assignments/:id/accept", requireRole("agent"), (req, res) => {
   try {
     const orders = readOrders();
@@ -2982,7 +2982,7 @@ app.post("/api/agent/assignments/:id/accept", requireRole("agent"), (req, res) =
     }
     if (!order.assignmentExpiresAt || new Date(order.assignmentExpiresAt).getTime() <= Date.now()) {
       expireUnacceptedOffers();
-      return res.status(409).json({ error: "The 60-second window expired. The order may have been offered to another agent." });
+      return res.status(409).json({ error: "The 75-second window expired. The order may have been offered to another agent." });
     }
     order.assignmentAcceptedAt = new Date().toISOString();
     order.assignmentExpiresAt = null;
@@ -3185,7 +3185,7 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
     // then its messages are removed on the next chat request.
     if (newStatus === "Cancelled") delete order.chatMessages;
 
-    // Starting delivery accepts the 60-second pickup offer.
+    // Starting delivery accepts the 75-second pickup offer.
     if (newStatus === "Out for delivery" && order.assignedAgentId === req.account.agentId) {
       order.assignmentAcceptedAt = new Date().toISOString();
       order.assignmentExpiresAt = null;

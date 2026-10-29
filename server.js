@@ -28,7 +28,8 @@ const storageFiles = {
   "admin-accounts.json": "adminAccounts",
   "disabled-admins.json": "disabledAdmins",
   "foodback-config.json": "foodbackConfig",
-  "feedback-conversations.json": "feedbackConversations"
+  "feedback-conversations.json": "feedbackConversations",
+  "delivery-area-config.json": "deliveryAreaConfig"
 };
 
 function readLocalJson(filename, fallback) {
@@ -57,7 +58,8 @@ async function initializePersistentStorage() {
     ["admin-accounts.json", []],
     ["disabled-admins.json", []],
     ["foodback-config.json", { launchStartAt: null }],
-    ["feedback-conversations.json", []]
+    ["feedback-conversations.json", []],
+    ["delivery-area-config.json", { enabled: false, centerLatitude: null, centerLongitude: null, radiusMeters: 1200 }]
   ];
   if (!storagePool) {
     for (const [filename, fallback] of definitions) {
@@ -562,6 +564,41 @@ function readFoodBackConfig() {
 function saveFoodBackConfig(config) {
   saveStoredJson(FOODBACK_CONFIG_FILE, config);
 }
+const DELIVERY_AREA_CONFIG_FILE = path.join(__dirname, "delivery-area-config.json");
+function readDeliveryAreaConfig() {
+  return readStoredJson(DELIVERY_AREA_CONFIG_FILE, { enabled: false, centerLatitude: null, centerLongitude: null, radiusMeters: 1200 });
+}
+function saveDeliveryAreaConfig(config) { saveStoredJson(DELIVERY_AREA_CONFIG_FILE, config); }
+function validCoordinatePair(latitude, longitude) {
+  if (latitude === null || latitude === undefined || latitude === "" ||
+      longitude === null || longitude === undefined || longitude === "") return false;
+  return Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude)) &&
+    Math.abs(Number(latitude)) <= 90 && Math.abs(Number(longitude)) <= 180;
+}
+function getDeliveryAreaCheck(latitude, longitude) {
+  const config = readDeliveryAreaConfig();
+  if (!config.enabled || !validCoordinatePair(config.centerLatitude, config.centerLongitude) ||
+      !Number.isFinite(Number(config.radiusMeters)) || Number(config.radiusMeters) < 100) {
+    return { ok: false, error: "ChowOnCampus delivery area has not been configured by the Ultimate Admin yet. Please contact support before ordering." };
+  }
+  if (!validCoordinatePair(latitude, longitude)) {
+    return { ok: false, error: "Choose your exact delivery point using GPS or the map before continuing to payment." };
+  }
+  const lat = Number(latitude), lon = Number(longitude);
+  if (lat < 4 || lat > 14 || lon < 2 || lon > 15) {
+    return { ok: false, error: "That delivery pin is outside Nigeria. Please choose your location on the map or use GPS." };
+  }
+  const toRadians = value => value * Math.PI / 180;
+  const dLat = toRadians(lat - Number(config.centerLatitude));
+  const dLon = toRadians(lon - Number(config.centerLongitude));
+  const lat1 = toRadians(Number(config.centerLatitude));
+  const lat2 = toRadians(lat);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  const distanceMeters = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
+  const radiusMeters = Number(config.radiusMeters);
+  if (distanceMeters > radiusMeters) return { ok: false, error: "Sorry! ChowOnCampus currently delivers only within the approved Redeemer's University delivery area. Your selected location is outside our delivery area.", distanceMeters: Math.round(distanceMeters), radiusMeters };
+  return { ok: true, distanceMeters: Math.round(distanceMeters), radiusMeters };
+}
 function createReferralCode(students) {
   let code = "";
   do { code = "COC-" + crypto.randomBytes(3).toString("hex").toUpperCase(); }
@@ -1012,6 +1049,21 @@ app.get("/api/health", (req, res) => {
   res.json({ ok: true, service: "Chowoncampus" });
 });
 
+// Public delivery-area settings are safe to expose; only the Ultimate Admin can change them.
+app.get("/api/delivery-area", (req, res) => {
+  const config = readDeliveryAreaConfig();
+  const configured = validCoordinatePair(config.centerLatitude, config.centerLongitude) &&
+    Number.isFinite(Number(config.radiusMeters)) && Number(config.radiusMeters) >= 100;
+  res.json({
+    enabled: Boolean(config.enabled), configured,
+    available: Boolean(config.enabled) && configured,
+    centerLatitude: configured ? Number(config.centerLatitude) : null,
+    centerLongitude: configured ? Number(config.centerLongitude) : null,
+    radiusMeters: configured ? Number(config.radiusMeters) : null,
+    message: Boolean(config.enabled) && configured ? "Delivery is available inside the approved delivery area." : "Delivery area setup is required before orders can be placed."
+  });
+});
+
 // Public menu includes crowd-sourced average ratings for restaurants and food items.
 app.get("/api/menu", (req, res) => {
   const ratedOrders = readOrders().filter(order => order.rating);
@@ -1258,6 +1310,8 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
   if (!student) return res.status(403).json({ error: "A valid student account is required to order." });
   const customerName = student.name;
   const customerPhone = student.phone;
+  const deliveryAreaCheck = getDeliveryAreaCheck(latitude, longitude);
+  if (!deliveryAreaCheck.ok) return res.status(400).json({ error: deliveryAreaCheck.error });
   const cleanRequestId = typeof requestId === "string" ? requestId.trim() : "";
   if (requestId !== undefined && (!cleanRequestId || cleanRequestId.length > 100)) {
     return res.status(400).json({ error: "Invalid order request identifier. Please try again." });
@@ -1480,6 +1534,9 @@ app.post("/api/orders/:id/paystack/initialize", requireRole("student"), async (r
   const order = orders.find(item => item.id === req.params.id);
   if (!order) return res.status(404).json({ error: "Order not found." });
   if (order.customerPhone !== req.account.username) return res.status(403).json({ error: "You can only pay for your own order." });
+  const savedLocation = order.deliveryLocation || {};
+  const deliveryAreaCheck = getDeliveryAreaCheck(savedLocation.latitude, savedLocation.longitude);
+  if (!deliveryAreaCheck.ok) return res.status(400).json({ error: deliveryAreaCheck.error });
   const subaccountCode = getPaystackSubaccountCode(order.restaurantId);
   if (!subaccountCode) return res.status(503).json({ error: "This restaurant is not configured for secure split payments yet. Please contact ChowOnCampus support." });
   if (["Paid — Paystack verified", "Paid — demo verified"].includes(order.paymentStatus)) {
@@ -1902,6 +1959,26 @@ app.get("/api/orders/:id", (req, res) => {
   }
 });
 
+app.get("/api/superadmin/delivery-area", requireSuperAdmin, (req, res) => {
+  const config = readDeliveryAreaConfig();
+  res.json({ ...config, enabled: Boolean(config.enabled) });
+});
+app.post("/api/superadmin/delivery-area", requireSuperAdmin, (req, res) => {
+  const enabled = req.body.enabled === true;
+  const centerLatitude = Number(req.body.centerLatitude);
+  const centerLongitude = Number(req.body.centerLongitude);
+  const radiusMeters = Number(req.body.radiusMeters);
+  if (!validCoordinatePair(centerLatitude, centerLongitude) ||
+      centerLatitude < 4 || centerLatitude > 14 || centerLongitude < 2 || centerLongitude > 15) {
+    return res.status(400).json({ error: "Choose a valid delivery-area center in Nigeria using the map or GPS." });
+  }
+  if (!Number.isFinite(radiusMeters) || !Number.isInteger(radiusMeters) || radiusMeters < 100 || radiusMeters > 10000) {
+    return res.status(400).json({ error: "Delivery radius must be a whole number between 100 and 10,000 metres." });
+  }
+  const config = { enabled, centerLatitude, centerLongitude, radiusMeters, updatedAt: new Date().toISOString(), updatedBy: req.account.username };
+  saveDeliveryAreaConfig(config);
+  res.json({ ok: true, ...config, message: enabled ? "Delivery area saved and enforcement enabled. Orders are allowed only inside this radius." : "Delivery-area enforcement is paused. Customers cannot place orders until it is enabled." });
+});
 app.post("/api/admin/foodback-config", requireSuperAdmin, (req, res) => {
   const raw = String(req.body.launchStartAt || "").trim();
   const start = new Date(raw);

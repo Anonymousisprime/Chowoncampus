@@ -2451,6 +2451,51 @@ app.post("/api/superadmin/foodback-awards", requireSuperAdmin, (req, res) => {
 });
 
 
+// The Ultimate Admin may deduct FoodBack with a mandatory reason and an audit ledger entry.
+app.post("/api/superadmin/foodback-deductions", requireSuperAdmin, (req, res) => {
+  const studentId = String(req.body.studentId || "").trim();
+  const amount = Number(req.body.amount);
+  const reason = String(req.body.reason || "").trim().slice(0, 300);
+  if (!studentId) return res.status(400).json({ error: "Choose a student." });
+  if (!Number.isSafeInteger(amount) || amount <= 0) return res.status(400).json({ error: "Enter a positive whole-number FoodBack amount." });
+  if (!reason) return res.status(400).json({ error: "Enter a reason for this deduction." });
+
+  const students = readStudents();
+  const student = students.find(item => item.id === studentId);
+  if (!student) return res.status(404).json({ error: "Student account not found." });
+  const balance = Math.max(0, Number(student.foodbackBalance) || 0);
+  if (amount > balance) {
+    return res.status(400).json({ error: "Deduction exceeds the student's available balance of " + balance.toLocaleString("en-NG") + " FoodBack." });
+  }
+  if (!Array.isArray(student.foodbackLedger)) student.foodbackLedger = [];
+  const now = new Date().toISOString();
+  student.foodbackBalance = balance - amount;
+  student.foodbackLedger.unshift({
+    id: crypto.randomUUID(),
+    type: "debit",
+    kind: "admin-deduction",
+    amount: -amount,
+    reason,
+    description: "FoodBack deducted by ChowOnCampus Ultimate Admin: " + reason,
+    deductedBy: req.account.username,
+    createdAt: now
+  });
+  student.foodbackLedger = student.foodbackLedger.slice(0, 500);
+  saveStudents(students);
+  createNotification(
+    { role: "student", username: student.phone },
+    "FoodBack balance updated",
+    amount.toLocaleString("en-NG") + " FoodBack was deducted from your wallet by the Ultimate Admin. Reason: " + reason + ". New balance: " + student.foodbackBalance.toLocaleString("en-NG") + " FoodBack."
+  );
+  return res.status(201).json({
+    ok: true,
+    student: { id: student.id, name: student.name, phone: student.phone, foodbackBalance: student.foodbackBalance },
+    amount,
+    message: amount.toLocaleString("en-NG") + " FoodBack deducted successfully."
+  });
+});
+
+
 // Admin-only student directory. Never return password hashes or salts.
 app.get("/api/admin/students", requireRole("admin"), (req, res) => {
   try {

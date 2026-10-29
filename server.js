@@ -1994,7 +1994,22 @@ app.get("/api/superadmin/foodback-summary", requireSuperAdmin, (req, res) => {
       referredCount: referrals.filter(item => item.referredByPhone === student.phone).length,
       balance: Math.max(0, Number(student.foodbackBalance) || 0)
     })).filter(item => item.referredCount > 0).sort((a, b) => b.referredCount - a.referredCount);
-    res.json({ studentCount: students.length, referredAccountCount: referrals.length, totalOutstanding, totalCreditsIssued, totalUsed, totalExpired, ownOrderCredits, referralCredits, foodbackOrderCount: foodbackOrders.length, pendingFoodbackOrders, ledgerCount: ledger.length, referrers, ledger: ledger.slice(0, 300), launchStartAt: readFoodBackConfig().launchStartAt || null });
+    // Per-student FoodBack lifetime totals for the ultimate-admin dashboard.
+    const studentBalances = students.map(student => {
+      const entries = Array.isArray(student.foodbackLedger) ? student.foodbackLedger : [];
+      return {
+        id: student.id || "",
+        name: student.name || "Student",
+        username: student.username || "",
+        phone: student.phone || "",
+        earned: entries.filter(entry => entry.type === "credit").reduce((sum, entry) => sum + Math.max(0, Number(entry.amount) || 0), 0),
+        used: entries.filter(entry => entry.type === "debit").reduce((sum, entry) => sum + Math.abs(Number(entry.amount) || 0), 0),
+        expired: entries.filter(entry => entry.type === "expired").reduce((sum, entry) => sum + Math.abs(Number(entry.amount) || 0), 0),
+        balance: Math.max(0, Number(student.foodbackBalance) || 0),
+        transactions: entries.length
+      };
+    }).sort((a, b) => b.earned - a.earned || a.name.localeCompare(b.name));
+    res.json({ studentCount: students.length, referredAccountCount: referrals.length, totalOutstanding, totalCreditsIssued, totalUsed, totalExpired, ownOrderCredits, referralCredits, foodbackOrderCount: foodbackOrders.length, pendingFoodbackOrders, ledgerCount: ledger.length, referrers, studentBalances, ledger: ledger.slice(0, 300), launchStartAt: readFoodBackConfig().launchStartAt || null });
   } catch (error) {
     res.status(500).json({ error: "Could not load FoodBack administration summary." });
   }

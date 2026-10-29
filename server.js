@@ -2382,6 +2382,44 @@ app.post("/api/superadmin/student-feedback/:id/end", requireSuperAdmin, (req, re
   res.json({ ok: true, thread: publicFeedbackThread(thread), message: "Conversation ended. The student can no longer reply to this thread." });
 });
 
+app.post("/api/student/feedback", requireRole("student"), (req, res) => {
+  const category = String(req.body.category || "General Feedback").trim().slice(0, 60);
+  const subject = String(req.body.subject || "").trim().slice(0, 120);
+  const body = String(req.body.message || "").trim();
+  if (!body || body.length > 2000) return res.status(400).json({ error: "Feedback must be between 1 and 2,000 characters." });
+  const student = readStudents().find(item => item.phone === req.account.username);
+  if (!student) return res.status(404).json({ error: "Student account not found." });
+  const now = new Date().toISOString();
+  const thread = {
+    id: crypto.randomUUID(),
+    studentId: student.id,
+    studentName: student.name,
+    studentPhone: student.phone,
+    mode: "conversation",
+    category,
+    subject: subject || category,
+    status: "open",
+    endedAt: null,
+    createdAt: now,
+    updatedAt: now,
+    lastReadAtStudent: now,
+    lastReadAtAdmin: null,
+    messages: [{
+      id: crypto.randomUUID(),
+      senderRole: "student",
+      senderUsername: req.account.username,
+      senderName: student.name || "Student",
+      body,
+      createdAt: now
+    }]
+  };
+  const threads = readFeedbackConversations();
+  threads.push(thread);
+  saveFeedbackConversations(threads);
+  createNotification({ role: "admin" }, "New student feedback", student.name + " sent feedback: " + (subject || category));
+  res.status(201).json({ ok: true, thread: publicFeedbackThread(thread), message: "Your feedback has been sent to the Ultimate Admin." });
+});
+
 app.get("/api/student/feedback", requireRole("student"), (req, res) => {
   const students = readStudents();
   const student = students.find(item => item.phone === req.account.username);

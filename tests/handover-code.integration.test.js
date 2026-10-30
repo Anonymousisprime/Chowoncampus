@@ -81,6 +81,7 @@ before(async () => {
   otherAgent = await login("/api/login", { username: "agenttwo", password: ap });
   admin = await login("/api/login", { username: "testadmin", password: dp });
   restaurant = await login("/api/login", { username: "campusbites", password: dp });
+  restaurant = await login("/api/login", { username: "campusbites", password: dp });
 });
 
 after(async () => {

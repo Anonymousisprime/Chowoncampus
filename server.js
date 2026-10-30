@@ -67,7 +67,8 @@ async function initializePersistentStorage() {
     ["vendor-verifications.json", []],
     ["restaurant-operations.json", {}],
     ["operations-events.json", []],
-    ["operations-cases.json", []]
+    ["operations-cases.json", []],
+    ["restaurant-suspensions.json", {}]
   ];
   if (!storagePool) {
     for (const [filename, fallback] of definitions) {
@@ -271,6 +272,12 @@ let restaurants = [
     ]
   }
 ];
+
+const restaurantSuspensions = readStoredJson(path.join(__dirname, "restaurant-suspensions.json"), {});
+for (const restaurant of restaurants) {
+  const saved = restaurantSuspensions[restaurant.id];
+  if (saved) Object.assign(restaurant, saved);
+}
 
 let agents = [];
 
@@ -2540,7 +2547,10 @@ app.patch("/api/superadmin/operations-suspensions/:role/:id", requireRole("admin
       saveAgentRecords(readAgentRecords().map(item => item.id === entity.id ? entity : item));
       agents = readAgentRecords().map(item => ({ id: item.id, name: item.name, username: item.username, online: Boolean(item.online), suspended: Boolean(item.suspended), activeOrderId: item.activeOrderId || null, createdAt: item.createdAt || null }));
     } else if (role === "restaurant") {
-      saveRestaurants(restaurants);
+      const saved = readStoredJson(path.join(__dirname, "restaurant-suspensions.json"), {});
+      if (suspended) saved[entity.id] = { suspended: true, suspensionReason: reason, suspendedAt: entity.suspendedAt, suspendedBy: entity.suspendedBy };
+      else delete saved[entity.id];
+      saveStoredJson(path.join(__dirname, "restaurant-suspensions.json"), saved);
     } else {
       saveAgentRecords(readAgentRecords().map(item => item.id === entity.id ? entity : item));
     }

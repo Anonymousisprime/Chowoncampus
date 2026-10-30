@@ -227,6 +227,13 @@ app.use(express.static(path.join(__dirname, "public")));
 app.use((req, res, next) => {
   const sendJson = res.json.bind(res);
   res.json = function (body) {
+    // Read-only requests must not wait behind the database write queue.
+    // A slow or stuck background write must never leave dashboards spinning
+    // while they are only trying to read records.
+    if (["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+      sendJson(body);
+      return res;
+    }
     storageWriteQueue.then(() => sendJson(body)).catch(error => {
       console.error("Unable to persist request data:", error.message);
       if (!res.headersSent) {

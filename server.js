@@ -164,30 +164,29 @@ function saveStoredJson(filePath, data) {
       for (const order of Array.isArray(data) ? data : []) {
         if (!order?.id) continue;
         const id = String(order.id);
-        const serializedOrder = JSON.stringify(order);
-        current.set(id, serializedOrder);
-        if (persistedOrderSnapshot.get(id) !== serializedOrder) {
-          // Only write orders that actually changed; each order has its own database row.
-          storageWriteQueue = storageWriteQueue.catch(() => {}).then(() =>
-            storagePool.query(
-              `INSERT INTO coc_orders (id, data, created_at, updated_at)
-               VALUES ($1, $2::jsonb, COALESCE($3::timestamptz, NOW()), NOW())
-               ON CONFLICT (id) DO UPDATE
-               SET data = EXCLUDED.data, created_at = EXCLUDED.created_at, updated_at = NOW()`,
-              [id, serializedOrder, order.createdAt || null]
-            )
-          );
-        }
+        current.set(id, {
+          serialized: JSON.stringify(order),
+          createdAt: order.createdAt || null
+        });
       }
-      for (const oldId of persistedOrderSnapshot.keys()) {
-        if (!current.has(oldId)) {
-          storageWriteQueue = storageWriteQueue.catch(() => {}).then(() =>
-            storagePool.query("DELETE FROM coc_orders WHERE id = $1", [oldId])
+      // Persist changed rows only. A full in-memory snapshot is never treated as
+      // an instruction to delete database rows: stale snapshots or a dashboard
+      // refresh must never erase orders that are not present in that snapshot.
+      // Advance the persisted snapshot only after each database write succeeds,
+      // so a failed write is retried on the next save instead of being skipped.
+      storageWriteQueue = storageWriteQueue.catch(() => {}).then(async () => {
+        for (const [id, order] of current) {
+          if (persistedOrderSnapshot.get(id) === order.serialized) continue;
+          await storagePool.query(
+            `INSERT INTO coc_orders (id, data, created_at, updated_at)
+             VALUES ($1, $2::jsonb, COALESCE($3::timestamptz, NOW()), NOW())
+             ON CONFLICT (id) DO UPDATE
+             SET data = EXCLUDED.data, created_at = EXCLUDED.created_at, updated_at = NOW()`,
+            [id, order.serialized, order.createdAt]
           );
+          persistedOrderSnapshot.set(id, order.serialized);
         }
-      }
-      persistedOrderSnapshot.clear();
-      for (const [id, serializedOrder] of current) persistedOrderSnapshot.set(id, serializedOrder);
+      });
       storageWriteQueue.catch(error => {
         console.error("PostgreSQL order persistence failed:", error.message);
       });
@@ -1901,12 +1900,12 @@ app.get("/api/orders", requireLogin, (req, res) => {
     if (req.account.role === "restaurant") {
       orders = vendorIsApproved(req.account.restaurantId) ? orders.filter(
         order => order.restaurantId === req.account.restaurantId &&
-          ["Paid — demo verified", "Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)
+          ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)
       ) : [];
     } else if (req.account.role === "agent") {
       orders = orders.filter(
         order => order.assignedAgentId === req.account.agentId &&
-          ["Paid — demo verified", "Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)
+          ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)
       );
     } else if (req.account.role === "admin" && !req.account.isSuperAdmin) {
       orders = orders.filter(order => !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval"));
@@ -2274,7 +2273,7 @@ function publicVendorVerification(record) {
     restaurantId: record.restaurantId, restaurantName: record.restaurantName,
     status: record.status || "pending", identityStatus: record.identityStatus || "pending",
     businessStatus: record.businessStatus || "pending", settlementStatus: record.settlementStatus || "pending",
-    documents: (record.documents || []).map(doc => ({ id: doc.id, type: doc.type, filename: doc.filename, mimeType: doc.mimeType, uploadedAt: doc.uploadedAt })),
+    documents: (record.documents || []).map(doc => ({ id: doc.id, type: doc.type, filename: doc.filename, mimeType: doc.mimeType, uploadedAt: doc.uploadedAt, reviewStatus: doc.reviewStatus || "pending", rejectionReason: doc.rejectionReason || "", reviewedAt: doc.reviewedAt || null, reviewedBy: doc.reviewedBy || null, supersededAt: doc.supersededAt || null })),
     reviewer: record.reviewer || null, approvalDate: record.approvalDate || null,
     updatedAt: record.updatedAt || null, notes: record.notes || ""
   };
@@ -2285,8 +2284,11 @@ const VENDOR_REQUIRED_DOCUMENTS = [
   { type: "business-proof", label: "Business / restaurant ownership proof (CAC certificate may be used)" },
   { type: "settlement-proof", label: "Settlement bank account proof" }
 ];
+function vendorCurrentDocuments(record) {
+  return (record?.documents || []).filter(doc => !doc.supersededAt);
+}
 function vendorMissingDocumentTypes(record) {
-  const uploaded = new Set((record?.documents || []).map(doc => doc.type));
+  const uploaded = new Set(vendorCurrentDocuments(record).map(doc => doc.type));
   return VENDOR_REQUIRED_DOCUMENTS.filter(item =>
     !uploaded.has(item.type) && !(item.type === "business-proof" && uploaded.has("cac"))
   ).map(item => item.type);
@@ -2325,7 +2327,9 @@ app.post("/api/restaurant/vendor-verification/documents", requireRole("restauran
       records.push(record);
     }
     record.documents = Array.isArray(record.documents) ? record.documents : [];
-    record.documents.push({ id: crypto.randomUUID(), type, filename: filename.replace(/[\\/]/g, "_"), mimeType, size: buffer.length, encrypted, uploadedAt: new Date().toISOString(), uploadedBy: req.account.username });
+    const uploadedAt = new Date().toISOString();
+    record.documents.filter(doc => doc.type === type && !doc.supersededAt).forEach(doc => { doc.supersededAt = uploadedAt; });
+    record.documents.push({ id: crypto.randomUUID(), type, filename: filename.replace(/[\\/]/g, "_"), mimeType, size: buffer.length, encrypted, uploadedAt, uploadedBy: req.account.username, reviewStatus: "pending", rejectionReason: "" });
     if (record.status !== "rejected") record.status = "pending";
     record.approvalDate = null;
     record.updatedAt = new Date().toISOString();
@@ -2349,6 +2353,8 @@ app.post("/api/restaurant/vendor-verification/resubmit", requireRole("restaurant
     return res.status(400).json({ error: "Please upload the missing documents: " + labels.join(", ") + "." });
   }
   if (record.status === "approved") return res.status(409).json({ error: "Your restaurant is already approved." });
+  const rejectedDocuments = vendorCurrentDocuments(record).filter(doc => doc.reviewStatus === "rejected");
+  if (rejectedDocuments.length) return res.status(400).json({ error: "Replace every rejected document before resubmitting. Rejected documents: " + rejectedDocuments.map(doc => doc.filename).join(", ") + "." });
   record.status = "pending";
   record.identityStatus = "pending";
   record.businessStatus = "pending";
@@ -2397,7 +2403,9 @@ app.post("/api/superadmin/vendor-verifications/:restaurantId/documents", require
       records.push(record);
     }
     record.documents = Array.isArray(record.documents) ? record.documents : [];
-    record.documents.push({ id: crypto.randomUUID(), type, filename: filename.replace(/[\\/]/g, "_"), mimeType, size: buffer.length, encrypted, uploadedAt: new Date().toISOString() });
+    const uploadedAt = new Date().toISOString();
+    record.documents.filter(doc => doc.type === type && !doc.supersededAt).forEach(doc => { doc.supersededAt = uploadedAt; });
+    record.documents.push({ id: crypto.randomUUID(), type, filename: filename.replace(/[\\/]/g, "_"), mimeType, size: buffer.length, encrypted, uploadedAt, reviewStatus: "pending", rejectionReason: "" });
     record.status = "pending"; record.approvalDate = null; record.reviewer = null; record.updatedAt = new Date().toISOString();
     saveVendorVerifications(records);
     res.setHeader("Cache-Control", "no-store");
@@ -2439,6 +2447,31 @@ app.delete("/api/superadmin/vendor-verifications/:restaurantId/documents/:docume
   return res.json({ ok: true, message: "Document deleted. The vendor has returned to pending review." });
 });
 
+app.patch("/api/superadmin/vendor-verifications/:restaurantId/documents/:documentId/review", requireSuperAdmin, (req, res) => {
+  const records = readVendorVerifications();
+  const record = records.find(item => item.restaurantId === req.params.restaurantId);
+  if (!record) return res.status(404).json({ error: "Vendor verification record not found." });
+  const document = (record.documents || []).find(item => item.id === req.params.documentId);
+  if (!document) return res.status(404).json({ error: "Vendor document not found." });
+  if (document.supersededAt) return res.status(409).json({ error: "This document has been replaced. Review the latest uploaded version instead." });
+  const reviewStatus = String(req.body.reviewStatus || "").trim();
+  if (!["pending", "verified", "rejected"].includes(reviewStatus)) return res.status(400).json({ error: "Choose Pending, Verified or Rejected." });
+  const rejectionReason = String(req.body.rejectionReason || "").trim().slice(0, 1000);
+  if (reviewStatus === "rejected" && !rejectionReason) return res.status(400).json({ error: "Enter a reason before rejecting a document." });
+  document.reviewStatus = reviewStatus;
+  document.rejectionReason = reviewStatus === "rejected" ? rejectionReason : "";
+  document.reviewedBy = req.account.username;
+  document.reviewedAt = new Date().toISOString();
+  record.updatedAt = document.reviewedAt;
+  if (reviewStatus === "rejected" && record.status === "approved") {
+    record.status = "pending";
+    record.approvalDate = null;
+  }
+  saveVendorVerifications(records);
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({ ok: true, vendor: publicVendorVerification(record), message: reviewStatus === "rejected" ? "Document rejected. The restaurant can see the reason and upload a replacement. If it was previously approved, its ordering access has been paused pending re-review." : reviewStatus === "verified" ? "Document marked as verified." : "Document review returned to pending." });
+});
+
 app.patch("/api/superadmin/vendor-verifications/:restaurantId", requireSuperAdmin, (req, res) => {
   const restaurant = restaurants.find(item => item.id === req.params.restaurantId);
   if (!restaurant) return res.status(404).json({ error: "Restaurant not found." });
@@ -2460,10 +2493,16 @@ app.patch("/api/superadmin/vendor-verifications/:restaurantId", requireSuperAdmi
     return res.status(400).json({ error: "All three verification checks must be verified before approval." });
   }
   if (decision === "approved") {
-    const uploadedTypes = new Set((record.documents || []).map(doc => doc.type));
-    if (!uploadedTypes.has("identity")) return res.status(400).json({ error: "Upload an owner identity document before approving this vendor." });
-    if (!uploadedTypes.has("business-proof") && !uploadedTypes.has("cac")) return res.status(400).json({ error: "Upload business ownership proof or a CAC certificate before approving this vendor." });
-    if (!uploadedTypes.has("settlement-proof")) return res.status(400).json({ error: "Upload settlement bank account proof before approving this vendor." });
+    const currentDocuments = vendorCurrentDocuments(record);
+    const latestByType = new Map(currentDocuments.map(doc => [doc.type, doc]));
+    const identityDocument = latestByType.get("identity");
+    const businessDocument = latestByType.get("business-proof") || latestByType.get("cac");
+    const settlementDocument = latestByType.get("settlement-proof");
+    if (!identityDocument) return res.status(400).json({ error: "Upload an owner identity document before approving this vendor." });
+    if (!businessDocument) return res.status(400).json({ error: "Upload business ownership proof or a CAC certificate before approving this vendor." });
+    if (!settlementDocument) return res.status(400).json({ error: "Upload settlement bank account proof before approving this vendor." });
+    const unverified = [identityDocument, businessDocument, settlementDocument].filter(doc => (doc.reviewStatus || "pending") !== "verified");
+    if (unverified.length) return res.status(400).json({ error: "Verify each current required document individually before approving the restaurant: " + unverified.map(doc => doc.filename).join(", ") + "." });
   }
   record.identityStatus = identityStatus; record.businessStatus = businessStatus; record.settlementStatus = settlementStatus;
   record.status = decision; record.notes = String(req.body.notes || "").trim().slice(0, 1000);
@@ -3670,47 +3709,6 @@ app.patch("/api/orders/:id/assign", requireRole("admin"), (req, res) => {
   }
 });
 
-// Admin-only test helper. This never contacts Paystack or moves money.
-app.post("/api/admin/orders/:id/demo-payment", requireRole("admin"), (req, res) => {
-  if (String(process.env.ENABLE_ADMIN_DEMO_PAYMENTS || "").toLowerCase() !== "true") {
-    return res.status(403).json({ error: "Test-payment approval is disabled. Enable ENABLE_ADMIN_DEMO_PAYMENTS only while testing." });
-  }
-  try {
-    const orders = readOrders();
-    const order = orders.find(item => item.id === req.params.id);
-    if (!order) return res.status(404).json({ error: "Order not found." });
-
-    // Never override a Paystack checkout, a payment reference, or a payment
-    // that has already been verified. This is only a manual test workflow.
-    if (order.paystackReference || order.paymentStatus === "Payment pending" ||
-        ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)) {
-      return res.status(409).json({ error: "This order has a real payment flow or verified payment and cannot use test approval." });
-    }
-    if (order.status !== "Awaiting payment" || !["Unpaid", "Unpaid — demo only"].includes(order.paymentStatus)) {
-      return res.status(409).json({ error: "Only an unpaid order still awaiting payment can be marked as a test payment." });
-    }
-
-    const changedAt = new Date().toISOString();
-    order.paymentStatus = "Paid — demo verified";
-    order.demoPaymentAt = changedAt;
-    order.paidAt = changedAt;
-    order.paymentChannel = "Admin test override — no money charged";
-    order.status = "Confirmed";
-    order.updatedAt = changedAt;
-    order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
-    order.statusHistory.push({ status: "Confirmed", at: changedAt, by: "admin demo payment" });
-    saveOrders(orders);
-    notifyOrderParties(order, "Test payment approved — order confirmed", "An administrator marked this test order as paid for workflow testing. No money was charged.");
-    return res.json({
-      order: publicOrder(order),
-      message: "Test payment recorded. No money was charged. The restaurant can now process this order."
-    });
-  } catch (error) {
-    console.error("Admin demo payment failed:", error.message);
-    return res.status(500).json({ error: "Could not mark this test order as paid." });
-  }
-});
-
 // Role-based order status updates
 app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
   try {
@@ -3805,7 +3803,7 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
     // Fulfilment requires a verified payment state.
     if (
       newStatus !== "Cancelled" &&
-      !["Paid — demo verified", "Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)
+      !["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)
     ) {
       return res.status(400).json({
         error: "This order is unpaid. Complete and verify payment before fulfilment."

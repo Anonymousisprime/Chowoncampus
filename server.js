@@ -33,7 +33,8 @@ const storageFiles = {
   "vendor-verifications.json": "vendorVerifications",
   "restaurant-operations.json": "restaurantOperations",
   "operations-events.json": "operationsEvents",
-  "operations-cases.json": "operationsCases"
+  "operations-cases.json": "operationsCases",
+  "restaurant-suspensions.json": "restaurantSuspensions"
 };
 
 function readLocalJson(filename, fallback) {

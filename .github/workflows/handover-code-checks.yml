@@ -7,6 +7,12 @@ on:
     paths:
       - 'server.js'
       - 'public/app.js'
+      - 'public/restaurants.js'
+      - 'public/stall.js'
+      - 'public/restaurant-dashboard.html'
+      - 'public/restaurants.html'
+      - 'public/stall.html'
+      - 'public/style.css'
       - 'public/agent-dashboard.html'
       - 'tests/**'
       - 'package.json'
@@ -37,6 +43,10 @@ jobs:
         run: node --check server.js
       - name: Check shared dashboard syntax
         run: node --check public/app.js
+      - name: Check student restaurant scripts
+        run: |
+          node --check public/restaurants.js
+          node --check public/stall.js
       - name: Extract and check agent dashboard script
         run: |
           node -e "const fs=require('fs');const html=fs.readFileSync('public/agent-dashboard.html','utf8');const scripts=[...html.matchAll(/<script(?:\\s[^>]*)?>([\\s\\S]*?)<\\/script>/gi)];if(!scripts.length)throw new Error('No inline script found');scripts.forEach((m,i)=>fs.writeFileSync('/tmp/agent-dashboard-'+i+'.js',m[1]));console.log('Extracted '+scripts.length+' script(s)')"

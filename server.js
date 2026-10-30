@@ -3497,8 +3497,10 @@ app.patch("/api/agent/availability", requireRole("agent"), (req, res) => {
     const records = readAgentRecords();
     const agent = records.find(item => item.id === req.account.agentId);
     if (!agent) return res.status(404).json({ error: "Agent account not found." });
+    const wasOnline = Boolean(agent.online);
     agent.online = req.body.online;
     agent.availabilityUpdatedAt = new Date().toISOString();
+    if (wasOnline !== agent.online) recordOperationsEvent({ type: agent.online ? "agent_online" : "agent_offline", entityType: "agent", entityId: agent.id, entityName: agent.name, actorRole: "agent", actorId: req.account.username, details: agent.name + (agent.online ? " went online." : " went offline.") });
     // Do not keep or expose a live GPS fix after the agent goes offline.
     if (!agent.online) {
       agent.latitude = null;

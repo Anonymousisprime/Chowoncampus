@@ -1145,6 +1145,7 @@ async function setAgentAvailability(online) {
 }
 
 let dashboardLoadInProgress = false;
+let dashboardReloadRequested = false;
 let dashboardInteractionUntil = 0;
 
 // Pause background dashboard rebuilds briefly after a staff member interacts with an order.
@@ -1160,7 +1161,12 @@ document.addEventListener("input", noteDashboardInteraction, true);
 async function loadDashboard(automatic = false) {
   if (!state.account) { location.href = "/student-login.html"; return; }
   if (automatic && Date.now() < dashboardInteractionUntil) return;
-  if (dashboardLoadInProgress) return;
+  if (dashboardLoadInProgress) {
+    // Never drop an explicit refresh/action-triggered reload. Queue it after the
+    // in-flight load finishes so controls cannot remain stale or disabled.
+    if (!automatic) dashboardReloadRequested = true;
+    return;
+  }
   dashboardLoadInProgress = true;
 
   const account = state.account;
@@ -1200,9 +1206,17 @@ async function loadDashboard(automatic = false) {
 
     if (account.role === "restaurant") {
       const verification = await api("/api/restaurant/vendor-verification");
-      if (verification.vendor.status !== "approved") {
+      const vendorChecksComplete = verification.vendor.identityStatus === "verified" &&
+        verification.vendor.businessStatus === "verified" &&
+        verification.vendor.settlementStatus === "verified";
+      const vendorCanReceiveOrders = verification.vendor.status === "approved" && vendorChecksComplete;
+      if (!vendorCanReceiveOrders) {
         const vendor = verification.vendor;
-        const statusLabel = vendor.status === "rejected" ? "Application rejected — action required" : "Pending verification";
+        const statusLabel = vendor.status === "rejected"
+          ? "Application rejected — action required"
+          : vendor.status === "approved"
+            ? "Approval checks incomplete — action required"
+            : "Pending verification";
         const statusColor = vendor.status === "rejected" ? "#b42318" : "#9a6700";
         const uploaded = new Set((vendor.documents || []).filter(doc => !doc.supersededAt).map(doc => doc.type));
         const documentLabels = { identity: "Owner identity document", "business-proof": "Business / restaurant ownership proof", cac: "CAC certificate", "settlement-proof": "Settlement bank account proof", other: "Additional supporting document" };
@@ -1220,8 +1234,9 @@ async function loadDashboard(automatic = false) {
             <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span aria-hidden="true" style="font-size:28px">🛡️</span><div><span class="eyebrow">CHOWONCAMPUS PARTNER ONBOARDING</span><h2 style="margin:4px 0">Restaurant verification</h2></div></div>
             <p><span class="status" style="color:${statusColor};font-weight:800">${escapeHtml(statusLabel)}</span></p>
             <h3>Welcome to ChowOnCampus, ${escapeHtml(account.name)}!</h3>
-            <p>Your restaurant account has been successfully created. However, your restaurant is not yet approved to receive orders.</p>
-            <p>To activate your restaurant, please complete verification by submitting the required documents. Our Ultimate Admin will review your information and update your application status.</p>
+            <p>Your restaurant account has been successfully created. ${vendor.status === "approved" ? "The application decision is approved, but one or more required verification checks are not marked verified. Ordering remains disabled until all three checks are complete." : "Your restaurant is not yet approved to receive orders."}</p>
+            <p>${vendor.status === "approved" ? "Please contact ChowOnCampus support so the Ultimate Admin can reconcile the verification records." : "To activate your restaurant, please complete verification by submitting the required documents. Our Ultimate Admin will review your information and update your application status."}</p>
+            <div class="restaurant-metrics" style="margin:18px 0"><article><span>Owner identity</span><strong>${escapeHtml(vendor.identityStatus || "pending")}</strong></article><article><span>Business proof</span><strong>${escapeHtml(vendor.businessStatus || "pending")}</strong></article><article><span>Settlement proof</span><strong>${escapeHtml(vendor.settlementStatus || "pending")}</strong></article></div>
             <div class="restaurant-metrics" style="margin:18px 0"><article><span>Account</span><strong>Created</strong><small>Your login is active</small></article><article><span>Order access</span><strong>Disabled</strong><small>Until approval</small></article></div>
             ${rejectedMessage}
             <h3>Verification checklist</h3>
@@ -1535,6 +1550,10 @@ async function loadDashboard(automatic = false) {
     $("#dashboardContent").innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
   } finally {
     dashboardLoadInProgress = false;
+    if (dashboardReloadRequested) {
+      dashboardReloadRequested = false;
+      queueMicrotask(() => loadDashboard());
+    }
   }
 }
 

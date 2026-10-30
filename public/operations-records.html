@@ -20,6 +20,7 @@
 <div class="metric"><small>Open cases / appeals</small><strong id="openCases">—</strong></div>
 </section>
 <section class="panel"><div class="panel-head"><div><h2>Live operations monitor</h2><p class="muted">Latest status snapshot. Activity history begins when event tracking is enabled.</p></div></div><div class="panel-body grid3" id="liveMonitor">Loading…</div></section>
+<section class="panel"><div class="panel-head"><div><h2>Restaurant &amp; agent performance</h2><p class="muted">Cancellation counts and repeat food-unavailability signals help prioritise manual review.</p></div></div><div class="panel-body"><div class="table-wrap"><table><thead><tr><th>Partner / agent</th><th>Current status</th><th>Successful orders / deliveries</th><th>Cancelled / failed</th><th>Unavailable-item events (30 days)</th><th>Review signal</th></tr></thead><tbody id="performanceBody"><tr><td colspan="6" class="empty">Loading performance…</td></tr></tbody></table></div><p class="muted">A repeat-unavailability signal is a prompt for review, not an automatic finding of fault or an automatic fine.</p></div></section>
 <section class="panel"><div class="panel-head"><div><h2>Record folders</h2><p class="muted">Open a folder to review all matching orders, including successful and unsuccessful cases.</p></div></div>
 <div class="panel-body"><div class="folders">
 <button class="folder active" data-folder="restaurants"><span class="folder-icon">🏪</span><span><strong>Restaurant Orders</strong><small id="restaurantFolderCount">All restaurant order records</small></span></button>
@@ -96,6 +97,22 @@ function renderMonitor(){
   ["Deliveries",active+" active · "+failed+" cancelled / failed"]
  ].map(([h,v])=>'<div class="location-list"><strong>'+esc(h)+'</strong><p class="muted">'+esc(v)+'</p></div>').join("");
 }
+function renderPerformance(){
+ const cutoff=Date.now()-30*24*60*60*1000;
+ const rows=[];
+ for(const r of data.restaurants){
+  const orders=data.orders.filter(o=>o.restaurantId===r.id);
+  const unavailable=data.events.filter(e=>e.entityType==="restaurant"&&e.entityId===r.id&&e.type==="food_unavailable"&&new Date(e.occurredAt||0).getTime()>=cutoff).length;
+  const completed=orders.filter(o=>o.status==="Completed").length;
+  const cancelled=orders.filter(o=>o.status==="Cancelled").length;
+  const current=r.operations?.online&&!r.operations?.ordersPaused?"Online":r.operations?.ordersPaused?"Paused":"Offline";
+  rows.push({name:r.name,role:"Restaurant",status:current,success:completed,failed:cancelled,unavailable,signal:unavailable>=3?"Review repeated unavailability":cancelled>=3?"Review cancellations":"No threshold reached"});
+ }
+ for(const a of data.agents){
+  rows.push({name:a.name,role:"Delivery agent",status:a.online?"Online":"Offline",success:a.completedDeliveries||0,failed:a.failedDeliveries||0,unavailable:0,signal:(a.failedDeliveries||0)>=2?"Review failed deliveries":"No threshold reached"});
+ }
+ $("#performanceBody").innerHTML=rows.length?rows.map(r=>'<tr><td><strong>'+esc(r.name)+'</strong><br><span class="muted">'+esc(r.role)+'</span></td><td>'+statusPill(r.status)+'</td><td>'+r.success+'</td><td>'+r.failed+'</td><td>'+r.unavailable+'</td><td>'+esc(r.signal)+'</td></tr>').join(""):'<tr><td colspan="6" class="empty">No restaurant or agent records.</td></tr>';
+}
 function renderEvents(){
  const filter=$("#eventFilter").value;
  const rows=data.events.filter(e=>!filter||(filter==="restaurant"&&String(e.type).startsWith("restaurant_"))||(filter==="food"&&String(e.type).startsWith("food_"))||(filter==="agent"&&String(e.type).startsWith("agent_"))||(filter==="case"&&String(e.type).startsWith("case_"))).slice(0,250);
@@ -115,7 +132,7 @@ function render(){
  $("#restaurantFilter").innerHTML='<option value="">All restaurants</option>'+data.restaurants.map(r=>'<option value="'+esc(r.id)+'">'+esc(r.name)+'</option>').join("");
  $("#agentFilter").innerHTML='<option value="">All agents</option>'+data.agents.map(a=>'<option value="'+esc(a.id)+'">'+esc(a.name)+'</option>').join("")+'<option value="unassigned">Unassigned</option>';
  $("#caseOrder").innerHTML='<option value="">Select order (required for refund, complaint or dispute)</option>'+data.orders.map(o=>'<option value="'+esc(o.id)+'">'+esc(o.id)+' · '+esc(o.restaurantName)+' · '+esc(o.customerName)+' · '+esc(o.status)+'</option>').join("");
- renderMonitor();renderOrders();renderEvents();renderCases();
+ renderMonitor();renderPerformance();renderOrders();renderEvents();renderCases();
 }
 async function load(){
  $("#status").textContent="Loading secure operations records…";

@@ -2718,6 +2718,8 @@ app.post("/api/superadmin/operations-cases", requireSuperAdmin, (req, res) => {
     reason, amount, decision, resolution: String(req.body.resolution || "").trim().slice(0, 2000),
     evidenceNotes: String(req.body.evidenceNotes || "").trim().slice(0, 3000),
     appealOf: String(req.body.appealOf || "").trim().slice(0, 100) || null,
+    hearingRequested: Boolean(req.body.hearingRequested),
+    hearingRequestedAt: req.body.hearingRequested ? now : null,
     createdAt: now, updatedAt: now, createdBy: req.account.username,
     history: [{ at: now, by: req.account.username, action: "created", decision, note: String(req.body.resolution || "").trim().slice(0, 1000) }]
   };

@@ -152,6 +152,40 @@ test("restaurant verification onboarding is enforced end to end", async t => {
     assert.deepEqual(status.missingDocuments, []);
   });
 
+  await t.test("individual document rejection is visible and replacement is required", async () => {
+    let status = await (await api(restaurantCookie, "/api/restaurant/vendor-verification")).json();
+    const identity = status.vendor.documents.find(doc => doc.type === "identity");
+    const rejected = await api(superAdminCookie, "/api/superadmin/vendor-verifications/CB/documents/" + identity.id + "/review", {
+      method: "PATCH",
+      body: JSON.stringify({ reviewStatus: "rejected", rejectionReason: "The image is blurry. Upload a clear, readable identity document." })
+    });
+    assert.equal(rejected.status, 200);
+    status = await (await api(restaurantCookie, "/api/restaurant/vendor-verification")).json();
+    assert.equal(status.vendor.status, "pending", "a single rejected file must not silently change the overall application decision");
+    const rejectedIdentity = status.vendor.documents.find(doc => doc.id === identity.id);
+    assert.equal(rejectedIdentity.reviewStatus, "rejected");
+    assert.equal(rejectedIdentity.rejectionReason, "The image is blurry. Upload a clear, readable identity document.");
+    const blocked = await api(restaurantCookie, "/api/restaurant/vendor-verification/resubmit", { method: "POST", body: JSON.stringify({}) });
+    assert.equal(blocked.status, 400, "resubmission must wait for a replacement");
+    const replacement = await api(restaurantCookie, "/api/restaurant/vendor-verification/documents", {
+      method: "POST",
+      body: JSON.stringify({ type: "identity", filename: "clear-owner-id.png", mimeType: "image/png", dataBase64: Buffer.from("clear identity").toString("base64") })
+    });
+    assert.equal(replacement.status, 201);
+    status = await (await api(restaurantCookie, "/api/restaurant/vendor-verification")).json();
+    const oldIdentity = status.vendor.documents.find(doc => doc.id === identity.id);
+    const newIdentity = status.vendor.documents.find(doc => doc.filename === "clear-owner-id.png");
+    assert.ok(oldIdentity.supersededAt);
+    assert.equal(newIdentity.reviewStatus, "pending");
+    for (const doc of status.vendor.documents.filter(item => !item.supersededAt)) {
+      const verified = await api(superAdminCookie, "/api/superadmin/vendor-verifications/CB/documents/" + doc.id + "/review", {
+        method: "PATCH",
+        body: JSON.stringify({ reviewStatus: "verified", rejectionReason: "" })
+      });
+      assert.equal(verified.status, 200);
+    }
+  });
+
   await t.test("restaurant must submit the complete application for admin review", async () => {
     const response = await api(restaurantCookie, "/api/restaurant/vendor-verification/resubmit", {
       method: "POST",

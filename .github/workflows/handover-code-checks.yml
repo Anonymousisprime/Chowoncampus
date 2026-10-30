@@ -14,6 +14,8 @@ on:
       - 'public/stall.html'
       - 'public/style.css'
       - 'public/agent-dashboard.html'
+      - 'public/admin-dashboard.html'
+      - 'public/operations-records.html'
       - 'tests/**'
       - 'package.json'
       - 'package-lock.json'
@@ -23,6 +25,8 @@ on:
       - 'server.js'
       - 'public/app.js'
       - 'public/agent-dashboard.html'
+      - 'public/admin-dashboard.html'
+      - 'public/operations-records.html'
       - 'tests/**'
       - 'package.json'
       - 'package-lock.json'
@@ -51,5 +55,9 @@ jobs:
         run: |
           node -e "const fs=require('fs');const html=fs.readFileSync('public/agent-dashboard.html','utf8');const scripts=[...html.matchAll(/<script(?:\\s[^>]*)?>([\\s\\S]*?)<\\/script>/gi)];if(!scripts.length)throw new Error('No inline script found');scripts.forEach((m,i)=>fs.writeFileSync('/tmp/agent-dashboard-'+i+'.js',m[1]));console.log('Extracted '+scripts.length+' script(s)')"
           for file in /tmp/agent-dashboard-*.js; do node --check "$file"; done
+      - name: Check admin operations archive scripts
+        run: |
+          node -e "const fs=require('fs');for(const page of ['admin-dashboard','operations-records']){const html=fs.readFileSync('public/'+page+'.html','utf8');const scripts=[...html.matchAll(/<script(?:\\s[^>]*)?>([\\s\\S]*?)<\\/script>/gi)];if(!scripts.length)throw new Error('No script in '+page);scripts.forEach((m,i)=>fs.writeFileSync('/tmp/'+page+'-'+i+'.js',m[1]));}"
+          for file in /tmp/admin-dashboard-*.js /tmp/operations-records-*.js; do node --check "$file"; done
       - name: Run handover-code integration tests
         run: npm test

@@ -31,7 +31,10 @@ const storageFiles = {
   "feedback-conversations.json": "feedbackConversations",
   "delivery-area-config.json": "deliveryAreaConfig",
   "vendor-verifications.json": "vendorVerifications",
-  "restaurant-operations.json": "restaurantOperations"
+  "restaurant-operations.json": "restaurantOperations",
+  "operations-events.json": "operationsEvents",
+  "operations-cases.json": "operationsCases",
+  "restaurant-suspensions.json": "restaurantSuspensions"
 };
 
 function readLocalJson(filename, fallback) {
@@ -63,7 +66,10 @@ async function initializePersistentStorage() {
     ["feedback-conversations.json", []],
     ["delivery-area-config.json", { enabled: false, centerLatitude: null, centerLongitude: null, radiusMeters: 1200 }],
     ["vendor-verifications.json", []],
-    ["restaurant-operations.json", {}]
+    ["restaurant-operations.json", {}],
+    ["operations-events.json", []],
+    ["operations-cases.json", []],
+    ["restaurant-suspensions.json", {}]
   ];
   if (!storagePool) {
     for (const [filename, fallback] of definitions) {
@@ -268,6 +274,12 @@ let restaurants = [
   }
 ];
 
+const restaurantSuspensions = readStoredJson(path.join(__dirname, "restaurant-suspensions.json"), {});
+for (const restaurant of restaurants) {
+  const saved = restaurantSuspensions[restaurant.id];
+  if (saved) Object.assign(restaurant, saved);
+}
+
 let agents = [];
 
 // Never put actual passwords in this file or commit them to GitHub.
@@ -370,6 +382,17 @@ function readRestaurantOperations() {
 }
 function saveRestaurantOperations(records) {
   saveStoredJson(RESTAURANT_OPERATIONS_FILE, records);
+}
+const OPERATIONS_EVENTS_FILE = path.join(__dirname, "operations-events.json");
+const OPERATIONS_CASES_FILE = path.join(__dirname, "operations-cases.json");
+function readOperationsEvents() { return readStoredJson(OPERATIONS_EVENTS_FILE, []); }
+function saveOperationsEvents(events) { saveStoredJson(OPERATIONS_EVENTS_FILE, events.slice(0, 20000)); }
+function readOperationsCases() { return readStoredJson(OPERATIONS_CASES_FILE, []); }
+function saveOperationsCases(cases) { saveStoredJson(OPERATIONS_CASES_FILE, cases.slice(0, 10000)); }
+function recordOperationsEvent(event) {
+  const events = readOperationsEvents();
+  events.unshift({ id: crypto.randomUUID(), occurredAt: new Date().toISOString(), ...event });
+  saveOperationsEvents(events);
 }
 function getRestaurantOperations(restaurantId) {
   const record = readRestaurantOperations()[String(restaurantId)] || {};
@@ -558,6 +581,14 @@ function requireRole(...roles) {
     }
 
     req.account = session;
+    if (session.role === "restaurant") {
+      const partner = restaurants.find(item => item.id === session.restaurantId);
+      if (partner?.suspended) return res.status(403).json({ error: "This restaurant account is suspended. Contact ChowOnCampus support or submit an appeal to the Ultimate Admin." });
+    }
+    if (session.role === "agent") {
+      const agent = readAgentRecords().find(item => item.id === session.agentId);
+      if (agent?.suspended) return res.status(403).json({ error: "Your delivery-agent account is suspended. Contact ChowOnCampus support or submit an appeal to the Ultimate Admin." });
+    }
     next();
   };
 }
@@ -1163,6 +1194,8 @@ app.patch("/api/restaurant/operations", requireRole("restaurant"), (req, res) =>
   if (!hasOnline && !hasPaused) return res.status(400).json({ error: "Choose whether to go online/offline or pause/resume incoming orders." });
   const records = readRestaurantOperations();
   const current = { ...(records[restaurant.id] || {}) };
+  const previousOnline = current.online === true;
+  const previousPaused = current.ordersPaused === true;
   if (hasOnline) current.online = req.body.online;
   if (hasPaused) {
     if (req.body.ordersPaused && current.online !== true) return res.status(409).json({ error: "Go online before pausing incoming orders." });
@@ -1185,6 +1218,8 @@ app.patch("/api/restaurant/operations", requireRole("restaurant"), (req, res) =>
   records[restaurant.id] = current;
   try {
     saveRestaurantOperations(records);
+    if (previousOnline !== (current.online === true)) recordOperationsEvent({ type: current.online ? "restaurant_online" : "restaurant_offline", entityType: "restaurant", entityId: restaurant.id, entityName: restaurant.name, actorRole: "restaurant", actorId: req.account.username, details: current.online ? "Restaurant went online." : "Restaurant went offline." });
+    if (previousPaused !== (current.ordersPaused === true)) recordOperationsEvent({ type: current.ordersPaused ? "restaurant_paused" : "restaurant_resumed", entityType: "restaurant", entityId: restaurant.id, entityName: restaurant.name, actorRole: "restaurant", actorId: req.account.username, details: current.ordersPaused ? "Incoming orders paused: " + current.pauseReason : "Incoming orders resumed." });
     const operations = getRestaurantOperations(restaurant.id);
     return res.json({
       ok: true, operations, acceptingOrders: restaurantAcceptsOrders(restaurant),
@@ -1270,6 +1305,11 @@ app.put("/api/restaurant/menu", requireRole("restaurant"), (req, res) => {
   try {
     const restaurant = restaurants.find(item => item.id === req.account.restaurantId);
     if (!restaurant) return res.status(404).json({ error: "Restaurant account not found." });
+    const previousItems = Array.isArray(restaurant.items) ? restaurant.items : [];
+    for (const item of items) {
+      const previous = previousItems.find(old => old.id === item.id);
+      if (previous && (previous.available !== false) !== (item.available !== false)) recordOperationsEvent({ type: item.available === false ? "food_unavailable" : "food_available", entityType: "restaurant", entityId: restaurant.id, entityName: restaurant.name, itemId: item.id, itemName: item.name, actorRole: "restaurant", actorId: req.account.username, details: item.name + (item.available === false ? " marked unavailable." : " marked available.") });
+    }
     const overrides = readMenuOverrides();
     overrides[restaurant.id] = items;
     saveMenuOverrides(overrides);
@@ -1319,6 +1359,12 @@ app.post("/api/login", (req, res) => {
     return res.status(401).json({
       error: "Incorrect username or password."
     });
+  }
+  if (account.role === "restaurant" && restaurants.find(item => item.id === account.restaurantId)?.suspended) {
+    return res.status(403).json({ error: "This restaurant account is suspended. Contact ChowOnCampus support or submit an appeal to the Ultimate Admin." });
+  }
+  if (account.role === "agent" && readAgentRecords().find(item => item.id === account.agentId)?.suspended) {
+    return res.status(403).json({ error: "Your delivery-agent account is suspended. Contact ChowOnCampus support or submit an appeal to the Ultimate Admin." });
   }
 
   const token = crypto.randomBytes(32).toString("hex");
@@ -2403,6 +2449,8 @@ app.get("/api/admin/restaurants", requireRole("admin"), (req, res) => {
       description: restaurant.description,
       username: accounts.find(a => a.role === "restaurant" && a.restaurantId === restaurant.id)?.username || "",
       itemCount: restaurant.items.length,
+      suspended: Boolean(restaurant.suspended),
+      suspensionReason: restaurant.suspensionReason || "",
       location: restaurant.location || ""
     }))
   });
@@ -2460,6 +2508,62 @@ app.get("/api/admin/locations", requireRole("admin"), (req, res) => {
   } catch (error) {
     console.error("Could not load admin location overview:", error.message);
     res.status(500).json({ error: "Could not load location data. Please refresh and try again." });
+  }
+});
+
+
+// Ultimate Admin can suspend or reinstate a restaurant or delivery-agent account.
+// A reason is mandatory; active deliveries must be resolved before suspension.
+app.patch("/api/superadmin/operations-suspensions/:role/:id", requireRole("admin"), (req, res) => {
+  if (!req.account.isSuperAdmin) return res.status(403).json({ error: "Ultimate Admin access is required." });
+  const role = String(req.params.role || "");
+  const suspended = req.body.suspended;
+  const reason = String(req.body.reason || "").trim().slice(0, 1000);
+  if (!["restaurant", "agent"].includes(role)) return res.status(400).json({ error: "Choose a restaurant or delivery agent." });
+  if (typeof suspended !== "boolean") return res.status(400).json({ error: "Choose suspend or reinstate." });
+  if (suspended && reason.length < 5) return res.status(400).json({ error: "Enter a clear reason of at least 5 characters." });
+  try {
+    let entity, entityId, entityName;
+    if (role === "restaurant") {
+      entity = restaurants.find(item => item.id === req.params.id);
+      if (!entity) return res.status(404).json({ error: "Restaurant not found." });
+      const activeOrders = readOrders().filter(order => order.restaurantId === entity.id && !["Completed", "Cancelled"].includes(order.status));
+      if (suspended && activeOrders.length) return res.status(409).json({ error: "Resolve, cancel or reassign the restaurant's active orders before suspension.", activeOrders: activeOrders.length });
+    } else {
+      const records = readAgentRecords();
+      entity = records.find(item => item.id === req.params.id);
+      if (!entity) return res.status(404).json({ error: "Delivery agent not found." });
+      const activeOrders = readOrders().filter(order => order.assignedAgentId === entity.id && !["Completed", "Cancelled"].includes(order.status));
+      if (suspended && activeOrders.length) return res.status(409).json({ error: "Reassign or complete the agent's active delivery before suspension.", activeOrders: activeOrders.length });
+    }
+    entity.suspended = suspended;
+    entity.suspensionReason = suspended ? reason : "";
+    entity.suspendedAt = suspended ? new Date().toISOString() : null;
+    entity.suspendedBy = suspended ? req.account.username : null;
+    if (role === "agent" && suspended) {
+      entity.online = false;
+      entity.latitude = null;
+      entity.longitude = null;
+      entity.locationUpdatedAt = null;
+      saveAgentRecords(readAgentRecords().map(item => item.id === entity.id ? entity : item));
+      agents = readAgentRecords().map(item => ({ id: item.id, name: item.name, username: item.username, online: Boolean(item.online), suspended: Boolean(item.suspended), activeOrderId: item.activeOrderId || null, createdAt: item.createdAt || null }));
+    } else if (role === "restaurant") {
+      const saved = readStoredJson(path.join(__dirname, "restaurant-suspensions.json"), {});
+      if (suspended) saved[entity.id] = { suspended: true, suspensionReason: reason, suspendedAt: entity.suspendedAt, suspendedBy: entity.suspendedBy };
+      else delete saved[entity.id];
+      saveStoredJson(path.join(__dirname, "restaurant-suspensions.json"), saved);
+    } else {
+      saveAgentRecords(readAgentRecords().map(item => item.id === entity.id ? entity : item));
+    }
+    for (const [token, session] of sessions.entries()) {
+      if ((role === "restaurant" && session.role === "restaurant" && session.restaurantId === entity.id) ||
+          (role === "agent" && session.role === "agent" && session.agentId === entity.id)) sessions.delete(token);
+    }
+    entityId = entity.id; entityName = entity.name;
+    recordOperationsEvent({ type: suspended ? role + "_suspended" : role + "_reinstated", entityType: role, entityId, entityName, actorRole: req.account.role, actorId: req.account.username, details: suspended ? entityName + " suspended. Reason: " + reason : entityName + " reinstated." });
+    res.json({ ok: true, role, id: entityId, suspended, reason: entity.suspensionReason, message: suspended ? entityName + " has been suspended and signed out." : entityName + " has been reinstated." });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Could not update suspension." });
   }
 });
 
@@ -2548,6 +2652,110 @@ function requireSuperAdmin(req, res, next) {
   req.account = session;
   next();
 }
+
+ 
+// Ultimate-admin operations archive. Refund decisions are logged here; approval does
+// not itself move money through Paystack or issue FoodBack credit.
+app.get("/api/superadmin/operations-records", requireSuperAdmin, (req, res) => {
+  try {
+    const allOrders = readOrders().slice().sort((a,b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    const agentRows = readAgentRecords().map(agent => ({
+      id: agent.id, name: agent.name, username: agent.username, online: Boolean(agent.online),
+      availabilityUpdatedAt: agent.availabilityUpdatedAt || null, activeOrderId: agent.activeOrderId || null,
+      completedDeliveries: allOrders.filter(order => order.assignedAgentId === agent.id && order.status === "Completed").length,
+      failedDeliveries: allOrders.filter(order => order.assignedAgentId === agent.id && (order.status === "Cancelled" || order.deliveryFailed === true)).length
+    }));
+    const restaurantRows = restaurants.map(restaurant => ({
+      id: restaurant.id, name: restaurant.name, operations: getRestaurantOperations(restaurant.id),
+      items: (restaurant.items || []).map(item => ({ id: item.id, name: item.name, available: item.available !== false })),
+      verificationStatus: getVendorVerification(restaurant.id)?.status || "pending",
+      orders: allOrders.filter(order => order.restaurantId === restaurant.id).length,
+      cancelledOrders: allOrders.filter(order => order.restaurantId === restaurant.id && order.status === "Cancelled").length
+    }));
+    res.setHeader("Cache-Control", "no-store, private");
+    res.json({
+      orders: allOrders.map(publicOrder), cases: readOperationsCases(), events: readOperationsEvents(),
+      agents: agentRows, restaurants: restaurantRows,
+      students: readStudents().map(student => ({
+        id: student.id, name: student.name, phone: student.phone, banned: Boolean(student.banned),
+        createdAt: student.createdAt || null,
+        orderCount: allOrders.filter(order => order.customerPhone === student.phone).length
+      }))
+    });
+  } catch (error) {
+    console.error("Could not load ultimate-admin operations archive:", error.message);
+    res.status(500).json({ error: "Could not load operations records." });
+  }
+});
+
+app.post("/api/superadmin/operations-cases", requireSuperAdmin, (req, res) => {
+  const allowedTypes = new Set(["refund", "complaint", "dispute", "warning", "fine", "suspension", "appeal", "investigation"]);
+  const allowedRoles = new Set(["student", "restaurant", "agent", "platform"]);
+  const allowedDecisions = new Set(["pending", "approved", "rejected", "warning-issued", "fine-issued", "suspended", "upheld", "overturned", "closed"]);
+  const type = String(req.body.type || "").trim();
+  const subjectRole = String(req.body.subjectRole || "").trim();
+  const reason = String(req.body.reason || "").trim().slice(0, 2000);
+  const decision = String(req.body.decision || "pending").trim();
+  const orderId = String(req.body.orderId || "").trim().slice(0, 100);
+  const subjectId = String(req.body.subjectId || "").trim().slice(0, 100);
+  const amount = req.body.amount === undefined || req.body.amount === "" ? null : Number(req.body.amount);
+  if (!allowedTypes.has(type)) return res.status(400).json({ error: "Choose a valid case type." });
+  if (!allowedRoles.has(subjectRole)) return res.status(400).json({ error: "Choose the party involved." });
+  if (reason.length < 5) return res.status(400).json({ error: "Enter a clear reason of at least 5 characters." });
+  if (!allowedDecisions.has(decision)) return res.status(400).json({ error: "Choose a valid decision." });
+  if (amount !== null && (!Number.isSafeInteger(amount) || amount < 0 || amount > 100000000)) return res.status(400).json({ error: "Enter a valid amount in naira." });
+  const orders = readOrders();
+  const order = orderId ? orders.find(item => item.id === orderId) : null;
+  if (orderId && !order) return res.status(404).json({ error: "The linked order was not found." });
+  if (["refund", "complaint", "dispute"].includes(type) && !order) return res.status(400).json({ error: "Link this case to an order record." });
+  if (type === "refund" && !["pending", "approved", "rejected"].includes(decision)) return res.status(400).json({ error: "Refund decisions must be pending, approved or rejected." });
+  const cases = readOperationsCases();
+  const now = new Date().toISOString();
+  const record = {
+    id: "CASE-" + crypto.randomBytes(5).toString("hex").toUpperCase(), type,
+    orderId: orderId || null, subjectRole, subjectId: subjectId || null,
+    subjectName: String(req.body.subjectName || "").trim().slice(0, 120),
+    reason, amount, decision, resolution: String(req.body.resolution || "").trim().slice(0, 2000),
+    evidenceNotes: String(req.body.evidenceNotes || "").trim().slice(0, 3000),
+    appealOf: String(req.body.appealOf || "").trim().slice(0, 100) || null,
+    hearingRequested: Boolean(req.body.hearingRequested),
+    hearingRequestedAt: req.body.hearingRequested ? now : null,
+    createdAt: now, updatedAt: now, createdBy: req.account.username,
+    history: [{ at: now, by: req.account.username, action: "created", decision, note: String(req.body.resolution || "").trim().slice(0, 1000) }]
+  };
+  cases.unshift(record);
+  saveOperationsCases(cases);
+  if (order) {
+    order.operationsCaseIds = Array.isArray(order.operationsCaseIds) ? order.operationsCaseIds : [];
+    order.operationsCaseIds.push(record.id);
+    saveOrders(orders);
+  }
+  recordOperationsEvent({ type: "case_" + type, entityType: subjectRole, entityId: subjectId || "", entityName: record.subjectName, orderId: orderId || null, actorRole: "ultimate_admin", actorId: req.account.username, details: type + " case " + record.id + " created with decision " + decision + "." });
+  res.status(201).json({ case: record, message: "Operations case saved to the audit record." });
+});
+
+app.patch("/api/superadmin/operations-cases/:id", requireSuperAdmin, (req, res) => {
+  const cases = readOperationsCases();
+  const record = cases.find(item => item.id === req.params.id);
+  if (!record) return res.status(404).json({ error: "Operations case not found." });
+  const allowedDecisions = new Set(["pending", "approved", "rejected", "warning-issued", "fine-issued", "suspended", "upheld", "overturned", "closed"]);
+  if (req.body.decision !== undefined && !allowedDecisions.has(String(req.body.decision))) return res.status(400).json({ error: "Choose a valid case decision." });
+  const previousDecision = record.decision;
+  if (req.body.decision !== undefined) record.decision = String(req.body.decision);
+  if (req.body.resolution !== undefined) record.resolution = String(req.body.resolution).trim().slice(0, 2000);
+  if (req.body.evidenceNotes !== undefined) record.evidenceNotes = String(req.body.evidenceNotes).trim().slice(0, 3000);
+  if (req.body.amount !== undefined) {
+    const amount = req.body.amount === "" || req.body.amount === null ? null : Number(req.body.amount);
+    if (amount !== null && (!Number.isSafeInteger(amount) || amount < 0 || amount > 100000000)) return res.status(400).json({ error: "Enter a valid amount in naira." });
+    record.amount = amount;
+  }
+  record.updatedAt = new Date().toISOString();
+  record.history = Array.isArray(record.history) ? record.history : [];
+  record.history.push({ at: record.updatedAt, by: req.account.username, action: "updated", previousDecision, decision: record.decision, note: record.resolution });
+  saveOperationsCases(cases);
+  recordOperationsEvent({ type: "case_decision_updated", entityType: record.subjectRole, entityId: record.subjectId || "", entityName: record.subjectName, orderId: record.orderId, actorRole: "ultimate_admin", actorId: req.account.username, details: record.id + " decision changed from " + previousDecision + " to " + record.decision + "." });
+  res.json({ case: record, message: "Decision and audit history updated." });
+});
 
 // Ultimate admin can reset a student, restaurant, or agent password when they lose access.
 app.post("/api/superadmin/reset-password", requireSuperAdmin, (req, res) => {
@@ -3000,7 +3208,8 @@ app.delete("/api/admin/students/:id", requireRole("admin"), (req, res) => {
 app.get("/api/agents", requireRole("admin"), (req, res) => {
   res.json({ agents: agents.map(agent => ({
     id: agent.id, name: agent.name, username: agent.username,
-    online: Boolean(agent.online), activeOrderId: agent.activeOrderId || null,
+    online: Boolean(agent.online), suspended: Boolean(agent.suspended),
+    suspensionReason: agent.suspensionReason || "", activeOrderId: agent.activeOrderId || null,
     createdAt: agent.createdAt || null
   })) });
 });
@@ -3012,7 +3221,7 @@ app.get("/api/agents/available", requireRole("restaurant", "admin"), (req, res) 
     .filter(order => order.assignedAgentId && !["Completed", "Cancelled"].includes(order.status))
     .map(order => order.assignedAgentId));
   const available = records
-    .filter(agent => agent.online && !busyIds.has(agent.id) && !agent.activeOrderId)
+    .filter(agent => agent.online && !agent.suspended && !busyIds.has(agent.id) && !agent.activeOrderId)
     .map(agent => ({ id: agent.id, name: agent.name, online: true }));
   res.json({ agents: available });
 });
@@ -3271,8 +3480,10 @@ app.patch("/api/admin/agents/:id/availability", requireRole("admin"), (req, res)
     const records = readAgentRecords();
     const agent = records.find(item => item.id === req.params.id);
     if (!agent) return res.status(404).json({ error: "Delivery agent not found." });
+    const wasOnline = Boolean(agent.online);
     agent.online = req.body.online;
     agent.availabilityUpdatedAt = new Date().toISOString();
+    if (wasOnline !== agent.online) recordOperationsEvent({ type: agent.online ? "agent_online" : "agent_offline", entityType: "agent", entityId: agent.id, entityName: agent.name, actorRole: req.account.role, actorId: req.account.username, details: agent.name + (agent.online ? " went online." : " went offline.") });
     // Do not retain a live location after an agent goes offline.
     if (!agent.online) {
       agent.latitude = null;
@@ -3369,8 +3580,10 @@ app.patch("/api/agent/availability", requireRole("agent"), (req, res) => {
     const records = readAgentRecords();
     const agent = records.find(item => item.id === req.account.agentId);
     if (!agent) return res.status(404).json({ error: "Agent account not found." });
+    const wasOnline = Boolean(agent.online);
     agent.online = req.body.online;
     agent.availabilityUpdatedAt = new Date().toISOString();
+    if (wasOnline !== agent.online) recordOperationsEvent({ type: agent.online ? "agent_online" : "agent_offline", entityType: "agent", entityId: agent.id, entityName: agent.name, actorRole: "agent", actorId: req.account.username, details: agent.name + (agent.online ? " went online." : " went offline.") });
     // Do not keep or expose a live GPS fix after the agent goes offline.
     if (!agent.online) {
       agent.latitude = null;
@@ -3572,6 +3785,9 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
       order.updatedAt = changedAt;
       order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [{ status: previousStatus, at: order.createdAt, by: "system" }];
       order.statusHistory.push({ status: newStatus, at: changedAt, by: req.account.role });
+      const statusReason = String(req.body.cancellationReason || req.body.reason || "").trim().slice(0, 1000);
+      if (newStatus === "Cancelled" && statusReason) order.cancellationReason = statusReason;
+      recordOperationsEvent({ type: "order_status_changed", entityType: "order", entityId: order.id, entityName: order.restaurantName || "Order", orderId: order.id, actorRole: req.account.role, actorId: req.account.username, details: "Order status changed from " + previousStatus + " to " + newStatus + (statusReason ? ". Reason: " + statusReason : ".") });
     }
 
     if (newStatus === "Completed" && !order.foodbackRewardsProcessedAt) {

@@ -2515,6 +2515,7 @@ app.patch("/api/superadmin/vendor-verifications/:restaurantId", requireSuperAdmi
 
 // Admin-only restaurant creation. New partner passwords are hashed before storage.
 app.get("/api/admin/restaurants", requireRole("admin"), (req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
   res.json({
     restaurants: restaurants.map(restaurant => ({
       id: restaurant.id,
@@ -3279,6 +3280,7 @@ app.delete("/api/admin/students/:id", requireRole("admin"), (req, res) => {
 
 // Admin-only agent list and agent-account creation.
 app.get("/api/agents", requireRole("admin"), (req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
   res.json({ agents: agents.map(agent => ({
     id: agent.id, name: agent.name, username: agent.username,
     online: Boolean(agent.online), suspended: Boolean(agent.suspended),

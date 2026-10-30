@@ -25,6 +25,8 @@ on:
       - 'server.js'
       - 'public/app.js'
       - 'public/agent-dashboard.html'
+      - 'public/admin-dashboard.html'
+      - 'public/operations-records.html'
       - 'tests/**'
       - 'package.json'
       - 'package-lock.json'

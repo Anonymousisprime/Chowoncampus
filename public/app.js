@@ -906,6 +906,34 @@ document.addEventListener("click", event => {
 });
 document.addEventListener("click", event => { if (event.target.closest("#refreshRestaurantRatings")) loadRestaurantRatings(); });
 
+/* Keep restaurant availability clicks independent of dashboard rendering. */
+document.addEventListener("click", async event => {
+  const target = event.target;
+  const button = target instanceof Element ? target.closest("#toggleRestaurantOnline") : null;
+  if (!button) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if (button.disabled) return;
+
+  const online = !Boolean(state.restaurantOperations?.online);
+  button.disabled = true;
+  button.textContent = online ? "Going online…" : "Going offline…";
+  try {
+    const result = await api("/api/restaurant/operations", {
+      method: "PATCH",
+      body: JSON.stringify({ online })
+    });
+    state.restaurantOperations = result.operations;
+    showToast(result.message || (online ? "Your restaurant is now online." : "Your restaurant is now offline."));
+    try { await refreshPublicMenu(); } catch (refreshError) { console.warn("Could not refresh the public restaurant menu:", refreshError); }
+    await loadDashboard();
+  } catch (error) {
+    showToast(error.message || "Could not update restaurant availability.");
+    button.disabled = false;
+    button.textContent = state.restaurantOperations?.online ? "Go offline" : "Go online";
+  }
+}, true);
+
 function renderMenuRow(item = {}) {
   const image = typeof item.image === "string" && item.image.startsWith("data:image/") ? item.image : "";
   return `<div class="menu-editor-row" data-menu-row>
@@ -2221,19 +2249,6 @@ async function initialize() {
         message.classList.remove("success");
         button.disabled = false;
       }
-      return;
-    }
-    const restaurantOnlineButton = event.target.closest("#toggleRestaurantOnline");
-    if (restaurantOnlineButton) {
-      restaurantOnlineButton.disabled = true;
-      try {
-        const online = !Boolean(state.restaurantOperations?.online);
-        const result = await api("/api/restaurant/operations", { method: "PATCH", body: JSON.stringify({ online }) });
-        state.restaurantOperations = result.operations;
-        await refreshPublicMenu();
-        showToast(result.message);
-        await loadDashboard();
-      } catch (error) { showToast(error.message); restaurantOnlineButton.disabled = false; }
       return;
     }
     const restaurantPauseButton = event.target.closest("#toggleRestaurantPause");

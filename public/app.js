@@ -518,11 +518,6 @@ async function placeOrder(event) {
   const pinCheck = deliveryPinAllowed(Number(pinLat), Number(pinLon));
   if (!pinCheck.ok) return showMessage("#checkoutMessage", pinCheck.message);
   const paymentMethod = $("#paymentMethod")?.value || "paystack";
-  const emailInput = $("#paymentEmail");
-  if (paymentMethod === "paystack" && !isLocalDemo && (!emailInput || !emailInput.value.trim() || !emailInput.validity.valid)) {
-    emailInput?.focus();
-    return showMessage("#checkoutMessage", "Enter a valid email address to receive your payment receipt.");
-  }
   if (!state.pendingOrderRequestId) {
     state.pendingOrderRequestId = window.crypto?.randomUUID
       ? window.crypto.randomUUID()
@@ -565,7 +560,7 @@ async function placeOrder(event) {
     if (!isLocalDemo) {
       const payment = await api("/api/orders/" + encodeURIComponent(order.id) + "/paystack/initialize", {
         method: "POST",
-        body: JSON.stringify({ email: emailInput.value.trim() })
+        body: JSON.stringify({})
       });
       state.pendingOrderRequestId = null;
       state.lastOrderId = order.id;
@@ -1971,7 +1966,7 @@ async function initialize() {
       try {
         const payment = await api("/api/orders/" + encodeURIComponent(payOrderButton.dataset.payOrder) + "/paystack/initialize", {
           method: "POST",
-          body: JSON.stringify({ email: $("#paymentEmail")?.value?.trim() || "" })
+          body: JSON.stringify({})
         });
         location.href = payment.authorizationUrl;
       } catch (error) {

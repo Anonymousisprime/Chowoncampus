@@ -222,12 +222,19 @@ test("restaurant verification onboarding is enforced end to end", async t => {
     assert.equal(data.restaurants.some(item => item.id === "CB"), true);
   });
 
-  await t.test("approved restaurant can now see its incoming orders", async () => {
-    const response = await api(restaurantCookie, "/api/orders");
-    assert.equal(response.status, 200);
-    const data = await response.json();
-    assert.equal(data.orders.length, 1);
-    assert.equal(data.orders[0].id, "VENDOR-TEST-ORDER");
+  await t.test("repeated restaurant dashboard refreshes never alter or remove stored orders", async () => {
+    const file = path.join(dir, "orders.json");
+    const before = JSON.parse(fs.readFileSync(file, "utf8"));
+    assert.equal(before.length, 1);
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const response = await api(restaurantCookie, "/api/orders");
+      assert.equal(response.status, 200);
+      const data = await response.json();
+      assert.equal(data.orders.length, 1);
+      assert.equal(data.orders[0].id, "VENDOR-TEST-ORDER");
+    }
+    const after = JSON.parse(fs.readFileSync(file, "utf8"));
+    assert.deepEqual(after, before, "dashboard refresh is read-only and must not change the order store");
   });
 
   await t.test("rejecting a document after approval pauses restaurant order access", async () => {

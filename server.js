@@ -29,7 +29,8 @@ const storageFiles = {
   "disabled-admins.json": "disabledAdmins",
   "foodback-config.json": "foodbackConfig",
   "feedback-conversations.json": "feedbackConversations",
-  "delivery-area-config.json": "deliveryAreaConfig"
+  "delivery-area-config.json": "deliveryAreaConfig",
+  "vendor-verifications.json": "vendorVerifications"
 };
 
 function readLocalJson(filename, fallback) {
@@ -59,7 +60,8 @@ async function initializePersistentStorage() {
     ["disabled-admins.json", []],
     ["foodback-config.json", { launchStartAt: null }],
     ["feedback-conversations.json", []],
-    ["delivery-area-config.json", { enabled: false, centerLatitude: null, centerLongitude: null, radiusMeters: 1200 }]
+    ["delivery-area-config.json", { enabled: false, centerLatitude: null, centerLongitude: null, radiusMeters: 1200 }],
+    ["vendor-verifications.json", []]
   ];
   if (!storagePool) {
     for (const [filename, fallback] of definitions) {
@@ -1381,6 +1383,7 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
   const hasCoordinates = latitude !== undefined && longitude !== undefined && Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude)) && Math.abs(Number(latitude)) <= 90 && Math.abs(Number(longitude)) <= 180;
   const deliveryLocation = { hostel: hostel.trim(), block: typeof block === "string" ? block.trim().slice(0, 100) : "", room: typeof room === "string" ? room.trim().slice(0, 40) : "", landmark: typeof landmark === "string" ? landmark.trim().slice(0, 150) : "", latitude: hasCoordinates ? Number(latitude) : null, longitude: hasCoordinates ? Number(longitude) : null };
   const restaurant = restaurants.find(r => r.id === restaurantId);
+  if (restaurant && !vendorIsApproved(restaurant.id)) return res.status(403).json({ error: "This restaurant is not yet approved to accept orders. Please choose an approved restaurant." });
 
   if (
     !restaurant ||
@@ -1749,6 +1752,8 @@ app.get("/api/orders", requireLogin, (req, res) => {
       );
     } else if (req.account.role === "admin" && !req.account.isSuperAdmin) {
       orders = orders.filter(order => !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval"));
+    } else if (req.account.role === "restaurant" && !vendorIsApproved(req.account.restaurantId)) {
+      orders = [];
     } else if (req.account.role === "student") {
       // Students see active orders and a short post-delivery feedback window only.
       // Older completed/cancelled orders remain available for admin review.
@@ -2076,6 +2081,137 @@ app.post("/api/superadmin/foodback-orders/:id/review", requireSuperAdmin, (req, 
   createNotification({ role: "student", username: order.customerPhone }, "FoodBack order rejected", "Your order was rejected by the admin and your FoodBack credits have been returned.", order.id);
   createNotification({ role: "admin" }, "FoodBack order rejected", order.id + " was rejected and credits were refunded.", order.id);
   return res.json({ ok: true, message: "FoodBack order rejected and credits refunded." });
+});
+
+
+// Ultimate-admin-only vendor KYC records. Document bytes are encrypted before persistence.
+const VENDOR_VERIFICATIONS_FILE = path.join(__dirname, "vendor-verifications.json");
+function readVendorVerifications() { return readStoredJson(VENDOR_VERIFICATIONS_FILE, []); }
+function saveVendorVerifications(records) { saveStoredJson(VENDOR_VERIFICATIONS_FILE, records); }
+function vendorDocumentKey() {
+  const secret = String(process.env.VENDOR_DOCS_ENCRYPTION_KEY || "").trim();
+  if (!secret) throw new Error("VENDOR_DOCS_ENCRYPTION_KEY is not configured.");
+  return crypto.createHash("sha256").update(secret, "utf8").digest();
+}
+function encryptVendorDocument(buffer) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", vendorDocumentKey(), iv);
+  const ciphertext = Buffer.concat([cipher.update(buffer), cipher.final()]);
+  return { iv: iv.toString("base64"), tag: cipher.getAuthTag().toString("base64"), ciphertext: ciphertext.toString("base64") };
+}
+function decryptVendorDocument(document) {
+  const decipher = crypto.createDecipheriv("aes-256-gcm", vendorDocumentKey(), Buffer.from(document.iv, "base64"));
+  decipher.setAuthTag(Buffer.from(document.tag, "base64"));
+  return Buffer.concat([decipher.update(Buffer.from(document.ciphertext, "base64")), decipher.final()]);
+}
+function getVendorVerification(restaurantId) {
+  return readVendorVerifications().find(item => item.restaurantId === String(restaurantId)) || null;
+}
+function vendorIsApproved(restaurantId) {
+  const record = getVendorVerification(restaurantId);
+  return Boolean(record && record.status === "approved" &&
+    record.identityStatus === "verified" && record.businessStatus === "verified" &&
+    record.settlementStatus === "verified");
+}
+function publicVendorVerification(record) {
+  return {
+    restaurantId: record.restaurantId, restaurantName: record.restaurantName,
+    status: record.status || "pending", identityStatus: record.identityStatus || "pending",
+    businessStatus: record.businessStatus || "pending", settlementStatus: record.settlementStatus || "pending",
+    documents: (record.documents || []).map(doc => ({ id: doc.id, type: doc.type, filename: doc.filename, mimeType: doc.mimeType, uploadedAt: doc.uploadedAt })),
+    reviewer: record.reviewer || null, approvalDate: record.approvalDate || null,
+    updatedAt: record.updatedAt || null, notes: record.notes || ""
+  };
+}
+app.get("/api/superadmin/vendor-verifications", requireSuperAdmin, (req, res) => {
+  const records = readVendorVerifications();
+  const rows = restaurants.map(restaurant => {
+    const record = records.find(item => item.restaurantId === restaurant.id) || {
+      restaurantId: restaurant.id, restaurantName: restaurant.name, status: "pending",
+      identityStatus: "pending", businessStatus: "pending", settlementStatus: "pending", documents: []
+    };
+    return publicVendorVerification(record);
+  });
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ vendors: rows });
+});
+app.post("/api/superadmin/vendor-verifications/:restaurantId/documents", requireSuperAdmin, (req, res) => {
+  const restaurant = restaurants.find(item => item.id === req.params.restaurantId);
+  if (!restaurant) return res.status(404).json({ error: "Restaurant not found." });
+  const type = String(req.body.type || "").trim();
+  const filename = String(req.body.filename || "").trim().slice(0, 160);
+  const mimeType = String(req.body.mimeType || "").toLowerCase();
+  const data = String(req.body.dataBase64 || "");
+  const allowed = new Set(["identity", "cac", "business-proof", "settlement-proof", "other"]);
+  const mimeAllowed = new Set(["application/pdf", "image/jpeg", "image/png"]);
+  if (!allowed.has(type) || !filename || !mimeAllowed.has(mimeType) || !/^[A-Za-z0-9+/]+=*$/.test(data)) {
+    return res.status(400).json({ error: "Upload a PDF, JPEG or PNG and choose a valid document category." });
+  }
+  const buffer = Buffer.from(data, "base64");
+  if (!buffer.length || buffer.length > 4 * 1024 * 1024) return res.status(413).json({ error: "Each document must be 4 MB or smaller." });
+  try {
+    const encrypted = encryptVendorDocument(buffer);
+    const records = readVendorVerifications();
+    let record = records.find(item => item.restaurantId === restaurant.id);
+    if (!record) {
+      record = { restaurantId: restaurant.id, restaurantName: restaurant.name, status: "pending", identityStatus: "pending", businessStatus: "pending", settlementStatus: "pending", documents: [], createdAt: new Date().toISOString() };
+      records.push(record);
+    }
+    record.documents = Array.isArray(record.documents) ? record.documents : [];
+    record.documents.push({ id: crypto.randomUUID(), type, filename: filename.replace(/[\\/]/g, "_"), mimeType, size: buffer.length, encrypted, uploadedAt: new Date().toISOString() });
+    record.status = "pending"; record.approvalDate = null; record.reviewer = null; record.updatedAt = new Date().toISOString();
+    saveVendorVerifications(records);
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(201).json({ ok: true, vendor: publicVendorVerification(record), message: "Document encrypted and saved." });
+  } catch (error) {
+    console.error("Vendor document upload failed:", error.message);
+    return res.status(503).json({ error: error.message.includes("not configured") ? error.message : "Could not securely save the document." });
+  }
+});
+app.get("/api/superadmin/vendor-verifications/:restaurantId/documents/:documentId", requireSuperAdmin, (req, res) => {
+  try {
+    const record = getVendorVerification(req.params.restaurantId);
+    const doc = record && (record.documents || []).find(item => item.id === req.params.documentId);
+    if (!doc) return res.status(404).json({ error: "Document not found." });
+    const buffer = decryptVendorDocument(doc.encrypted);
+    res.setHeader("Cache-Control", "no-store, private");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Type", doc.mimeType);
+    res.setHeader("Content-Disposition", "attachment; filename*=UTF-8''" + encodeURIComponent(doc.filename));
+    return res.send(buffer);
+  } catch (error) {
+    console.error("Vendor document retrieval failed:", error.message);
+    return res.status(503).json({ error: "Could not securely retrieve this document. Check the encryption-key configuration." });
+  }
+});
+app.patch("/api/superadmin/vendor-verifications/:restaurantId", requireSuperAdmin, (req, res) => {
+  const restaurant = restaurants.find(item => item.id === req.params.restaurantId);
+  if (!restaurant) return res.status(404).json({ error: "Restaurant not found." });
+  const valid = value => ["pending", "verified", "rejected"].includes(value);
+  const identityStatus = String(req.body.identityStatus || "pending");
+  const businessStatus = String(req.body.businessStatus || "pending");
+  const settlementStatus = String(req.body.settlementStatus || "pending");
+  const decision = String(req.body.decision || "pending");
+  if (![identityStatus, businessStatus, settlementStatus].every(valid) || !["pending", "approved", "rejected"].includes(decision)) {
+    return res.status(400).json({ error: "Choose valid verification statuses." });
+  }
+  const records = readVendorVerifications();
+  let record = records.find(item => item.restaurantId === restaurant.id);
+  if (!record) {
+    record = { restaurantId: restaurant.id, restaurantName: restaurant.name, documents: [], createdAt: new Date().toISOString() };
+    records.push(record);
+  }
+  if (decision === "approved" && (identityStatus !== "verified" || businessStatus !== "verified" || settlementStatus !== "verified")) {
+    return res.status(400).json({ error: "All three verification checks must be verified before approval." });
+  }
+  if (decision === "approved" && !(record.documents || []).length) return res.status(400).json({ error: "Upload supporting documents before approving this vendor." });
+  record.identityStatus = identityStatus; record.businessStatus = businessStatus; record.settlementStatus = settlementStatus;
+  record.status = decision; record.notes = String(req.body.notes || "").trim().slice(0, 1000);
+  record.reviewer = req.account.username; record.updatedAt = new Date().toISOString();
+  record.approvalDate = decision === "approved" ? record.updatedAt : null;
+  saveVendorVerifications(records);
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({ ok: true, vendor: publicVendorVerification(record), message: decision === "approved" ? "Vendor approved. Restaurant ordering is now enabled." : decision === "rejected" ? "Vendor application rejected." : "Verification record updated." });
 });
 
 // Admin-only restaurant creation. New partner passwords are hashed before storage.

@@ -2274,7 +2274,7 @@ function publicVendorVerification(record) {
     restaurantId: record.restaurantId, restaurantName: record.restaurantName,
     status: record.status || "pending", identityStatus: record.identityStatus || "pending",
     businessStatus: record.businessStatus || "pending", settlementStatus: record.settlementStatus || "pending",
-    documents: (record.documents || []).map(doc => ({ id: doc.id, type: doc.type, filename: doc.filename, mimeType: doc.mimeType, uploadedAt: doc.uploadedAt })),
+    documents: (record.documents || []).map(doc => ({ id: doc.id, type: doc.type, filename: doc.filename, mimeType: doc.mimeType, uploadedAt: doc.uploadedAt, reviewStatus: doc.reviewStatus || "pending", rejectionReason: doc.rejectionReason || "", reviewedAt: doc.reviewedAt || null, reviewedBy: doc.reviewedBy || null, supersededAt: doc.supersededAt || null })),
     reviewer: record.reviewer || null, approvalDate: record.approvalDate || null,
     updatedAt: record.updatedAt || null, notes: record.notes || ""
   };
@@ -2325,7 +2325,9 @@ app.post("/api/restaurant/vendor-verification/documents", requireRole("restauran
       records.push(record);
     }
     record.documents = Array.isArray(record.documents) ? record.documents : [];
-    record.documents.push({ id: crypto.randomUUID(), type, filename: filename.replace(/[\\/]/g, "_"), mimeType, size: buffer.length, encrypted, uploadedAt: new Date().toISOString(), uploadedBy: req.account.username });
+    const uploadedAt = new Date().toISOString();
+    record.documents.filter(doc => doc.type === type && !doc.supersededAt).forEach(doc => { doc.supersededAt = uploadedAt; });
+    record.documents.push({ id: crypto.randomUUID(), type, filename: filename.replace(/[\\/]/g, "_"), mimeType, size: buffer.length, encrypted, uploadedAt, uploadedBy: req.account.username, reviewStatus: "pending", rejectionReason: "" });
     if (record.status !== "rejected") record.status = "pending";
     record.approvalDate = null;
     record.updatedAt = new Date().toISOString();
@@ -2397,7 +2399,9 @@ app.post("/api/superadmin/vendor-verifications/:restaurantId/documents", require
       records.push(record);
     }
     record.documents = Array.isArray(record.documents) ? record.documents : [];
-    record.documents.push({ id: crypto.randomUUID(), type, filename: filename.replace(/[\\/]/g, "_"), mimeType, size: buffer.length, encrypted, uploadedAt: new Date().toISOString() });
+    const uploadedAt = new Date().toISOString();
+    record.documents.filter(doc => doc.type === type && !doc.supersededAt).forEach(doc => { doc.supersededAt = uploadedAt; });
+    record.documents.push({ id: crypto.randomUUID(), type, filename: filename.replace(/[\\/]/g, "_"), mimeType, size: buffer.length, encrypted, uploadedAt, reviewStatus: "pending", rejectionReason: "" });
     record.status = "pending"; record.approvalDate = null; record.reviewer = null; record.updatedAt = new Date().toISOString();
     saveVendorVerifications(records);
     res.setHeader("Cache-Control", "no-store");
@@ -2437,6 +2441,27 @@ app.delete("/api/superadmin/vendor-verifications/:restaurantId/documents/:docume
   if (record.status === "approved") { record.status = "pending"; record.approvalDate = null; record.reviewer = null; }
   saveVendorVerifications(records);
   return res.json({ ok: true, message: "Document deleted. The vendor has returned to pending review." });
+});
+
+app.patch("/api/superadmin/vendor-verifications/:restaurantId/documents/:documentId/review", requireSuperAdmin, (req, res) => {
+  const records = readVendorVerifications();
+  const record = records.find(item => item.restaurantId === req.params.restaurantId);
+  if (!record) return res.status(404).json({ error: "Vendor verification record not found." });
+  const document = (record.documents || []).find(item => item.id === req.params.documentId);
+  if (!document) return res.status(404).json({ error: "Vendor document not found." });
+  if (document.supersededAt) return res.status(409).json({ error: "This document has been replaced. Review the latest uploaded version instead." });
+  const reviewStatus = String(req.body.reviewStatus || "").trim();
+  if (!["pending", "verified", "rejected"].includes(reviewStatus)) return res.status(400).json({ error: "Choose Pending, Verified or Rejected." });
+  const rejectionReason = String(req.body.rejectionReason || "").trim().slice(0, 1000);
+  if (reviewStatus === "rejected" && !rejectionReason) return res.status(400).json({ error: "Enter a reason before rejecting a document." });
+  document.reviewStatus = reviewStatus;
+  document.rejectionReason = reviewStatus === "rejected" ? rejectionReason : "";
+  document.reviewedBy = req.account.username;
+  document.reviewedAt = new Date().toISOString();
+  record.updatedAt = document.reviewedAt;
+  saveVendorVerifications(records);
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({ ok: true, vendor: publicVendorVerification(record), message: reviewStatus === "rejected" ? "Document rejected. The restaurant can now see the reason and upload a replacement." : reviewStatus === "verified" ? "Document marked as verified." : "Document review returned to pending." });
 });
 
 app.patch("/api/superadmin/vendor-verifications/:restaurantId", requireSuperAdmin, (req, res) => {

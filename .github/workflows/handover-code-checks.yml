@@ -1,4 +1,4 @@
-name: Handover code checks
+name: Handover code end-to-end checks
 
 on:
   pull_request:
@@ -6,17 +6,23 @@ on:
       - 'server.js'
       - 'public/app.js'
       - 'public/agent-dashboard.html'
+      - 'tests/**'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/handover-code-checks.yml'
   workflow_dispatch:
 
 jobs:
-  syntax:
+  handover-e2e:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
       - name: Check server syntax
         run: node --check server.js
       - name: Check shared dashboard syntax
@@ -25,3 +31,5 @@ jobs:
         run: |
           node -e "const fs=require('fs');const html=fs.readFileSync('public/agent-dashboard.html','utf8');const scripts=[...html.matchAll(/<script(?:\\s[^>]*)?>([\\s\\S]*?)<\\/script>/gi)];if(!scripts.length)throw new Error('No inline script found');scripts.forEach((m,i)=>fs.writeFileSync('/tmp/agent-dashboard-'+i+'.js',m[1]));console.log('Extracted '+scripts.length+' script(s)')"
           for file in /tmp/agent-dashboard-*.js; do node --check "$file"; done
+      - name: Run handover-code integration tests
+        run: npm test

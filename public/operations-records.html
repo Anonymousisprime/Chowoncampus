@@ -31,7 +31,7 @@
 <div class="table-wrap"><table><thead><tr><th>Order / date</th><th>Restaurant</th><th>Student</th><th>Delivery agent</th><th>Status</th><th>Payment</th><th>Last update</th><th>Record</th></tr></thead><tbody id="ordersBody"><tr><td colspan="8" class="empty">Loading records…</td></tr></tbody></table></div>
 </div></section>
 <section class="panel"><div class="panel-head"><div><h2>Order record &amp; timeline</h2><p class="muted">Select View on an order to inspect status timestamps, items, parties and linked cases.</p></div></div><div class="panel-body" id="orderDetail"><p class="muted">No order selected.</p></div></section>
-<section class="panel"><div class="panel-head"><div><h2>Availability &amp; delivery activity history</h2><p class="muted">Restaurant online/offline, food availability, order pauses and agent online/offline changes.</p></div></div><div class="panel-body"><div class="tools"><select id="eventFilter" class="field"><option value="">All activity</option><option value="restaurant">Restaurant activity</option><option value="food">Food availability</option><option value="agent">Agent availability</option><option value="case">Case decisions</option></select></div><div id="eventsList" class="timeline">Loading…</div></div></section>
+<section class="panel"><div class="panel-head"><div><h2>Availability &amp; delivery activity history</h2><p class="muted">Restaurant online/offline, food availability, order pauses and agent online/offline changes.</p></div></div><div class="panel-body"><div class="tools"><select id="eventFilter" class="field"><option value="">All activity</option><option value="restaurant">Restaurant activity</option><option value="food">Food availability</option><option value="agent">Agent availability</option><option value="case">Case decisions</option><option value="order">Order status changes</option></select></div><div id="eventsList" class="timeline">Loading…</div></div></section>
 <section class="panel"><div class="panel-head"><div><h2>Refunds, complaints, disputes, penalties &amp; appeals</h2><p class="muted">Create a linked case and preserve the reason, evidence notes, decision, reviewer and decision history.</p></div></div>
 <div class="panel-body">
 <form id="caseForm">
@@ -115,7 +115,7 @@ function renderPerformance(){
 }
 function renderEvents(){
  const filter=$("#eventFilter").value;
- const rows=data.events.filter(e=>!filter||(filter==="restaurant"&&String(e.type).startsWith("restaurant_"))||(filter==="food"&&String(e.type).startsWith("food_"))||(filter==="agent"&&String(e.type).startsWith("agent_"))||(filter==="case"&&String(e.type).startsWith("case_"))).slice(0,250);
+ const rows=data.events.filter(e=>!filter||(filter==="restaurant"&&String(e.type).startsWith("restaurant_"))||(filter==="food"&&String(e.type).startsWith("food_"))||(filter==="agent"&&String(e.type).startsWith("agent_"))||(filter==="case"&&String(e.type).startsWith("case_"))||(filter==="order"&&String(e.type).startsWith("order_"))).slice(0,250);
  $("#eventsList").innerHTML=rows.length?rows.map(e=>'<div class="event"><strong>'+esc(e.entityName||e.entityType||"Activity")+'</strong> · '+esc(e.details||e.type)+'<br><span class="muted">'+fmt(e.occurredAt)+' · '+esc(e.actorRole||"system")+' · '+esc(e.actorId||"")+(e.orderId?' · Order '+esc(e.orderId):"")+'</span></div>').join(""):'<p class="muted">No recorded activity yet. New availability changes will appear here.</p>';
 }
 function renderCases(){

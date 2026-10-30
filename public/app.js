@@ -1430,7 +1430,8 @@ async function loadDashboard(automatic = false) {
           '<article class="rating-review-row"><div><strong>' + escapeHtml(review.restaurantName) + '</strong><span class="muted"> · Order ' + escapeHtml(review.orderId) + '</span></div><p class="muted">Review from ' + escapeHtml(review.studentName || "Student") + '</p>' +
           '<p>Restaurant: ★ ' + review.restaurantRating + '/5' + (review.agentRating ? ' · Agent: ★ ' + review.agentRating + '/5' : '') + '</p>' +
           '<p class="muted">' + (review.foodRatings || []).map(food => escapeHtml(food.itemName) + ' ★ ' + food.rating + '/5').join(' · ') + '</p>' +
-          (review.restaurantComment ? '<p><strong>Restaurant/food feedback:</strong> ' + escapeHtml(review.restaurantComment) + '</p>' : '') +          (review.agentComment ? '<p><strong>Delivery feedback:</strong> ' + escapeHtml(review.agentComment) + '</p>' : '') +
+          (review.restaurantComment ? '<p><strong>Restaurant/food feedback:</strong> ' + escapeHtml(review.restaurantComment) + '</p>' : '') +
+          (review.agentComment ? '<p><strong>Delivery feedback:</strong> ' + escapeHtml(review.agentComment) + '</p>' : '') +
           (review.legacyComment ? '<p><strong>Older combined comment (submitted before separation):</strong> ' + escapeHtml(review.legacyComment) + '</p>' : '') +
           '<small class="muted">' + (review.ratedAt ? escapeHtml(new Date(review.ratedAt).toLocaleDateString()) : '') + '</small></article>').join('');
         const ratingPanel = document.createElement("section");

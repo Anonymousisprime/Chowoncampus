@@ -766,7 +766,8 @@ function renderStudentRating(order) {
     '<label>Restaurant rating<select name="restaurantRating" required>' + options + '</select></label>' +
     (order.assignedAgentId ? '<label>Delivery agent rating<select name="agentRating" required>' + options + '</select></label>' : '') +
     '<div class="rating-food-list">' + food + '</div>' +
-    '<label>Comment (optional)<textarea name="comment" maxlength="500" rows="2" placeholder="Tell us what went well or what we can improve"></textarea></label>' +
+    '<label>Restaurant / food comment (optional)<textarea name="restaurantComment" maxlength="500" rows="2" placeholder="Share feedback about the restaurant or food"></textarea></label>' +
+    (order.assignedAgentId ? '<label>Delivery-agent comment (optional)<textarea name="agentComment" maxlength="500" rows="2" placeholder="Share feedback about the delivery"></textarea></label>' : '') +
     '<button type="submit" class="primary-button">Submit rating</button><p class="muted" role="status" data-rating-message></p></form></section>';
 }
 
@@ -876,7 +877,7 @@ async function loadRestaurantRatings() {
     const restaurant = (data.restaurants || [])[0];
     summary.innerHTML = '<article><span>Restaurant rating</span><strong>' + (restaurant && restaurant.average != null ? '★ ' + Number(restaurant.average).toFixed(1) + '/5' : 'Not rated yet') + '</strong><small>' + Number(restaurant?.count || 0) + ' student review(s)</small></article><article><span>Rated orders</span><strong>' + Number(data.totalReviews || 0) + '</strong><small>Completed orders reviewed</small></article>';
     const recent = (data.reviews || []).slice(0, 10);
-    reviews.innerHTML = recent.length ? recent.map(review => '<article class="order-card"><strong>' + escapeHtml(review.restaurantName || 'Restaurant') + ' · ' + (review.restaurantRating ? '★ ' + review.restaurantRating + '/5' : 'No restaurant score') + '</strong><p class="muted">Student: ' + escapeHtml(review.studentName || 'Student') + ' · Order ' + escapeHtml(review.orderId || '—') + '</p>' + (review.agentRating ? '<p>Delivery agent rating: ★ ' + escapeHtml(review.agentRating) + '/5</p>' : '') + ((review.foodRatings || []).length ? '<p>Food: ' + review.foodRatings.map(food => escapeHtml(food.itemName) + ' ★ ' + escapeHtml(food.rating) + '/5').join(' · ') + '</p>' : '') + (review.comment ? '<p>' + escapeHtml(review.comment) + '</p>' : '') + '<small class="muted">Delivered: ' + escapeHtml(review.deliveredAt ? new Date(review.deliveredAt).toLocaleString() : 'Time not recorded') + ' · Rated: ' + escapeHtml(review.ratedAt ? new Date(review.ratedAt).toLocaleString() : '—') + '</small></article>').join('') : '<div class="empty-state compact-empty">No student ratings yet. Ratings appear here after students review completed orders.</div>';
+    reviews.innerHTML = recent.length ? recent.map(review => '<article class="order-card"><strong>' + escapeHtml(review.restaurantName || 'Restaurant') + ' · ' + (review.restaurantRating ? '★ ' + review.restaurantRating + '/5' : 'No restaurant score') + '</strong><p class="muted">Student: ' + escapeHtml(review.studentName || 'Student') + ' · Order ' + escapeHtml(review.orderId || '—') + '</p>' + (review.agentRating ? '<p>Delivery agent rating: ★ ' + escapeHtml(review.agentRating) + '/5</p>' : '') + ((review.foodRatings || []).length ? '<p>Food: ' + review.foodRatings.map(food => escapeHtml(food.itemName) + ' ★ ' + escapeHtml(food.rating) + '/5').join(' · ') + '</p>' : '') + (review.restaurantComment ? '<p><strong>Restaurant/food feedback:</strong> ' + escapeHtml(review.restaurantComment) + '</p>' : '') + '<small class="muted">Delivered: ' + escapeHtml(review.deliveredAt ? new Date(review.deliveredAt).toLocaleString() : 'Time not recorded') + ' · Rated: ' + escapeHtml(review.ratedAt ? new Date(review.ratedAt).toLocaleString() : '—') + '</small></article>').join('') : '<div class="empty-state compact-empty">No student ratings yet. Ratings appear here after students review completed orders.</div>';
   } catch (error) { summary.innerHTML = '<p class="muted">' + escapeHtml(error.message || 'Could not load ratings.') + '</p>'; }
 }
 document.addEventListener("click", event => {
@@ -1429,7 +1430,9 @@ async function loadDashboard(automatic = false) {
           '<article class="rating-review-row"><div><strong>' + escapeHtml(review.restaurantName) + '</strong><span class="muted"> · Order ' + escapeHtml(review.orderId) + '</span></div><p class="muted">Review from ' + escapeHtml(review.studentName || "Student") + '</p>' +
           '<p>Restaurant: ★ ' + review.restaurantRating + '/5' + (review.agentRating ? ' · Agent: ★ ' + review.agentRating + '/5' : '') + '</p>' +
           '<p class="muted">' + (review.foodRatings || []).map(food => escapeHtml(food.itemName) + ' ★ ' + food.rating + '/5').join(' · ') + '</p>' +
-          (review.comment ? '<p>' + escapeHtml(review.comment) + '</p>' : '') +
+          (review.restaurantComment ? '<p><strong>Restaurant/food feedback:</strong> ' + escapeHtml(review.restaurantComment) + '</p>' : '') +
+          (review.agentComment ? '<p><strong>Delivery feedback:</strong> ' + escapeHtml(review.agentComment) + '</p>' : '') +
+          (review.legacyComment ? '<p><strong>Older combined comment (submitted before separation):</strong> ' + escapeHtml(review.legacyComment) + '</p>' : '') +
           '<small class="muted">' + (review.ratedAt ? escapeHtml(new Date(review.ratedAt).toLocaleDateString()) : '') + '</small></article>').join('');
         const ratingPanel = document.createElement("section");
         ratingPanel.className = "dashboard-order-section ratings-dashboard";
@@ -2058,7 +2061,7 @@ async function initialize() {
       const message = ratingForm.querySelector("[data-rating-message]");
       const values = new FormData(ratingForm);
       const foodRatings = Array.from(ratingForm.querySelectorAll('select[name^="food-"]')).map(select => ({ itemId: select.name.slice(5), rating: Number(select.value) }));
-      const payload = { restaurantRating: Number(values.get("restaurantRating")), agentRating: values.get("agentRating") ? Number(values.get("agentRating")) : null, foodRatings, comment: String(values.get("comment") || "").trim() };
+      const payload = { restaurantRating: Number(values.get("restaurantRating")), agentRating: values.get("agentRating") ? Number(values.get("agentRating")) : null, foodRatings, restaurantComment: String(values.get("restaurantComment") || "").trim(), agentComment: String(values.get("agentComment") || "").trim() };
       button.disabled = true;
       message.textContent = "Submitting your ratings…";
       try {

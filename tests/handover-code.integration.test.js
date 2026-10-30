@@ -62,7 +62,11 @@ before(async () => {
     order("OTHER", { assignedAgentId: "AG2", deliveryCode: "P6R2" }),
     order("ADMIN", { deliveryCode: "D5F8" }),
     order("LEGACY", { deliveryCode: undefined }),
-    order("STUDENT-B", { customerName: "Student B", customerPhone: "+2348098765432", deliveryCode: "B4N7" })
+    order("STUDENT-B", { customerName: "Student B", customerPhone: "+2348098765432", deliveryCode: "B4N7" }),
+    order("RATING-SPLIT", {
+      customerName: "Adetola", status: "Completed", deliveredAt: new Date().toISOString(),
+      items: [{ id: "cb1", name: "Jollof Rice", price: 2500 }]
+    })
   ]));
   const p = await getPort();
   base = "http://127.0.0.1:" + p;
@@ -90,6 +94,49 @@ after(async () => {
     await new Promise(r => child.once("exit", r));
   }
   if (dir) fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("rating comments are visible only to their intended recipients", async t => {
+  await t.test("Adetola can submit separate restaurant and delivery comments", async () => {
+    const response = await fetch(base + "/api/orders/RATING-SPLIT/rating", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: a },
+      body: JSON.stringify({
+        restaurantRating: 5,
+        agentRating: 4,
+        foodRatings: [{ itemId: "cb1", rating: 5 }],
+        restaurantComment: "Campus Bites: the jollof rice was excellent.",
+        agentComment: "The delivery was prompt and courteous."
+      })
+    });
+    assert.equal(response.status, 201);
+  });
+
+  await t.test("Campus Bites sees restaurant/food comment but not delivery comment", async () => {
+    const data = await (await fetch(base + "/api/ratings/summary", { headers: { cookie: restaurant } })).json();
+    const review = data.reviews.find(item => item.orderId === "RATING-SPLIT");
+    assert.ok(review);
+    assert.equal(review.restaurantComment, "Campus Bites: the jollof rice was excellent.");
+    assert.equal("agentComment" in review, false);
+    assert.equal("legacyComment" in review, false);
+  });
+
+  await t.test("assigned agent sees delivery comment but not restaurant comment", async () => {
+    const data = await (await fetch(base + "/api/ratings/summary", { headers: { cookie: agent } })).json();
+    const review = data.reviews.find(item => item.orderId === "RATING-SPLIT");
+    assert.ok(review);
+    assert.equal(review.agentComment, "The delivery was prompt and courteous.");
+    assert.equal("restaurantComment" in review, false);
+    assert.equal("legacyComment" in review, false);
+  });
+
+  await t.test("admin sees both comments", async () => {
+    const data = await (await fetch(base + "/api/ratings/summary", { headers: { cookie: admin } })).json();
+    const review = data.reviews.find(item => item.orderId === "RATING-SPLIT");
+    assert.ok(review);
+    assert.equal(review.restaurantComment, "Campus Bites: the jollof rice was excellent.");
+    assert.equal(review.agentComment, "The delivery was prompt and courteous.");
+  });
 });
 
 test("handover verification end-to-end", async t => {

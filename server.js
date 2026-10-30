@@ -1795,7 +1795,8 @@ app.post("/api/orders/:id/rating", requireRole("student"), (req, res) => {
     if (!submitted || !validScore(submitted.rating)) return res.status(400).json({ error: "Choose a 1–5 star rating for " + item.name + "." });
     cleanedFoodRatings.push({ itemId: item.id, itemName: item.name, rating: Number(submitted.rating) });
   }
-  const comment = String(req.body.comment || "").trim().slice(0, 500);
+  const restaurantComment = String(req.body.restaurantComment || "").trim().slice(0, 500);
+  const agentComment = order.assignedAgentId ? String(req.body.agentComment || "").trim().slice(0, 500) : "";
   order.rating = {
     studentName: order.customerName,
     restaurantId: order.restaurantId,
@@ -1804,7 +1805,8 @@ app.post("/api/orders/:id/rating", requireRole("student"), (req, res) => {
     agentId: order.assignedAgentId || null,
     agentRating: order.assignedAgentId ? agentRating : null,
     foodRatings: cleanedFoodRatings,
-    comment,
+    restaurantComment,
+    agentComment,
     ratedAt: new Date().toISOString()
   };
   saveOrders(orders);
@@ -1854,7 +1856,16 @@ app.get("/api/ratings/summary", requireLogin, (req, res) => {
       orderId: order.id, studentName: order.rating.studentName,
       restaurantName: order.restaurantName, restaurantRating: order.rating.restaurantRating,
       agentId: order.assignedAgentId || null, agentRating: order.rating.agentRating,
-      foodRatings: order.rating.foodRatings || [], comment: order.rating.comment || "",
+      foodRatings: order.rating.foodRatings || [],
+      ...(req.account.role === "admin" ? {
+        restaurantComment: order.rating.restaurantComment || "",
+        agentComment: order.rating.agentComment || "",
+        legacyComment: order.rating.comment || ""
+      } : req.account.role === "restaurant" ? {
+        restaurantComment: order.rating.restaurantComment || ""
+      } : req.account.role === "agent" ? {
+        agentComment: order.rating.agentComment || ""
+      } : {}),
       ratedAt: order.rating.ratedAt, deliveredAt: order.deliveredAt || order.completedAt || null
     }))
   });

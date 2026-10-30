@@ -12,6 +12,7 @@ let child;
 let base;
 let restaurantCookie;
 let adminCookie;
+let studentCookie;
 
 async function freePort() {
   const server = net.createServer();
@@ -87,6 +88,12 @@ before(async () => {
   assert.equal(ready, true, "server should start for restaurant operations tests");
   restaurantCookie = await login("campusbites", password);
   adminCookie = await login("testadmin", password);
+  const studentResponse = await api(null, "/api/student/register", {
+    method: "POST",
+    body: JSON.stringify({ name: "Test Student", phone: "08012345678", password, consents: { terms: true, privacy: true, delivery: true } })
+  });
+  assert.equal(studentResponse.status, 201);
+  studentCookie = studentResponse.headers.get("set-cookie").split(";")[0];
 });
 
 after(async () => {
@@ -119,6 +126,11 @@ test("restaurant online, offline, pause and item availability are enforced", asy
       body: JSON.stringify({ restaurantId: "CB", latitude: 7.68, longitude: 4.46 })
     });
     assert.equal(response.status, 409);
+    const orderResponse = await api(studentCookie, "/api/orders", {
+      method: "POST",
+      body: JSON.stringify({ hostel: "Test hostel", latitude: 7.67998, longitude: 4.45982, restaurantId: "CB", items: [{ id: "cb1", qty: 1 }], requestId: "offline-order-test" })
+    });
+    assert.equal(orderResponse.status, 409);
   });
 
   await t.test("restaurant can go online and students can see that status", async () => {

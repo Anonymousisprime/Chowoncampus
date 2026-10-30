@@ -215,6 +215,28 @@ test("restaurant verification onboarding is enforced end to end", async t => {
     assert.ok(status.vendor.approvalDate);
   });
 
+  await t.test("approved restaurant can go online and offline through its dashboard endpoint", async () => {
+    const initial = await api(restaurantCookie, "/api/restaurant/operations");
+    assert.equal(initial.status, 200);
+    const online = await api(restaurantCookie, "/api/restaurant/operations", {
+      method: "PATCH",
+      body: JSON.stringify({ online: true })
+    });
+    assert.equal(online.status, 200);
+    const onlineData = await online.json();
+    assert.equal(onlineData.operations.online, true);
+    assert.equal(onlineData.acceptingOrders, true);
+    const publicMenu = await (await fetch(base + "/api/menu")).json();
+    assert.equal(publicMenu.restaurants.find(item => item.id === "CB").online, true);
+
+    const offline = await api(restaurantCookie, "/api/restaurant/operations", {
+      method: "PATCH",
+      body: JSON.stringify({ online: false })
+    });
+    assert.equal(offline.status, 200);
+    assert.equal((await offline.json()).operations.online, false);
+  });
+
   await t.test("approved restaurant becomes visible on the public student menu", async () => {
     const response = await fetch(base + "/api/menu");
     assert.equal(response.status, 200);
@@ -251,6 +273,11 @@ test("restaurant verification onboarding is enforced end to end", async t => {
     assert.equal(status.vendor.documents.find(doc => doc.id === settlement.id).rejectionReason, "The account holder name does not match the restaurant owner.");
     const menu = await (await fetch(base + "/api/menu")).json();
     assert.equal(menu.restaurants.some(item => item.id === "CB"), false);
+    const availabilityBlocked = await api(restaurantCookie, "/api/restaurant/operations", {
+      method: "PATCH",
+      body: JSON.stringify({ online: true })
+    });
+    assert.equal(availabilityBlocked.status, 403, "a rejected required document must block going online");
     const restoreReview = await api(superAdminCookie, "/api/superadmin/vendor-verifications/CB/documents/" + settlement.id + "/review", {
       method: "PATCH",
       body: JSON.stringify({ reviewStatus: "verified", rejectionReason: "" })

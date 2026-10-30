@@ -66,5 +66,5 @@ document.addEventListener("click", event => {
 $("#year").textContent = new Date().getFullYear();
 updateCartCount();
 loadRestaurants();
-window.setInterval(() => { if (document.visibilityState === "visible") loadRestaurants(); }, 15000);
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") loadRestaurants(); });
+window.setInterval(() => { if (document.visibilityState === "visible" && document.activeElement?.id !== "restaurantSearch") loadRestaurants(); }, 15000);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && document.activeElement?.id !== "restaurantSearch") loadRestaurants(); });

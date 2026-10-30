@@ -586,7 +586,7 @@ function requireRole(...roles) {
       if (partner?.suspended) {
         const reason = String(partner.suspensionReason || "").trim();
         return res.status(403).json({
-          error: "This restaurant account is suspended.",
+          error: "This restaurant account is suspended. Reason: " + (reason || "No reason was recorded.") + " Contact support on 09169398221 to request an appeal review.",
           reason: reason || "No reason was recorded. Please contact ChowOnCampus support.",
           support: "09169398221",
           appeal: "Contact ChowOnCampus support to request a review by the Ultimate Admin."
@@ -598,7 +598,7 @@ function requireRole(...roles) {
       if (agent?.suspended) {
         const reason = String(agent.suspensionReason || "").trim();
         return res.status(403).json({
-          error: "Your delivery-agent account is suspended.",
+          error: "Your delivery-agent account is suspended. Reason: " + (reason || "No reason was recorded.") + " Contact support on 09169398221 to request an appeal review.",
           reason: reason || "No reason was recorded. Please contact ChowOnCampus support.",
           support: "09169398221",
           appeal: "Contact ChowOnCampus support to request a review by the Ultimate Admin."
@@ -1381,7 +1381,7 @@ app.post("/api/login", (req, res) => {
     if (partner?.suspended) {
       const reason = String(partner.suspensionReason || "").trim();
       return res.status(403).json({
-        error: "This restaurant account is suspended.",
+        error: "This restaurant account is suspended. Reason: " + (reason || "No reason was recorded.") + " Contact support on 09169398221 to request an appeal review.",
         reason: reason || "No reason was recorded. Please contact ChowOnCampus support.",
         support: "09169398221",
         appeal: "Contact ChowOnCampus support to request a review by the Ultimate Admin."
@@ -1393,7 +1393,7 @@ app.post("/api/login", (req, res) => {
     if (agent?.suspended) {
       const reason = String(agent.suspensionReason || "").trim();
       return res.status(403).json({
-        error: "Your delivery-agent account is suspended.",
+        error: "Your delivery-agent account is suspended. Reason: " + (reason || "No reason was recorded.") + " Contact support on 09169398221 to request an appeal review.",
         reason: reason || "No reason was recorded. Please contact ChowOnCampus support.",
         support: "09169398221",
         appeal: "Contact ChowOnCampus support to request a review by the Ultimate Admin."

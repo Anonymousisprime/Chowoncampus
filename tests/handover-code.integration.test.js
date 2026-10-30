@@ -8,7 +8,7 @@ const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 
 const root = path.resolve(__dirname, "..");
-let dir, child, base, a, b, agent, otherAgent, admin;
+let dir, child, base, a, b, agent, otherAgent, admin, restaurant;
 
 function hash(p) {
   const salt = crypto.randomBytes(16).toString("hex");
@@ -80,6 +80,7 @@ before(async () => {
   agent = await login("/api/login", { username: "agentone", password: ap });
   otherAgent = await login("/api/login", { username: "agenttwo", password: ap });
   admin = await login("/api/login", { username: "testadmin", password: dp });
+  restaurant = await login("/api/login", { username: "campusbites", password: dp });
 });
 
 after(async () => {
@@ -95,7 +96,7 @@ test("handover verification end-to-end", async t => {
     assert.equal((await (await view(a, "CORRECT")).json()).order.deliveryCode, "A7K2");
     assert.equal("deliveryCode" in (await (await view(a, "STUDENT-B")).json()).order, false);
     assert.equal((await (await view(b, "STUDENT-B")).json()).order.deliveryCode, "B4N7");
-    for (const c of [agent, admin, null]) {
+    for (const c of [agent, restaurant, admin, null]) {
       assert.equal("deliveryCode" in (await (await view(c, "CORRECT")).json()).order, false);
     }
   });

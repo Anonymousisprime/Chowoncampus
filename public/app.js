@@ -24,7 +24,8 @@ const state = {
   agentOnline: false,
   agentProfile: null,
   catalogSearchQuery: "",
-  deliveryQuote: null
+  deliveryQuote: null,
+  restaurantOperations: null
 };
 
 const money = amount => new Intl.NumberFormat("en-NG", {
@@ -186,6 +187,7 @@ function renderRestaurants() {
         <h3>${escapeHtml(restaurant.name)}</h3>
         <p>${escapeHtml(restaurant.description)}</p>
         <p class="public-rating">${restaurant.ratingAverage == null ? "☆ Not rated yet" : "★ " + restaurant.ratingAverage + "/5"} <span class="muted">(${restaurant.ratingCount || 0} rating(s))</span></p>
+        <p class="restaurant-order-availability ${restaurant.online && !restaurant.ordersPaused ? "is-open" : "is-closed"}">${restaurant.online && !restaurant.ordersPaused ? "● Accepting orders" : restaurant.ordersPaused ? "● Temporarily paused" : "● Currently offline"}</p>
         ${restaurant.location ? `<p class="restaurant-location">📍 ${escapeHtml(restaurant.location)}</p>` : `<p class="restaurant-location muted">📍 Campus location not added yet</p>`}
         ${query && matchingItems.length ? `<p class="search-food-matches"><strong>Matching food:</strong> ${matchingItems.slice(0, 5).map(item => escapeHtml(item.name)).join(", ")}${matchingItems.length > 5 ? ` and ${matchingItems.length - 5} more` : ""}</p>` : ""}
         <button class="secondary-button" data-open-menu="${escapeHtml(restaurant.id)}">Explore menu →</button>
@@ -229,6 +231,7 @@ function renderMenu() {
       <div><span class="eyebrow">NOW SERVING</span><h2>${escapeHtml(restaurant.name)}</h2></div>
       <button class="text-button" id="closeMenu">← All restaurants</button>
     </div>
+    ${restaurant.online && !restaurant.ordersPaused ? "" : `<p class="restaurant-order-availability is-closed" role="status">${restaurant.ordersPaused ? "This restaurant has temporarily paused incoming orders." : "This restaurant is currently offline and cannot accept new orders."}</p>`}
     <div class="food-grid">
       ${restaurant.items.map(item => `
         <article class="food-card ${item.available === false ? "food-sold-out" : ""}">
@@ -241,7 +244,7 @@ function renderMenu() {
               <span class="price">${money(item.price)}</span>
               ${item.available === false
                 ? '<span class="sold-out-label">Sold out</span>'
-                : `<button class="add-button" aria-label="Add ${escapeHtml(item.name)}" data-add="${escapeHtml(item.id)}">+</button>`}
+                : `<button class="add-button" aria-label="Add ${escapeHtml(item.name)}" data-add="${escapeHtml(item.id)}" ${restaurant.online && !restaurant.ordersPaused ? "" : "disabled"}>+</button>`}
             </div>
           </div>
         </article>
@@ -254,6 +257,7 @@ function addToCart(itemId) {
   const restaurant = state.restaurants.find(r => r.id === state.selectedRestaurantId);
   const item = restaurant?.items.find(i => i.id === itemId);
   if (!item) return;
+  if (!restaurant.online || restaurant.ordersPaused) return showToast("This restaurant is not accepting orders right now.");
   if (item.available === false) return showToast("This item is currently sold out.");
   state.pendingOrderRequestId = null;
 
@@ -910,7 +914,7 @@ function renderMenuRow(item = {}) {
     <label>Price (₦)<input name="price" required type="number" min="1" max="1000000" step="1" value="${Number(item.price) || ""}" placeholder="2500"></label>
     <label>Category<input name="category" maxlength="40" value="${escapeHtml(item.category || "Meals")}" placeholder="Meals, Drinks…"></label>
     <div class="menu-item-photo-field"><label>Food picture <span class="muted">(optional)</span><input name="imageFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif" data-menu-image-file aria-label="Upload a picture for ${escapeHtml(item.name || "this food item")}"></label><input type="hidden" name="image" value="${escapeHtml(image)}"><div class="menu-item-image-preview ${image ? "has-image" : ""}" data-menu-image-preview>${image ? `<img src="${escapeHtml(image)}" alt="Food item preview">` : '<span>📷 No picture yet</span>'}</div><button type="button" class="menu-remove-photo" data-remove-menu-image ${image ? "" : "hidden"}>Remove picture</button></div>
-    <label class="menu-available"><input name="available" type="checkbox" ${item.available === false ? "" : "checked"}> Available</label>
+    <label class="menu-available"><input name="available" type="checkbox" ${item.available === false ? "" : "checked"}> Available for orders</label>
     <button class="menu-remove" type="button" data-remove-menu-item aria-label="Remove item">Remove item</button>
   </div>`;
 }
@@ -1231,6 +1235,9 @@ async function loadDashboard(automatic = false) {
           </section>`;
         return;
       }
+      state.restaurantOperations = (await api("/api/restaurant/operations")).operations;
+    } else {
+      state.restaurantOperations = null;
     }
     const { orders } = await api("/api/orders");
     // The staff member may have started handling an order while the request was in flight.
@@ -1246,8 +1253,22 @@ async function loadDashboard(automatic = false) {
           ${list.length ? `<div class="order-list">${list.map(renderOrderCard).join("")}</div>` : `<div class="empty-state compact-empty">No ${key} orders right now.</div>`}
         </section>`;
       const totalSales = orders.filter(order => order.status === "Completed").reduce((sum, order) => sum + Number(order.total || 0), 0);
+      const restaurantOps = state.restaurantOperations || { online: false, ordersPaused: false, pauseReason: "" };
+      const restaurantAccepting = restaurantOps.online && !restaurantOps.ordersPaused;
+      const pauseReasons = [{value:"high-demand",label:"High order volume"},{value:"temporary-closure",label:"Temporary closure"},{value:"stock-check",label:"Checking food stock"},{value:"staff-shortage",label:"Staff shortage"},{value:"other",label:"Other reason"}];
       $("#dashboardContent").innerHTML = `
         <div class="restaurant-welcome"><div><span class="eyebrow">RESTAURANT WORKSPACE</span><h2>Welcome, ${escapeHtml(account.name)}!</h2><p>Let's get orders moving. Review incoming orders, prepare meals and coordinate pickup with your delivery agent.</p></div><button class="secondary-button" id="refreshRestaurantOrders" type="button">↻ Refresh orders</button></div>
+        <section class="restaurant-operations-panel" aria-label="Restaurant order availability">
+          <div class="restaurant-operations-heading"><div><span class="eyebrow">ORDER AVAILABILITY</span><h2>${restaurantAccepting ? "You are accepting orders" : restaurantOps.ordersPaused ? "Incoming orders are paused" : "Your restaurant is offline"}</h2><p>${restaurantAccepting ? "Students can currently place orders from your restaurant." : restaurantOps.ordersPaused ? "Students cannot place new orders until you resume." : "Your restaurant is not accepting new orders until you go online."}</p></div><span class="restaurant-availability-pill ${restaurantAccepting ? "is-open" : "is-closed"}">${restaurantAccepting ? "ONLINE" : restaurantOps.ordersPaused ? "PAUSED" : "OFFLINE"}</span></div>
+          <div class="restaurant-operations-actions"><button type="button" id="toggleRestaurantOnline" class="${restaurantOps.online ? "danger-button" : "primary-button"}">${restaurantOps.online ? "Go offline" : "Go online"}</button>
+          ${restaurantOps.online && !restaurantOps.ordersPaused
+            ? '<label class="restaurant-pause-reason">Pause reason<select id="restaurantPauseReason">' + pauseReasons.map(reason => '<option value="' + reason.value + '">' + reason.label + '</option>').join("") + '</select></label><button type="button" class="secondary-button" id="toggleRestaurantPause">⏸ Pause incoming orders</button>'
+            : restaurantOps.online && restaurantOps.ordersPaused
+              ? '<p class="muted">Pause reason: ' + escapeHtml(pauseReasons.find(reason => reason.value === restaurantOps.pauseReason)?.label || "Other reason") + '</p><button type="button" class="primary-button" id="toggleRestaurantPause">▶ Resume incoming orders</button>'
+              : '<button type="button" class="secondary-button" disabled title="Go online before pausing orders">⏸ Pause incoming orders</button>'}
+          </div>
+          <p class="restaurant-operations-note">Going offline or pausing affects new orders only. Orders already accepted remain in your dashboard and must still be fulfilled or reported to the Ultimate Admin.</p>
+        </section>
         <nav class="restaurant-quick-actions" aria-label="Restaurant dashboard shortcuts">
           <button type="button" class="secondary-button" data-restaurant-jump="restaurant-section-incoming">📥 Incoming orders</button>
           <button type="button" class="secondary-button" data-restaurant-jump="restaurant-section-preparing">🍳 In the kitchen</button>
@@ -2177,6 +2198,33 @@ async function initialize() {
       }
       return;
     }
+    const restaurantOnlineButton = event.target.closest("#toggleRestaurantOnline");
+    if (restaurantOnlineButton) {
+      restaurantOnlineButton.disabled = true;
+      try {
+        const online = !Boolean(state.restaurantOperations?.online);
+        const result = await api("/api/restaurant/operations", { method: "PATCH", body: JSON.stringify({ online }) });
+        state.restaurantOperations = result.operations;
+        await refreshPublicMenu();
+        showToast(result.message);
+        await loadDashboard();
+      } catch (error) { showToast(error.message); restaurantOnlineButton.disabled = false; }
+      return;
+    }
+    const restaurantPauseButton = event.target.closest("#toggleRestaurantPause");
+    if (restaurantPauseButton) {
+      restaurantPauseButton.disabled = true;
+      try {
+        const ordersPaused = !Boolean(state.restaurantOperations?.ordersPaused);
+        const payload = ordersPaused ? { ordersPaused: true, pauseReason: $("#restaurantPauseReason")?.value || "other" } : { ordersPaused: false };
+        const result = await api("/api/restaurant/operations", { method: "PATCH", body: JSON.stringify(payload) });
+        state.restaurantOperations = result.operations;
+        await refreshPublicMenu();
+        showToast(result.message);
+        await loadDashboard();
+      } catch (error) { showToast(error.message); restaurantPauseButton.disabled = false; }
+      return;
+    }
     const availabilityButton = event.target.closest("#toggleAgentAvailability");
     if (availabilityButton) {
       await setAgentAvailability(!state.agentOnline);
@@ -2292,7 +2340,8 @@ async function initialize() {
           const idInput = menuForm.querySelectorAll('[name="id"]')[index];
           if (idInput) idInput.value = item.id;
         });
-        message.textContent = "Menu saved. Customers will now see the updated prices and availability.";
+        await refreshPublicMenu();
+        message.textContent = "Menu saved. Students will see the updated prices and item availability on their next menu refresh.";
         $("#menuItemCount").textContent = result.items.length + "/70 items";
         $("#addMenuItem").disabled = result.items.length >= 70;
       } catch (error) { message.textContent = error.message; }

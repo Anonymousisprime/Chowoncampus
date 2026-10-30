@@ -230,6 +230,27 @@ test("restaurant verification onboarding is enforced end to end", async t => {
     assert.equal(data.orders[0].id, "VENDOR-TEST-ORDER");
   });
 
+  await t.test("rejecting a document after approval pauses restaurant order access", async () => {
+    let status = await (await api(restaurantCookie, "/api/restaurant/vendor-verification")).json();
+    const settlement = status.vendor.documents.find(doc => doc.type === "settlement-proof" && !doc.supersededAt);
+    const rejected = await api(superAdminCookie, "/api/superadmin/vendor-verifications/CB/documents/" + settlement.id + "/review", {
+      method: "PATCH",
+      body: JSON.stringify({ reviewStatus: "rejected", rejectionReason: "The account holder name does not match the restaurant owner." })
+    });
+    assert.equal(rejected.status, 200);
+    status = await (await api(restaurantCookie, "/api/restaurant/vendor-verification")).json();
+    assert.equal(status.vendor.status, "pending");
+    assert.equal(status.vendor.approvalDate, null);
+    assert.equal(status.vendor.documents.find(doc => doc.id === settlement.id).rejectionReason, "The account holder name does not match the restaurant owner.");
+    const menu = await (await fetch(base + "/api/menu")).json();
+    assert.equal(menu.restaurants.some(item => item.id === "CB"), false);
+    const restoreReview = await api(superAdminCookie, "/api/superadmin/vendor-verifications/CB/documents/" + settlement.id + "/review", {
+      method: "PATCH",
+      body: JSON.stringify({ reviewStatus: "verified", rejectionReason: "" })
+    });
+    assert.equal(restoreReview.status, 200);
+  });
+
   await t.test("rejected restaurant sees reviewer feedback and can resubmit corrected documents", async () => {
     const reject = await api(superAdminCookie, "/api/superadmin/vendor-verifications/CB", {
       method: "PATCH",

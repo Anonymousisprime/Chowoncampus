@@ -2121,6 +2121,89 @@ function publicVendorVerification(record) {
     updatedAt: record.updatedAt || null, notes: record.notes || ""
   };
 }
+
+const VENDOR_REQUIRED_DOCUMENTS = [
+  { type: "identity", label: "Owner identity document" },
+  { type: "business-proof", label: "Business / restaurant ownership proof (CAC certificate may be used)" },
+  { type: "settlement-proof", label: "Settlement bank account proof" }
+];
+function vendorMissingDocumentTypes(record) {
+  const uploaded = new Set((record?.documents || []).map(doc => doc.type));
+  return VENDOR_REQUIRED_DOCUMENTS.filter(item =>
+    !uploaded.has(item.type) && !(item.type === "business-proof" && uploaded.has("cac"))
+  ).map(item => item.type);
+}
+app.get("/api/restaurant/vendor-verification", requireRole("restaurant"), (req, res) => {
+  const restaurant = restaurants.find(item => item.id === req.account.restaurantId);
+  if (!restaurant) return res.status(404).json({ error: "Restaurant account not found." });
+  const record = getVendorVerification(restaurant.id) || {
+    restaurantId: restaurant.id, restaurantName: restaurant.name, status: "pending",
+    identityStatus: "pending", businessStatus: "pending", settlementStatus: "pending",
+    documents: [], notes: ""
+  };
+  res.setHeader("Cache-Control", "no-store, private");
+  return res.json({ vendor: publicVendorVerification(record), requiredDocuments: VENDOR_REQUIRED_DOCUMENTS, missingDocuments: vendorMissingDocumentTypes(record) });
+});
+app.post("/api/restaurant/vendor-verification/documents", requireRole("restaurant"), (req, res) => {
+  const restaurant = restaurants.find(item => item.id === req.account.restaurantId);
+  if (!restaurant) return res.status(404).json({ error: "Restaurant account not found." });
+  const existing = getVendorVerification(restaurant.id);
+  if (existing?.status === "approved") return res.status(409).json({ error: "Your restaurant is already approved. Contact ChowOnCampus support if your verification documents need to be changed." });
+  const type = String(req.body.type || "").trim();
+  const filename = String(req.body.filename || "").trim().slice(0, 160);
+  const mimeType = String(req.body.mimeType || "").toLowerCase();
+  const data = String(req.body.dataBase64 || "");
+  const allowed = new Set(["identity", "cac", "business-proof", "settlement-proof", "other"]);
+  const mimeAllowed = new Set(["application/pdf", "image/jpeg", "image/png"]);
+  if (!allowed.has(type) || !filename || !mimeAllowed.has(mimeType) || !/^[A-Za-z0-9+/]+=*$/.test(data)) return res.status(400).json({ error: "Upload a PDF, JPEG or PNG and choose a valid document category." });
+  const buffer = Buffer.from(data, "base64");
+  if (!buffer.length || buffer.length > 4 * 1024 * 1024) return res.status(413).json({ error: "Each document must be 4 MB or smaller." });
+  try {
+    const encrypted = encryptVendorDocument(buffer);
+    const records = readVendorVerifications();
+    let record = records.find(item => item.restaurantId === restaurant.id);
+    if (!record) {
+      record = { restaurantId: restaurant.id, restaurantName: restaurant.name, status: "pending", identityStatus: "pending", businessStatus: "pending", settlementStatus: "pending", documents: [], createdAt: new Date().toISOString() };
+      records.push(record);
+    }
+    record.documents = Array.isArray(record.documents) ? record.documents : [];
+    record.documents.push({ id: crypto.randomUUID(), type, filename: filename.replace(/[\\/]/g, "_"), mimeType, size: buffer.length, encrypted, uploadedAt: new Date().toISOString(), uploadedBy: req.account.username });
+    if (record.status !== "rejected") record.status = "pending";
+    record.approvalDate = null;
+    record.updatedAt = new Date().toISOString();
+    saveVendorVerifications(records);
+    res.setHeader("Cache-Control", "no-store, private");
+    return res.status(201).json({ ok: true, vendor: publicVendorVerification(record), missingDocuments: vendorMissingDocumentTypes(record), message: "Your document was encrypted and submitted securely." });
+  } catch (error) {
+    console.error("Restaurant vendor document upload failed:", error.message);
+    return res.status(503).json({ error: error.message.includes("not configured") ? error.message : "Could not securely save the document. Please try again." });
+  }
+});
+app.post("/api/restaurant/vendor-verification/resubmit", requireRole("restaurant"), (req, res) => {
+  const restaurant = restaurants.find(item => item.id === req.account.restaurantId);
+  if (!restaurant) return res.status(404).json({ error: "Restaurant account not found." });
+  const records = readVendorVerifications();
+  const record = records.find(item => item.restaurantId === restaurant.id);
+  if (!record) return res.status(400).json({ error: "Upload your required verification documents before submitting for review." });
+  const missing = vendorMissingDocumentTypes(record);
+  if (missing.length) {
+    const labels = VENDOR_REQUIRED_DOCUMENTS.filter(item => missing.includes(item.type)).map(item => item.label);
+    return res.status(400).json({ error: "Please upload the missing documents: " + labels.join(", ") + "." });
+  }
+  if (record.status === "approved") return res.status(409).json({ error: "Your restaurant is already approved." });
+  record.status = "pending";
+  record.identityStatus = "pending";
+  record.businessStatus = "pending";
+  record.settlementStatus = "pending";
+  record.reviewer = null;
+  record.approvalDate = null;
+  record.submittedAt = new Date().toISOString();
+  record.updatedAt = record.submittedAt;
+  saveVendorVerifications(records);
+  res.setHeader("Cache-Control", "no-store, private");
+  return res.json({ ok: true, vendor: publicVendorVerification(record), message: "Your corrected documents have been resubmitted. Your application is now awaiting Ultimate Admin review." });
+});
+
 app.get("/api/superadmin/vendor-verifications", requireSuperAdmin, (req, res) => {
   const records = readVendorVerifications();
   const rows = restaurants.map(restaurant => {
@@ -2218,7 +2301,12 @@ app.patch("/api/superadmin/vendor-verifications/:restaurantId", requireSuperAdmi
   if (decision === "approved" && (identityStatus !== "verified" || businessStatus !== "verified" || settlementStatus !== "verified")) {
     return res.status(400).json({ error: "All three verification checks must be verified before approval." });
   }
-  if (decision === "approved" && !(record.documents || []).length) return res.status(400).json({ error: "Upload supporting documents before approving this vendor." });
+  if (decision === "approved") {
+    const uploadedTypes = new Set((record.documents || []).map(doc => doc.type));
+    if (!uploadedTypes.has("identity")) return res.status(400).json({ error: "Upload an owner identity document before approving this vendor." });
+    if (!uploadedTypes.has("business-proof") && !uploadedTypes.has("cac")) return res.status(400).json({ error: "Upload business ownership proof or a CAC certificate before approving this vendor." });
+    if (!uploadedTypes.has("settlement-proof")) return res.status(400).json({ error: "Upload settlement bank account proof before approving this vendor." });
+  }
   record.identityStatus = identityStatus; record.businessStatus = businessStatus; record.settlementStatus = settlementStatus;
   record.status = decision; record.notes = String(req.body.notes || "").trim().slice(0, 1000);
   record.reviewer = req.account.username; record.updatedAt = new Date().toISOString();

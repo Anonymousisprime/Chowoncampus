@@ -164,30 +164,29 @@ function saveStoredJson(filePath, data) {
       for (const order of Array.isArray(data) ? data : []) {
         if (!order?.id) continue;
         const id = String(order.id);
-        const serializedOrder = JSON.stringify(order);
-        current.set(id, serializedOrder);
-        if (persistedOrderSnapshot.get(id) !== serializedOrder) {
-          // Only write orders that actually changed; each order has its own database row.
-          storageWriteQueue = storageWriteQueue.catch(() => {}).then(() =>
-            storagePool.query(
-              `INSERT INTO coc_orders (id, data, created_at, updated_at)
-               VALUES ($1, $2::jsonb, COALESCE($3::timestamptz, NOW()), NOW())
-               ON CONFLICT (id) DO UPDATE
-               SET data = EXCLUDED.data, created_at = EXCLUDED.created_at, updated_at = NOW()`,
-              [id, serializedOrder, order.createdAt || null]
-            )
-          );
-        }
+        current.set(id, {
+          serialized: JSON.stringify(order),
+          createdAt: order.createdAt || null
+        });
       }
-      for (const oldId of persistedOrderSnapshot.keys()) {
-        if (!current.has(oldId)) {
-          storageWriteQueue = storageWriteQueue.catch(() => {}).then(() =>
-            storagePool.query("DELETE FROM coc_orders WHERE id = $1", [oldId])
+      // Persist changed rows only. A full in-memory snapshot is never treated as
+      // an instruction to delete database rows: stale snapshots or a dashboard
+      // refresh must never erase orders that are not present in that snapshot.
+      // Advance the persisted snapshot only after each database write succeeds,
+      // so a failed write is retried on the next save instead of being skipped.
+      storageWriteQueue = storageWriteQueue.catch(() => {}).then(async () => {
+        for (const [id, order] of current) {
+          if (persistedOrderSnapshot.get(id) === order.serialized) continue;
+          await storagePool.query(
+            `INSERT INTO coc_orders (id, data, created_at, updated_at)
+             VALUES ($1, $2::jsonb, COALESCE($3::timestamptz, NOW()), NOW())
+             ON CONFLICT (id) DO UPDATE
+             SET data = EXCLUDED.data, created_at = EXCLUDED.created_at, updated_at = NOW()`,
+            [id, order.serialized, order.createdAt]
           );
+          persistedOrderSnapshot.set(id, order.serialized);
         }
-      }
-      persistedOrderSnapshot.clear();
-      for (const [id, serializedOrder] of current) persistedOrderSnapshot.set(id, serializedOrder);
+      });
       storageWriteQueue.catch(error => {
         console.error("PostgreSQL order persistence failed:", error.message);
       });
@@ -1901,12 +1900,12 @@ app.get("/api/orders", requireLogin, (req, res) => {
     if (req.account.role === "restaurant") {
       orders = vendorIsApproved(req.account.restaurantId) ? orders.filter(
         order => order.restaurantId === req.account.restaurantId &&
-          ["Paid — demo verified", "Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)
+          ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)
       ) : [];
     } else if (req.account.role === "agent") {
       orders = orders.filter(
         order => order.assignedAgentId === req.account.agentId &&
-          ["Paid — demo verified", "Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)
+          ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)
       );
     } else if (req.account.role === "admin" && !req.account.isSuperAdmin) {
       orders = orders.filter(order => !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval"));
@@ -3710,47 +3709,6 @@ app.patch("/api/orders/:id/assign", requireRole("admin"), (req, res) => {
   }
 });
 
-// Admin-only test helper. This never contacts Paystack or moves money.
-app.post("/api/admin/orders/:id/demo-payment", requireRole("admin"), (req, res) => {
-  if (String(process.env.ENABLE_ADMIN_DEMO_PAYMENTS || "").toLowerCase() !== "true") {
-    return res.status(403).json({ error: "Test-payment approval is disabled. Enable ENABLE_ADMIN_DEMO_PAYMENTS only while testing." });
-  }
-  try {
-    const orders = readOrders();
-    const order = orders.find(item => item.id === req.params.id);
-    if (!order) return res.status(404).json({ error: "Order not found." });
-
-    // Never override a Paystack checkout, a payment reference, or a payment
-    // that has already been verified. This is only a manual test workflow.
-    if (order.paystackReference || order.paymentStatus === "Payment pending" ||
-        ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)) {
-      return res.status(409).json({ error: "This order has a real payment flow or verified payment and cannot use test approval." });
-    }
-    if (order.status !== "Awaiting payment" || !["Unpaid", "Unpaid — demo only"].includes(order.paymentStatus)) {
-      return res.status(409).json({ error: "Only an unpaid order still awaiting payment can be marked as a test payment." });
-    }
-
-    const changedAt = new Date().toISOString();
-    order.paymentStatus = "Paid — demo verified";
-    order.demoPaymentAt = changedAt;
-    order.paidAt = changedAt;
-    order.paymentChannel = "Admin test override — no money charged";
-    order.status = "Confirmed";
-    order.updatedAt = changedAt;
-    order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
-    order.statusHistory.push({ status: "Confirmed", at: changedAt, by: "admin demo payment" });
-    saveOrders(orders);
-    notifyOrderParties(order, "Test payment approved — order confirmed", "An administrator marked this test order as paid for workflow testing. No money was charged.");
-    return res.json({
-      order: publicOrder(order),
-      message: "Test payment recorded. No money was charged. The restaurant can now process this order."
-    });
-  } catch (error) {
-    console.error("Admin demo payment failed:", error.message);
-    return res.status(500).json({ error: "Could not mark this test order as paid." });
-  }
-});
-
 // Role-based order status updates
 app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
   try {
@@ -3845,7 +3803,7 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
     // Fulfilment requires a verified payment state.
     if (
       newStatus !== "Cancelled" &&
-      !["Paid — demo verified", "Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)
+      !["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)
     ) {
       return res.status(400).json({
         error: "This order is unpaid. Complete and verify payment before fulfilment."

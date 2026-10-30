@@ -1236,7 +1236,7 @@ async function loadDashboard(automatic = false) {
               <button type="submit" class="primary-button">Securely upload document</button><p id="vendorDocumentUploadMessage" class="muted" role="status"></p>
             </form>
             <h3>Document-by-document review</h3><p class="muted">Each document is reviewed separately. If one is rejected, its reason appears directly below it.</p>${documentRows ? `<ul>${documentRows}</ul>` : '<p class="muted">No documents uploaded yet.</p>'}
-            ${vendor.status === "rejected" || missingLabels.length === 0 ? `<form id="vendorResubmitForm" style="margin-top:18px"><button type="submit" class="primary-button" ${missingLabels.length ? "disabled" : ""}>Resubmit for review</button><p id="vendorResubmitMessage" class="muted" role="status"></p></form>` : ""}
+            ${vendor.status === "rejected" || missingLabels.length === 0 || rejectedCurrentDocuments.length ? `<form id="vendorResubmitForm" style="margin-top:18px"><button type="submit" class="primary-button" ${(missingLabels.length || rejectedCurrentDocuments.length) ? "disabled" : ""}>Resubmit for review</button><p class="muted">${rejectedCurrentDocuments.length ? "Replace every rejected document before resubmitting." : missingLabels.length ? "Upload all required document categories before resubmitting." : "Your documents are ready to resubmit."}</p><p id="vendorResubmitMessage" class="muted" role="status"></p></form>` : ""}
             <p class="muted" style="margin-top:18px">You can use your account to access this page and submit documents. Order receiving and order processing remain disabled until the Ultimate Admin approves your restaurant.</p>
           </section>`;
         return;

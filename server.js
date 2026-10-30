@@ -1581,7 +1581,7 @@ app.post("/api/orders/:id/paystack/initialize", requireRole("student"), async (r
   }
   // Paystack requires an email field, but ChowOnCampus does not collect one at checkout.
   // Use a deterministic phone-based alias so students are not blocked by an extra email field.
-  const email = String(order.customerPhone || "").replace(/\\D/g, "") + "@payments.chowoncampus.com";
+  const email = String(order.customerPhone || "").replace(/\D/g, "") + "@payments.chowoncampus.com";
   if (order.status === "Cancelled") return res.status(400).json({ error: "This order has been cancelled." });
   if (!Number.isSafeInteger(Number(order.total)) || Number(order.total) <= 0) {
     return res.status(400).json({ error: "The order total is invalid. Please contact support." });

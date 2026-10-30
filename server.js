@@ -2464,9 +2464,13 @@ app.patch("/api/superadmin/vendor-verifications/:restaurantId/documents/:documen
   document.reviewedBy = req.account.username;
   document.reviewedAt = new Date().toISOString();
   record.updatedAt = document.reviewedAt;
+  if (reviewStatus === "rejected" && record.status === "approved") {
+    record.status = "pending";
+    record.approvalDate = null;
+  }
   saveVendorVerifications(records);
   res.setHeader("Cache-Control", "no-store");
-  return res.json({ ok: true, vendor: publicVendorVerification(record), message: reviewStatus === "rejected" ? "Document rejected. The restaurant can now see the reason and upload a replacement." : reviewStatus === "verified" ? "Document marked as verified." : "Document review returned to pending." });
+  return res.json({ ok: true, vendor: publicVendorVerification(record), message: reviewStatus === "rejected" ? "Document rejected. The restaurant can see the reason and upload a replacement. If it was previously approved, its ordering access has been paused pending re-review." : reviewStatus === "verified" ? "Document marked as verified." : "Document review returned to pending." });
 });
 
 app.patch("/api/superadmin/vendor-verifications/:restaurantId", requireSuperAdmin, (req, res) => {

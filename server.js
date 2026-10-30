@@ -30,7 +30,8 @@ const storageFiles = {
   "foodback-config.json": "foodbackConfig",
   "feedback-conversations.json": "feedbackConversations",
   "delivery-area-config.json": "deliveryAreaConfig",
-  "vendor-verifications.json": "vendorVerifications"
+  "vendor-verifications.json": "vendorVerifications",
+  "restaurant-operations.json": "restaurantOperations"
 };
 
 function readLocalJson(filename, fallback) {
@@ -61,7 +62,8 @@ async function initializePersistentStorage() {
     ["foodback-config.json", { launchStartAt: null }],
     ["feedback-conversations.json", []],
     ["delivery-area-config.json", { enabled: false, centerLatitude: null, centerLongitude: null, radiusMeters: 1200 }],
-    ["vendor-verifications.json", []]
+    ["vendor-verifications.json", []],
+    ["restaurant-operations.json", {}]
   ];
   if (!storagePool) {
     for (const [filename, fallback] of definitions) {
@@ -361,6 +363,27 @@ function readMenuOverrides() {
 }
 function saveMenuOverrides(data) {
   saveStoredJson(MENUS_FILE, data);
+}
+const RESTAURANT_OPERATIONS_FILE = path.join(__dirname, "restaurant-operations.json");
+function readRestaurantOperations() {
+  return readStoredJson(RESTAURANT_OPERATIONS_FILE, {});
+}
+function saveRestaurantOperations(records) {
+  saveStoredJson(RESTAURANT_OPERATIONS_FILE, records);
+}
+function getRestaurantOperations(restaurantId) {
+  const record = readRestaurantOperations()[String(restaurantId)] || {};
+  return {
+    online: record.online === true,
+    ordersPaused: record.ordersPaused === true,
+    pauseReason: String(record.pauseReason || ""),
+    operationsUpdatedAt: record.updatedAt || null
+  };
+}
+function restaurantAcceptsOrders(restaurant) {
+  if (!restaurant || !vendorIsApproved(restaurant.id)) return false;
+  const operations = getRestaurantOperations(restaurant.id);
+  return operations.online && !operations.ordersPaused;
 }
 const menuOverrides = readMenuOverrides();
 for (const restaurant of restaurants) {
@@ -1097,6 +1120,7 @@ app.get("/api/menu", (req, res) => {
     const restaurantReviews = ratedOrders.filter(order => order.restaurantId === restaurant.id && order.rating.restaurantRating);
     return {
       ...restaurant,
+      ...getRestaurantOperations(restaurant.id),
       location: restaurant.location || "",
       ratingAverage: average(restaurantReviews.map(order => order.rating.restaurantRating)),
       ratingCount: restaurantReviews.length,
@@ -1113,12 +1137,65 @@ app.get("/api/menu", (req, res) => {
 app.post("/api/delivery/quote", (req, res) => {
   const restaurant = restaurants.find(item => item.id === req.body.restaurantId);
   if (!restaurant) return res.status(400).json({ error: "Choose a valid restaurant." });
+  if (!restaurantAcceptsOrders(restaurant)) return res.status(409).json({ error: "This restaurant is currently offline or temporarily not accepting orders. Please choose another restaurant or try again later." });
   const latitude = Number(req.body.latitude);
   const longitude = Number(req.body.longitude);
   const hasDeliveryPin = req.body.latitude !== undefined && req.body.longitude !== undefined &&
     Number.isFinite(latitude) && Number.isFinite(longitude) &&
     Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
   res.json(calculateDeliveryQuote(restaurant, hasDeliveryPin ? latitude : null, hasDeliveryPin ? longitude : null));
+});
+
+// Restaurant partners control whether they are accepting orders and can pause incoming orders temporarily.
+app.get("/api/restaurant/operations", requireRole("restaurant"), (req, res) => {
+  const restaurant = restaurants.find(item => item.id === req.account.restaurantId);
+  if (!restaurant) return res.status(404).json({ error: "Restaurant account not found." });
+  if (!vendorIsApproved(restaurant.id)) return res.status(403).json({ error: "Complete restaurant verification before changing order availability." });
+  res.setHeader("Cache-Control", "no-store, private");
+  return res.json({ operations: getRestaurantOperations(restaurant.id), acceptingOrders: restaurantAcceptsOrders(restaurant) });
+});
+app.patch("/api/restaurant/operations", requireRole("restaurant"), (req, res) => {
+  const restaurant = restaurants.find(item => item.id === req.account.restaurantId);
+  if (!restaurant) return res.status(404).json({ error: "Restaurant account not found." });
+  if (!vendorIsApproved(restaurant.id)) return res.status(403).json({ error: "Complete restaurant verification before changing order availability." });
+  const hasOnline = typeof req.body.online === "boolean";
+  const hasPaused = typeof req.body.ordersPaused === "boolean";
+  if (!hasOnline && !hasPaused) return res.status(400).json({ error: "Choose whether to go online/offline or pause/resume incoming orders." });
+  const records = readRestaurantOperations();
+  const current = { ...(records[restaurant.id] || {}) };
+  if (hasOnline) current.online = req.body.online;
+  if (hasPaused) {
+    if (req.body.ordersPaused && current.online !== true) return res.status(409).json({ error: "Go online before pausing incoming orders." });
+    current.ordersPaused = req.body.ordersPaused;
+    if (req.body.ordersPaused) {
+      const allowedReasons = new Set(["high-demand", "temporary-closure", "stock-check", "staff-shortage", "other"]);
+      const reason = String(req.body.pauseReason || "other").trim();
+      if (!allowedReasons.has(reason)) return res.status(400).json({ error: "Choose a valid reason for pausing incoming orders." });
+      current.pauseReason = reason;
+    } else {
+      current.pauseReason = "";
+    }
+  }
+  if (current.online !== true) {
+    current.online = false;
+    current.ordersPaused = false;
+    current.pauseReason = "";
+  }
+  current.updatedAt = new Date().toISOString();
+  records[restaurant.id] = current;
+  try {
+    saveRestaurantOperations(records);
+    const operations = getRestaurantOperations(restaurant.id);
+    return res.json({
+      ok: true, operations, acceptingOrders: restaurantAcceptsOrders(restaurant),
+      message: !operations.online ? "Your restaurant is offline and will not receive new orders."
+        : operations.ordersPaused ? "Incoming orders are paused. Existing orders remain available for fulfilment."
+        : "Your restaurant is online and accepting new orders."
+    });
+  } catch (error) {
+    console.error("Could not update restaurant availability:", error.message);
+    return res.status(500).json({ error: "Could not update restaurant availability. Please try again." });
+  }
 });
 
 // Restaurant partners can save their pickup pin using GPS or the map picker.
@@ -1384,6 +1461,7 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
   const deliveryLocation = { hostel: hostel.trim(), block: typeof block === "string" ? block.trim().slice(0, 100) : "", room: typeof room === "string" ? room.trim().slice(0, 40) : "", landmark: typeof landmark === "string" ? landmark.trim().slice(0, 150) : "", latitude: hasCoordinates ? Number(latitude) : null, longitude: hasCoordinates ? Number(longitude) : null };
   const restaurant = restaurants.find(r => r.id === restaurantId);
   if (restaurant && !vendorIsApproved(restaurant.id)) return res.status(403).json({ error: "This restaurant is not yet approved to accept orders. Please choose an approved restaurant." });
+  if (restaurant && !restaurantAcceptsOrders(restaurant)) return res.status(409).json({ error: "This restaurant is currently offline or has paused incoming orders. Please choose another restaurant or try again later." });
 
   if (
     !restaurant ||

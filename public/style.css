@@ -986,3 +986,22 @@ button,input,select,textarea{max-width:100%;min-width:0}
   .food-home-page .nav-actions>*{width:100%;min-width:0;max-width:100%;text-align:left;justify-content:flex-start;white-space:normal}
   .food-home-page .nav-actions .primary-button{justify-content:center}
 }
+
+
+/* Restaurant online/offline and temporary order-pause controls */
+.restaurant-operations-panel{background:#fff;border:1px solid #dce8df;border-radius:18px;padding:clamp(16px,3vw,24px);margin:0 0 22px;box-shadow:0 8px 24px rgba(16,45,36,.05)}
+.restaurant-operations-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.restaurant-operations-heading h2{margin:5px 0;color:var(--green);font:800 clamp(1.1rem,3vw,1.45rem) Manrope,sans-serif}
+.restaurant-operations-heading p{margin:5px 0;color:var(--muted);font-size:.9rem}
+.restaurant-availability-pill,.restaurant-order-availability{display:inline-flex;align-items:center;gap:6px;font-size:.78rem;font-weight:800;letter-spacing:.02em}
+.restaurant-availability-pill{padding:8px 12px;border-radius:999px;white-space:nowrap}
+.restaurant-availability-pill.is-open,.restaurant-order-availability.is-open{color:#176b45;background:#e8f5ec}
+.restaurant-availability-pill.is-closed,.restaurant-order-availability.is-closed{color:#9b4b16;background:#fff3e6}
+.restaurant-order-availability{margin:8px 0}
+.restaurant-operations-actions{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-top:16px}
+.restaurant-operations-actions button{min-height:44px}
+.restaurant-pause-reason{display:grid;gap:5px;min-width:min(220px,100%);font-size:.8rem;font-weight:750;color:var(--muted)}
+.restaurant-pause-reason select{min-height:44px;border:1px solid #cbd9cf;border-radius:10px;padding:9px;background:#fff;font:inherit;color:var(--text)}
+.restaurant-operations-note{margin:14px 0 0;padding-top:12px;border-top:1px solid #edf1ee;color:var(--muted);font-size:.82rem;line-height:1.5}
+.restaurant-operations-actions button:disabled{opacity:.55;cursor:not-allowed}
+@media(max-width:600px){.restaurant-operations-heading{flex-direction:column}.restaurant-operations-actions{align-items:stretch;flex-direction:column}.restaurant-operations-actions>*{width:100%;max-width:100%}.restaurant-pause-reason{width:100%}}

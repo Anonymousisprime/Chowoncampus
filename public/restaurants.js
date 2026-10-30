@@ -35,6 +35,7 @@ function renderRestaurants() {
     const preview = (r.items || []).slice(0, 3).map(item => escapeHtml(item.name)).join(" · ");
     return '<article class="explore-stall-card"><a class="explore-stall-photo" href="/stall.html?id=' + encodeURIComponent(r.id) + '" aria-label="Open ' + escapeHtml(r.name) + ' stall"><img src="' + coverPhotos[index % coverPhotos.length] + '" alt="Food from ' + escapeHtml(r.name) + '" loading="lazy"><span class="explore-photo-label">CAMPUS STALL</span></a>' +
       '<div class="explore-stall-body"><div class="explore-stall-title-row"><div><h3>' + escapeHtml(r.name) + '</h3><p class="explore-stall-location">' + (r.location ? '⌖ ' + escapeHtml(r.location) : '⌖ On campus') + '</p></div><span class="explore-stall-rating">' + (r.ratingAverage == null ? '☆ New' : '★ ' + Number(r.ratingAverage).toFixed(1)) + '</span></div>' +
+      '<p class="restaurant-order-availability ' + (r.online && !r.ordersPaused ? 'is-open' : 'is-closed') + '">' + (r.online && !r.ordersPaused ? '● Accepting orders' : r.ordersPaused ? '● Temporarily paused' : '● Currently offline') + '</p>' +
       '<p class="explore-stall-description">' + escapeHtml(r.description || "Freshly prepared favourites for campus life.") + '</p><p class="explore-stall-preview">' + (preview || "Menu coming soon") + '</p>' +
       '<div class="explore-stall-footer"><span class="explore-menu-count">' + availableItems + ' item' + (availableItems === 1 ? '' : 's') + ' available</span><a class="primary-button" href="/stall.html?id=' + encodeURIComponent(r.id) + '">View stall <span aria-hidden="true">→</span></a></div></div></article>';
   }).join("") : '<div class="empty-state catalog-empty"><strong>No stalls found.</strong><p>Try another food name or choose a different category.</p><button class="secondary-button" type="button" id="resetExploreFilters">Clear filters</button></div>';
@@ -65,3 +66,5 @@ document.addEventListener("click", event => {
 $("#year").textContent = new Date().getFullYear();
 updateCartCount();
 loadRestaurants();
+window.setInterval(() => { if (document.visibilityState === "visible" && document.activeElement?.id !== "restaurantSearch") loadRestaurants(); }, 15000);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && document.activeElement?.id !== "restaurantSearch") loadRestaurants(); });

@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#176b45"><title>Operations &amp; Records | ChowOnCampus</title>
+<style>
+:root{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#173b2b;background:#f3f7f4;--green:#176b45;--line:#dfe9e1;--muted:#65786b}*{box-sizing:border-box}body{margin:0}.top{background:#fff;border-bottom:1px solid var(--line);padding:14px clamp(12px,3vw,36px);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.brand{font-weight:900;color:var(--green);text-decoration:none}.top-actions{display:flex;gap:8px;flex-wrap:wrap}.wrap{max-width:1500px;margin:auto;padding:24px clamp(12px,3vw,34px) 60px}h1{margin:4px 0 8px;font-size:clamp(25px,4vw,36px)}h2{font-size:19px;margin:0}.muted{color:var(--muted);line-height:1.5}.eyebrow{font-size:11px;letter-spacing:.13em;font-weight:850;color:#258257}.btn{border:0;border-radius:10px;padding:10px 14px;background:#eaf3ed;color:var(--green);font:inherit;font-weight:750;cursor:pointer}.btn.primary{background:var(--green);color:#fff}.btn:disabled{opacity:.5;cursor:not-allowed}.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}.metric,.panel{background:#fff;border:1px solid var(--line);border-radius:15px}.metric{padding:16px}.metric small{color:var(--muted);font-weight:700}.metric strong{display:block;font-size:28px;margin-top:5px}.panel{margin:14px 0;overflow:hidden}.panel-head{padding:16px 18px;border-bottom:1px solid #edf1ee;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.panel-body{padding:16px 18px}.folders{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:20px 0}.folder{display:flex;align-items:center;gap:12px;text-align:left;border:1px solid var(--line);border-radius:14px;background:#fff;padding:16px;cursor:pointer;color:#173b2b}.folder.active{border:2px solid var(--green);background:#f2faf5}.folder-icon{font-size:28px}.folder strong{display:block}.folder small{color:var(--muted)}.tools{display:flex;gap:8px;flex-wrap:wrap}.field{font:inherit;border:1px solid #cbd9cf;border-radius:9px;padding:10px 12px;background:#fff;max-width:100%;min-width:0}.table-wrap{overflow:auto;width:100%}table{border-collapse:collapse;width:100%;min-width:850px}th,td{text-align:left;padding:11px 12px;border-bottom:1px solid #edf1ee;font-size:13px;vertical-align:top}th{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;background:#f8fbf8}.pill{display:inline-block;padding:4px 8px;border-radius:99px;background:#edf4ef;color:#286542;font-size:11px;font-weight:800}.pill.warn{background:#fff3d8;color:#825b12}.pill.bad{background:#ffeded;color:#9d3333}.empty{padding:24px;text-align:center;color:var(--muted)}.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.form-field{display:grid;gap:5px;font-size:13px;font-weight:750}.form-field .field{width:100%}.timeline{border-left:2px solid #d8e7dc;margin:10px 0 10px 8px;padding-left:16px}.event{padding:0 0 13px;position:relative;font-size:13px}.event:before{content:"";position:absolute;left:-22px;top:4px;width:9px;height:9px;border-radius:50%;background:#258257}.notice{padding:12px 14px;background:#fff8e9;border:1px solid #f1dfb5;border-radius:10px;color:#70521a;font-size:13px;line-height:1.5}.case-card{border:1px solid var(--line);border-radius:12px;padding:13px;margin:10px 0}.case-head{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}.case-actions{display:grid;grid-template-columns:180px 1fr auto;gap:8px;margin-top:10px}.hidden{display:none!important}label{min-width:0}@media(max-width:800px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.folders{grid-template-columns:1fr}.grid3{grid-template-columns:1fr 1fr}}@media(max-width:560px){.wrap{padding:16px 10px 36px}.cards{gap:8px}.metric{padding:12px}.metric strong{font-size:23px}.panel-head,.panel-body{padding:13px}.grid2,.grid3{grid-template-columns:1fr}.case-actions{grid-template-columns:1fr}.top-actions{width:100%}.top-actions>*{flex:1}.field{width:100%}}
+</style>
+</head>
+<body>
+<header class="top"><a class="brand" href="/admin-dashboard.html">ChowOnCampus · Ultimate Admin</a><div class="top-actions"><button class="btn" id="refresh">↻ Refresh records</button><a class="btn" href="/admin-dashboard.html" style="text-decoration:none">← Admin dashboard</a></div></header>
+<main class="wrap">
+<div class="eyebrow">ULTIMATE ADMIN WORKSPACE</div><h1>Operations &amp; Records</h1>
+<p class="muted">A searchable archive of successful and failed restaurant orders, deliveries and student orders, with operational activity, disputes, refund decisions, penalties and appeals.</p>
+<div id="status" class="muted" role="status">Loading secure records…</div>
+<section class="cards">
+<div class="metric"><small>Total orders archived</small><strong id="totalOrders">—</strong></div>
+<div class="metric"><small>Successful deliveries</small><strong id="successful">—</strong></div>
+<div class="metric"><small>Cancelled / failed</small><strong id="failed">—</strong></div>
+<div class="metric"><small>Open cases / appeals</small><strong id="openCases">—</strong></div>
+</section>
+<section class="panel"><div class="panel-head"><div><h2>Live operations monitor</h2><p class="muted">Latest status snapshot. Activity history begins when event tracking is enabled.</p></div></div><div class="panel-body grid3" id="liveMonitor">Loading…</div></section>
+<section class="panel"><div class="panel-head"><div><h2>Record folders</h2><p class="muted">Open a folder to review all matching orders, including successful and unsuccessful cases.</p></div></div>
+<div class="panel-body"><div class="folders">
+<button class="folder active" data-folder="restaurants"><span class="folder-icon">🏪</span><span><strong>Restaurant Orders</strong><small id="restaurantFolderCount">All restaurant order records</small></span></button>
+<button class="folder" data-folder="agents"><span class="folder-icon">🛵</span><span><strong>Delivery Agent Deliveries</strong><small id="agentFolderCount">All assigned and unassigned deliveries</small></span></button>
+<button class="folder" data-folder="students"><span class="folder-icon">🎓</span><span><strong>Student Orders</strong><small id="studentFolderCount">All student order records</small></span></button>
+</div>
+<div class="tools" style="margin-bottom:12px"><input id="search" class="field" placeholder="Search order ID, restaurant, student, agent…"><select id="outcome" class="field"><option value="all">Successful and failed</option><option value="successful">Successful only</option><option value="failed">Failed / cancelled only</option><option value="active">In progress / other</option></select><select id="restaurantFilter" class="field"><option value="">All restaurants</option></select><select id="agentFilter" class="field"><option value="">All agents</option></select></div>
+<div class="table-wrap"><table><thead><tr><th>Order / date</th><th>Restaurant</th><th>Student</th><th>Delivery agent</th><th>Status</th><th>Payment</th><th>Last update</th><th>Record</th></tr></thead><tbody id="ordersBody"><tr><td colspan="8" class="empty">Loading records…</td></tr></tbody></table></div>
+</div></section>
+<section class="panel"><div class="panel-head"><div><h2>Order record &amp; timeline</h2><p class="muted">Select View on an order to inspect status timestamps, items, parties and linked cases.</p></div></div><div class="panel-body" id="orderDetail"><p class="muted">No order selected.</p></div></section>
+<section class="panel"><div class="panel-head"><div><h2>Availability &amp; delivery activity history</h2><p class="muted">Restaurant online/offline, food availability, order pauses and agent online/offline changes.</p></div></div><div class="panel-body"><div class="tools"><select id="eventFilter" class="field"><option value="">All activity</option><option value="restaurant">Restaurant activity</option><option value="food">Food availability</option><option value="agent">Agent availability</option><option value="case">Case decisions</option></select></div><div id="eventsList" class="timeline">Loading…</div></div></section>
+<section class="panel"><div class="panel-head"><div><h2>Refunds, complaints, disputes, penalties &amp; appeals</h2><p class="muted">Create a linked case and preserve the reason, evidence notes, decision, reviewer and decision history.</p></div></div>
+<div class="panel-body">
+<form id="caseForm">
+<div class="grid3">
+<label class="form-field">Case type<select class="field" name="type"><option value="refund">Refund request</option><option value="complaint">Complaint</option><option value="dispute">Dispute investigation</option><option value="warning">Warning</option><option value="fine">Fine / penalty</option><option value="suspension">Suspension</option><option value="appeal">Appeal</option><option value="investigation">Investigation</option></select></label>
+<label class="form-field">Party involved<select class="field" name="subjectRole"><option value="restaurant">Restaurant</option><option value="agent">Delivery agent</option><option value="student">Student</option><option value="platform">Platform / other</option></select></label>
+<label class="form-field">Linked order<select class="field" name="orderId" id="caseOrder"><option value="">Select order (required for refund, complaint or dispute)</option></select></label>
+<label class="form-field">Person / business name<input class="field" name="subjectName" maxlength="120" placeholder="Name of party"></label>
+<label class="form-field">Account / entity ID<input class="field" name="subjectId" maxlength="100" placeholder="Restaurant ID, agent ID or student ID"></label>
+<label class="form-field">Amount (₦, optional)<input class="field" name="amount" type="number" min="0" step="1" placeholder="Refund or proposed fine amount"></label>
+<label class="form-field">Decision<select class="field" name="decision"><option value="pending">Pending review</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="warning-issued">Warning issued</option><option value="fine-issued">Fine issued</option><option value="suspended">Suspension recorded</option><option value="upheld">Appeal upheld</option><option value="overturned">Appeal overturned</option><option value="closed">Closed</option></select></label>
+<label class="form-field">Appeal of case ID (if applicable)<input class="field" name="appealOf" maxlength="100" placeholder="CASE-…"></label>
+<label class="form-field" style="grid-column:1/-1">Reason <textarea class="field" name="reason" required minlength="5" maxlength="2000" rows="3" placeholder="Explain what happened and why this case is being opened."></textarea></label>
+<label class="form-field" style="grid-column:1/-1">Evidence / investigation notes <textarea class="field" name="evidenceNotes" maxlength="3000" rows="3" placeholder="Relevant timestamps, messages, delivery details, stock updates, complaint evidence…"></textarea></label>
+<label class="form-field" style="grid-column:1/-1">Decision / resolution notes <textarea class="field" name="resolution" maxlength="2000" rows="2" placeholder="Decision explanation or leave blank while pending."></textarea></label>
+</div><div class="tools" style="margin-top:12px"><button class="btn primary" type="submit">＋ Save case record</button><span class="muted" id="caseMessage"></span></div>
+</form>
+<div class="notice" style="margin:16px 0">Important: approving a refund here records the Ultimate Admin's decision only. It does not move money through Paystack or issue FoodBack credit. Complete the actual refund / food-credit transaction separately and record its reference in the resolution notes. A fine or suspension entry is also an auditable decision record; this page does not automatically deduct money or disable an account.</div>
+<div id="casesList"><p class="muted">Loading cases…</p></div>
+</div></section>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt=v=>v?new Date(v).toLocaleString():"—";
+let data={orders:[],cases:[],events:[],agents:[],restaurants:[],students:[]};
+let folder="restaurants",selectedOrder=null;
+function outcome(order){if(order.status==="Completed")return "successful";if(order.status==="Cancelled"||order.deliveryFailed===true)return "failed";return "active"}
+function statusPill(value){const cls=value==="Completed"||value==="approved"||value==="warning-issued"?"":" "+(value==="Cancelled"||value==="rejected"||value==="suspended"?"bad":"warn");return '<span class="pill'+cls+'">'+esc(value||"Unknown")+'</span>'}
+function partyName(order,role){if(role==="restaurant")return order.restaurantName||"Unknown restaurant";if(role==="student")return order.customerName||"Student";return order.assignedAgentName||data.agents.find(a=>a.id===order.assignedAgentId)?.name||"Unassigned"}
+function folderOrders(){
+ let rows=data.orders;
+ if(folder==="restaurants")rows=rows.filter(o=>o.restaurantId);
+ if(folder==="agents")rows=rows.filter(o=>true);
+ if(folder==="students")rows=rows.filter(o=>o.customerPhone||o.customerName);
+ const term=$("#search").value.trim().toLowerCase(),out=$("#outcome").value,rest=$("#restaurantFilter").value,agent=$("#agentFilter").value;
+ return rows.filter(o=>{
+  const hay=[o.id,o.restaurantName,o.customerName,o.customerPhone,partyName(o,"agent"),o.status,o.paymentStatus].join(" ").toLowerCase();
+  return (!term||hay.includes(term))&&(out==="all"||outcome(o)===out)&&(!rest||o.restaurantId===rest)&&(!agent||(o.assignedAgentId||"unassigned")===agent);
+ }).sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0));
+}
+function renderOrders(){
+ const rows=folderOrders();$("#ordersBody").innerHTML=rows.length?rows.map(o=>'<tr><td><strong>'+esc(o.id)+'</strong><br><span class="muted">'+fmt(o.createdAt)+'</span></td><td>'+esc(o.restaurantName||"—")+'</td><td>'+esc(o.customerName||"—")+'<br><span class="muted">'+esc(o.customerPhone||"")+'</span></td><td>'+esc(partyName(o,"agent"))+'</td><td>'+statusPill(o.status)+'</td><td>'+esc(o.paymentStatus||"—")+'</td><td>'+fmt(o.updatedAt||o.createdAt)+'</td><td><button class="btn" data-view-order="'+esc(o.id)+'">View</button></td></tr>').join(""):'<tr><td colspan="8" class="empty">No records match this folder and filter.</td></tr>';
+}
+function renderOrderDetail(order){
+ selectedOrder=order;
+ const history=Array.isArray(order.statusHistory)?order.statusHistory:[];
+ const linked=data.cases.filter(c=>c.orderId===order.id);
+ $("#orderDetail").innerHTML='<div class="grid2"><div><div class="eyebrow">ORDER '+esc(order.id)+'</div><h2>'+esc(order.restaurantName||"Restaurant")+'</h2><p class="muted">'+statusPill(order.status)+' · '+esc(order.paymentStatus||"Payment unknown")+'</p><p><strong>Student:</strong> '+esc(order.customerName)+' · '+esc(order.customerPhone)+'</p><p><strong>Agent:</strong> '+esc(partyName(order,"agent"))+'</p><p><strong>Delivery:</strong> '+esc([order.hostel,order.block,order.room,order.landmark].filter(Boolean).join(", ")||"No address saved")+'</p><p><strong>Totals:</strong> Food ₦'+Number(order.foodSubtotal||0).toLocaleString()+' · Delivery ₦'+Number(order.deliveryFee||0).toLocaleString()+' · Total ₦'+Number(order.total||0).toLocaleString()+'</p><p><strong>Reason / failure note:</strong> '+esc(order.cancellationReason||order.deliveryFailureReason||"No reason recorded on the order")+'</p><h3>Items</h3><ul>'+(order.items||[]).map(i=>'<li>'+esc(i.name)+' × '+Number(i.qty||i.quantity||1)+'</li>').join("")+'</ul></div><div><h3>Status timestamps</h3><div class="timeline">'+(history.length?history.map(e=>'<div class="event"><strong>'+esc(e.status)+'</strong><br>'+fmt(e.at)+' · '+esc(e.by||"system")+'</div>').join(""):'<p class="muted">No status history is stored for this order yet.</p>')+'</div><h3>Linked cases</h3>'+(linked.length?linked.map(c=>'<p>'+esc(c.id)+' · '+esc(c.type)+' · '+statusPill(c.decision)+'</p>').join(""):'<p class="muted">No case records linked.</p>')+'<button class="btn primary" id="newRefundForOrder" type="button">Open refund / dispute case</button></div></div>';
+ $("#newRefundForOrder").addEventListener("click",()=>{$("#caseOrder").value=order.id;$("#caseForm").elements.type.value="refund";$("#caseForm").scrollIntoView({behavior:"smooth",block:"center"})});
+}
+function renderMonitor(){
+ const onlineRestaurants=data.restaurants.filter(r=>r.operations?.online&&!r.operations?.ordersPaused).length;
+ const offlineRestaurants=data.restaurants.length-onlineRestaurants;
+ const unavailable=data.restaurants.reduce((n,r)=>n+(r.items||[]).filter(i=>!i.available).length,0);
+ const onlineAgents=data.agents.filter(a=>a.online).length;
+ const active=data.orders.filter(o=>["Confirmed","Preparing","Ready for pickup","Out for delivery"].includes(o.status)).length;
+ const failed=data.orders.filter(o=>outcome(o)==="failed").length;
+ $("#liveMonitor").innerHTML=[
+  ["Restaurants",onlineRestaurants+" accepting · "+offlineRestaurants+" offline / paused"],
+  ["Unavailable food items",unavailable+" currently marked unavailable"],
+  ["Delivery agents",onlineAgents+" online · "+(data.agents.length-onlineAgents)+" offline"],
+  ["Deliveries",active+" active · "+failed+" cancelled / failed"]
+ ].map(([h,v])=>'<div class="location-list"><strong>'+esc(h)+'</strong><p class="muted">'+esc(v)+'</p></div>').join("");
+}
+function renderEvents(){
+ const filter=$("#eventFilter").value;
+ const rows=data.events.filter(e=>!filter||(filter==="restaurant"&&String(e.type).startsWith("restaurant_"))||(filter==="food"&&String(e.type).startsWith("food_"))||(filter==="agent"&&String(e.type).startsWith("agent_"))||(filter==="case"&&String(e.type).startsWith("case_"))).slice(0,250);
+ $("#eventsList").innerHTML=rows.length?rows.map(e=>'<div class="event"><strong>'+esc(e.entityName||e.entityType||"Activity")+'</strong> · '+esc(e.details||e.type)+'<br><span class="muted">'+fmt(e.occurredAt)+' · '+esc(e.actorRole||"system")+' · '+esc(e.actorId||"")+(e.orderId?' · Order '+esc(e.orderId):"")+'</span></div>').join(""):'<p class="muted">No recorded activity yet. New availability changes will appear here.</p>';
+}
+function renderCases(){
+ $("#casesList").innerHTML=data.cases.length?data.cases.map(c=>'<article class="case-card"><div class="case-head"><div><strong>'+esc(c.id)+' · '+esc(c.type.toUpperCase())+'</strong><p class="muted">'+esc(c.subjectRole)+' · '+esc(c.subjectName||c.subjectId||"Party not named")+(c.orderId?' · Order '+esc(c.orderId):"")+'</p></div>'+statusPill(c.decision)+'</div><p>'+esc(c.reason)+'</p>'+(c.evidenceNotes?'<p class="muted"><strong>Evidence:</strong> '+esc(c.evidenceNotes)+'</p>':"")+(c.resolution?'<p class="muted"><strong>Resolution:</strong> '+esc(c.resolution)+'</p>':"")+'<small class="muted">Opened '+fmt(c.createdAt)+' by '+esc(c.createdBy||"")+' · Updated '+fmt(c.updatedAt)+'</small><div class="case-actions"><select class="field" data-case-decision="'+esc(c.id)+'"><option value="pending" '+(c.decision==="pending"?"selected":"")+'>Pending</option><option value="approved" '+(c.decision==="approved"?"selected":"")+'>Approved</option><option value="rejected" '+(c.decision==="rejected"?"selected":"")+'>Rejected</option><option value="warning-issued" '+(c.decision==="warning-issued"?"selected":"")+'>Warning issued</option><option value="fine-issued" '+(c.decision==="fine-issued"?"selected":"")+'>Fine issued</option><option value="suspended" '+(c.decision==="suspended"?"selected":"")+'>Suspension recorded</option><option value="upheld" '+(c.decision==="upheld"?"selected":"")+'>Appeal upheld</option><option value="overturned" '+(c.decision==="overturned"?"selected":"")+'>Appeal overturned</option><option value="closed" '+(c.decision==="closed"?"selected":"")+'>Closed</option></select><input class="field" data-case-resolution="'+esc(c.id)+'" value="'+esc(c.resolution||"")+'" placeholder="Decision / resolution notes"><button class="btn primary" data-save-case="'+esc(c.id)+'">Save decision</button></div><small class="muted">'+(c.history||[]).length+' audit event(s)</small></article>').join(""):'<p class="muted">No cases recorded yet.</p>';
+}
+function render(){
+ $("#totalOrders").textContent=data.orders.length;
+ $("#successful").textContent=data.orders.filter(o=>outcome(o)==="successful").length;
+ $("#failed").textContent=data.orders.filter(o=>outcome(o)==="failed").length;
+ $("#openCases").textContent=data.cases.filter(c=>["pending"].includes(c.decision)).length;
+ $("#restaurantFolderCount").textContent=data.restaurants.length+" restaurants · "+data.orders.length+" orders";
+ $("#agentFolderCount").textContent=data.agents.length+" agents · "+data.orders.length+" delivery records";
+ $("#studentFolderCount").textContent=data.students.length+" students · "+data.orders.length+" order records";
+ $("#restaurantFilter").innerHTML='<option value="">All restaurants</option>'+data.restaurants.map(r=>'<option value="'+esc(r.id)+'">'+esc(r.name)+'</option>').join("");
+ $("#agentFilter").innerHTML='<option value="">All agents</option>'+data.agents.map(a=>'<option value="'+esc(a.id)+'">'+esc(a.name)+'</option>').join("")+'<option value="unassigned">Unassigned</option>';
+ $("#caseOrder").innerHTML='<option value="">Select order (required for refund, complaint or dispute)</option>'+data.orders.map(o=>'<option value="'+esc(o.id)+'">'+esc(o.id)+' · '+esc(o.restaurantName)+' · '+esc(o.customerName)+' · '+esc(o.status)+'</option>').join("");
+ renderMonitor();renderOrders();renderEvents();renderCases();
+}
+async function load(){
+ $("#status").textContent="Loading secure operations records…";
+ try{const response=await fetch("/api/superadmin/operations-records",{credentials:"same-origin",cache:"no-store"});const result=await response.json().catch(()=>({}));if(response.status===401){location.href="/admin-login.html";return}if(response.status===403){$("#status").textContent="Ultimate Admin access is required to open these records.";return}if(!response.ok)throw Error(result.error||"Could not load records.");data=result;render();$("#status").textContent="Secure records loaded · "+new Date().toLocaleTimeString();}
+ catch(e){$("#status").textContent=e.message||"Unable to load operations records."}
+}
+document.querySelectorAll("[data-folder]").forEach(b=>b.addEventListener("click",()=>{folder=b.dataset.folder;document.querySelectorAll("[data-folder]").forEach(x=>x.classList.toggle("active",x===b));renderOrders()}));
+$("#ordersBody").addEventListener("click",e=>{const b=e.target.closest("[data-view-order]");if(!b)return;const order=data.orders.find(o=>o.id===b.dataset.viewOrder);if(order)renderOrderDetail(order)});
+["search","outcome","restaurantFilter","agentFilter"].forEach(id=>$("#"+id).addEventListener(id==="search"?"input":"change",renderOrders));
+$("#eventFilter").addEventListener("change",renderEvents);
+$("#caseForm").addEventListener("submit",async e=>{
+ e.preventDefault();const form=e.currentTarget,button=form.querySelector('button[type="submit"]'),msg=$("#caseMessage");const body=Object.fromEntries(new FormData(form).entries());button.disabled=true;msg.textContent="Saving…";
+ try{const response=await fetch("/api/superadmin/operations-cases",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});const result=await response.json().catch(()=>({}));if(!response.ok)throw Error(result.error||"Could not save case.");msg.textContent=result.message||"Case saved.";form.reset();await load();}
+ catch(error){msg.textContent=error.message||"Could not save case."}finally{button.disabled=false}
+});
+$("#casesList").addEventListener("click",async e=>{
+ const b=e.target.closest("[data-save-case]");if(!b)return;const id=b.dataset.saveCase,decision=$("[data-case-decision='"+CSS.escape(id)+"']").value,resolution=$("[data-case-resolution='"+CSS.escape(id)+"']").value;b.disabled=true;b.textContent="Saving…";
+ try{const response=await fetch("/api/superadmin/operations-cases/"+encodeURIComponent(id),{method:"PATCH",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({decision,resolution})});const result=await response.json().catch(()=>({}));if(!response.ok)throw Error(result.error||"Could not update case.");await load();}
+ catch(error){alert(error.message||"Could not update case.");b.disabled=false;b.textContent="Save decision"}
+});
+$("#refresh").addEventListener("click",load);
+load();
+</script>
+</body></html>

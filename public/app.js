@@ -623,6 +623,7 @@ function renderTrackedOrder(order, resultSelector = "#trackResult") {
       </div>
       ${cancelled ? '<p class="tracking-alert">This order has been cancelled. Contact the restaurant if you need help.</p>' : ""}
       <h4>Order updates</h4><ol class="tracking-timeline">${timeline}</ol>
+      ${state.account?.role === "student" && order.deliveryCode && !["Completed", "Cancelled"].includes(order.status) ? `<section class="tracking-alert" style="background:#eaf5ee;border:1px solid #b9dec5;border-radius:12px;padding:14px;margin:14px 0"><strong>🔐 Your delivery handover code</strong><div style="font-size:28px;font-weight:900;letter-spacing:7px;margin:8px 0;color:#176b45">${escapeHtml(order.deliveryCode)}</div><p class="tiny muted">Keep this code private. Share it only when the agent has your food. The agent needs it to confirm delivery.</p></section>` : ""}
       <p>Food and packaging: <strong>${money(order.subtotal)}</strong></p><p>Delivery fee: <strong>${money(order.deliveryFee)}</strong></p><p>Payment fee (1%): <strong>${money(order.paymentFee || 0)}</strong></p><p>Total paid/payable: <strong>${money(order.total)}</strong></p>
       <p>Payment: <strong>${escapeHtml(order.paymentStatus || "Check with the restaurant")}</strong></p>
       <p class="tiny muted">Last updated: ${escapeHtml(new Date(order.updatedAt || order.createdAt).toLocaleString())}</p>
@@ -779,7 +780,7 @@ function renderOrderCard(order) {
   const canAssign = state.account.role === "admin" && order.status !== "Completed" && !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval");
   const canReviewFoodBack = state.account.role === "admin" && state.account.isSuperAdmin && order.paymentMethod === "foodback" && order.status === "Awaiting admin approval";
   const canShowAvailableAgents = state.account.role === "restaurant" && order.status === "Ready for pickup" && !order.assignedAgentId;
-  const canChangeStatus = statuses.length > 0 && !(order.status === "Completed") && !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval");
+  const canChangeStatus = statuses.length > 0 && !(order.status === "Completed") && !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval") && !(state.account.role === "agent" && order.status === "Out for delivery");
   const canContactAgent = state.account.role === "restaurant" && order.assignedAgentId && ["Ready for pickup", "Out for delivery"].includes(order.status);
   const canDeliveryChat = ["Ready for pickup", "Out for delivery"].includes(order.status) && ((state.account.role === "restaurant" && order.assignedAgentId) || (state.account.role === "agent" && state.account.agentId === order.assignedAgentId));
 
@@ -794,6 +795,7 @@ function renderOrderCard(order) {
       ${order.deliveryLocation?.latitude != null && order.deliveryLocation?.longitude != null ? `<p><a class="secondary-button map-link" target="_blank" rel="noopener" href="https://www.google.com/maps?q=${encodeURIComponent(`${order.deliveryLocation.latitude},${order.deliveryLocation.longitude}`)}">📍 Open student pin in Maps</a></p>` : `<p><a class="secondary-button map-link" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.hostel)}">📍 Search delivery location in Maps</a></p>`}
       ${order.restaurantLocation ? `<p>Restaurant pickup: ${escapeHtml(order.restaurantLocation)} <a target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.restaurantLocation)}">Open map</a></p>` : ""}
       <p class="order-items">${order.items.map(item => `${item.qty} × ${escapeHtml(item.name)}`).join(", ")}</p>
+      ${state.account.role === "student" && order.deliveryCode && !["Completed", "Cancelled"].includes(order.status) ? `<section class="tracking-alert" style="background:#eaf5ee;border:1px solid #b9dec5;border-radius:12px;padding:14px;margin:14px 0"><strong>🔐 Your delivery handover code</strong><div style="font-size:28px;font-weight:900;letter-spacing:7px;margin:8px 0;color:#176b45">${escapeHtml(order.deliveryCode)}</div><p class="tiny muted">Keep this code private. Share it only when the agent has your food. The agent needs it to confirm delivery.</p></section>` : ""}
       <p>Total: <strong>${money(order.total)}</strong> · Payment: ${escapeHtml(order.paymentStatus)}</p>
       ${order.paymentMethod === "foodback" ? `<p><strong>FoodBack redemption</strong> · ${canReviewFoodBack ? "Needs ultimate admin review" : escapeHtml(order.approvedAt ? "Approved by ultimate admin" : order.refundedAt ? "Credits refunded" : "Under review")}</p>` : "" }
       ${canReviewFoodBack ? `<div class="order-actions"><button type="button" class="primary-button" data-foodback-review="approve" data-foodback-order="${escapeHtml(order.id)}">Approve FoodBack order</button><button type="button" class="danger-button" data-foodback-review="reject" data-foodback-order="${escapeHtml(order.id)}">Reject &amp; refund credits</button></div>` : ""}
@@ -845,10 +847,31 @@ function renderOrderCard(order) {
           <button class="secondary-button" data-save-status="${escapeHtml(order.id)}">Save status</button>
         </div>
       ` : ""}
+      ${state.account.role === "agent" && order.status === "Out for delivery" ? `<section class="agent-contact"><strong>Student handover code required</strong><p class="tiny muted">Ask the student to show the four-character code on their order dashboard. Enter it only after handing over the food.</p><form data-delivery-code-order="${escapeHtml(order.id)}" class="order-actions"><label>Four-character code<input name="deliveryCode" type="text" minlength="4" maxlength="4" pattern="[A-Za-z0-9]{4}" autocomplete="off" autocapitalize="characters" required placeholder="e.g. A7K2"></label><button class="primary-button" type="submit">Verify code &amp; complete delivery</button><p class="muted" data-delivery-code-message role="status"></p></form></section>` : ""}
       ${renderStudentRating(order)}
     </article>
   `;
 }
+
+document.addEventListener("submit", async event => {
+  const form = event.target.closest("form[data-delivery-code-order]");
+  if (!form) return;
+  event.preventDefault();
+  const input = form.elements.deliveryCode;
+  const button = form.querySelector('button[type="submit"]');
+  const message = form.querySelector("[data-delivery-code-message]");
+  button.disabled = true;
+  if (message) message.textContent = "Verifying handover code…";
+  try {
+    const orderId = form.dataset.deliveryCodeOrder;
+    await api(`/api/orders/${encodeURIComponent(orderId)}/status`, { method: "PATCH", body: JSON.stringify({ status: "Completed", deliveryCode: input.value }) });
+    if (message) message.textContent = "Code verified. Delivery completed.";
+    showToast("Handover code verified. Delivery completed.");
+    await loadDashboard();
+  } catch (error) {
+    if (message) message.textContent = error.message || "Could not verify the code.";
+  } finally { button.disabled = false; }
+});
 
 async function loadRestaurantRatings() {
   const summary = $("#restaurantRatingsSummary"), reviews = $("#restaurantRecentReviews");

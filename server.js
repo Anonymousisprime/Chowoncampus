@@ -538,7 +538,18 @@ function requireRole(...roles) {
 }
 
 function publicOrder(order) {
-  const { chatMessages, paymentEmail, paystackAuthorizationUrl, paystackSubaccountCode, ...safeOrder } = order;
+  const { chatMessages, paymentEmail, paystackAuthorizationUrl, paystackSubaccountCode, deliveryCode, deliveryCodeAttempts, deliveryCodeLocked, ...safeOrder } = order;
+  return safeOrder;
+}
+
+function createDeliveryCode() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from({ length: 4 }, () => alphabet[crypto.randomInt(0, alphabet.length)]).join("");
+}
+
+function studentPublicOrder(order, username) {
+  const safeOrder = publicOrder(order);
+  if (order.customerPhone === username && order.deliveryCode && !["Completed", "Cancelled"].includes(order.status)) safeOrder.deliveryCode = order.deliveryCode;
   return safeOrder;
 }
 
@@ -1336,7 +1347,7 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
         return res.status(409).json({ error: "This order request identifier has already been used." });
       }
       return res.status(200).json({
-        order: publicOrder(existingOrder),
+        order: studentPublicOrder(existingOrder, req.account.username),
         message: "This order was already received; returning the existing order."
       });
     }
@@ -1462,6 +1473,9 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     updatedAt: new Date().toISOString(),
     paymentStatus: paymentMethod === "foodback" ? "FoodBack — awaiting admin approval" : (IS_PRODUCTION ? "Unpaid" : "Unpaid — demo only"),
     idempotencyKey: cleanRequestId || null,
+    deliveryCode: createDeliveryCode(),
+    deliveryCodeAttempts: 0,
+    deliveryCodeLocked: false,
     assignedAgentId: null,
     chatMessages: [],
     agentEarningsRecorded: false,
@@ -1498,7 +1512,7 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     }
 
     res.status(201).json({
-      order: publicOrder(order),
+      order: studentPublicOrder(order, req.account.username),
       message: paymentMethod === "foodback" ? "FoodBack checkout submitted. Your order is waiting for ultimate admin approval." : (IS_PRODUCTION ? "Order created. Complete payment to confirm it." : "Demo order created. No payment has been made.")
     });
   } catch (error) {
@@ -1755,7 +1769,7 @@ app.get("/api/orders", requireLogin, (req, res) => {
       return res.status(403).json({ error: "You don't have permission to view orders." });
     }
 
-    res.json({ orders: orders.map(publicOrder) });
+    res.json({ orders: orders.map(order => req.account.role === "student" ? studentPublicOrder(order, req.account.username) : publicOrder(order)) });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1938,18 +1952,16 @@ app.get("/api/orders/:id", (req, res) => {
 
     const session = getSession(req);
 
+    if (session && session.role === "student" && order.customerPhone === session.username) return res.json({ order: studentPublicOrder(order, session.username) });
+
     if (
       session &&
       (
         session.role === "admin" ||
-        (session.role === "restaurant" &&
-          session.restaurantId === order.restaurantId) ||
-        (session.role === "agent" &&
-          session.agentId === order.assignedAgentId)
+        (session.role === "restaurant" && session.restaurantId === order.restaurantId) ||
+        (session.role === "agent" && session.agentId === order.assignedAgentId)
       )
-    ) {
-      return res.json({ order: publicOrder(order) });
-    }
+    ) return res.json({ order: publicOrder(order) });
 
     res.json({
       order: {
@@ -3137,6 +3149,25 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
 
       if (newStatus === "Completed" && order.status !== "Out for delivery") {
         return res.status(400).json({ error: "Confirm delivery only after the order is marked Out for delivery." });
+      }
+      if (newStatus === "Completed") {
+        if (!order.deliveryCode) {
+          order.deliveryCode = createDeliveryCode(); order.deliveryCodeAttempts = 0; order.deliveryCodeLocked = false; saveOrders(orders);
+          return res.status(409).json({ error: "A handover code has been created. Ask the student to check their order dashboard, then enter it." });
+        }
+        if (order.deliveryCodeLocked) return res.status(423).json({ error: "This handover code is locked after too many incorrect attempts. Contact the administrator." });
+        const submittedCode = String(req.body.deliveryCode || "").trim().toUpperCase();
+        if (!/^[A-Z0-9]{4}$/.test(submittedCode)) return res.status(400).json({ error: "Enter the four-character handover code before confirming delivery." });
+        const expected = Buffer.from(String(order.deliveryCode), "utf8");
+        const supplied = Buffer.from(submittedCode, "utf8");
+        const matches = expected.length === supplied.length && crypto.timingSafeEqual(expected, supplied);
+        if (!matches) {
+          order.deliveryCodeAttempts = (Number(order.deliveryCodeAttempts) || 0) + 1;
+          if (order.deliveryCodeAttempts >= 5) order.deliveryCodeLocked = true;
+          saveOrders(orders);
+          return res.status(order.deliveryCodeLocked ? 423 : 403).json({ error: order.deliveryCodeLocked ? "Too many incorrect codes. Handover is locked; contact the administrator." : "That handover code is incorrect. Ask the student to confirm it and try again.", attemptsRemaining: Math.max(0, 5 - order.deliveryCodeAttempts) });
+        }
+        order.deliveryCodeVerifiedAt = new Date().toISOString(); order.deliveryCode = null;
       }
 
       if (!["Out for delivery", "Completed"].includes(newStatus)) {

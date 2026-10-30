@@ -1,0 +1,45 @@
+name: Handover code end-to-end checks
+
+on:
+  push:
+    branches:
+      - delivery-handover-code-b
+    paths:
+      - 'server.js'
+      - 'public/app.js'
+      - 'public/agent-dashboard.html'
+      - 'tests/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/handover-code-checks.yml'
+  pull_request:
+    paths:
+      - 'server.js'
+      - 'public/app.js'
+      - 'public/agent-dashboard.html'
+      - 'tests/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/handover-code-checks.yml'
+  workflow_dispatch:
+
+jobs:
+  handover-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Check server syntax
+        run: node --check server.js
+      - name: Check shared dashboard syntax
+        run: node --check public/app.js
+      - name: Extract and check agent dashboard script
+        run: |
+          node -e "const fs=require('fs');const html=fs.readFileSync('public/agent-dashboard.html','utf8');const scripts=[...html.matchAll(/<script(?:\\s[^>]*)?>([\\s\\S]*?)<\\/script>/gi)];if(!scripts.length)throw new Error('No inline script found');scripts.forEach((m,i)=>fs.writeFileSync('/tmp/agent-dashboard-'+i+'.js',m[1]));console.log('Extracted '+scripts.length+' script(s)')"
+          for file in /tmp/agent-dashboard-*.js; do node --check "$file"; done
+      - name: Run handover-code integration tests
+        run: npm test

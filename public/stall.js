@@ -54,7 +54,9 @@ document.addEventListener("click", event => {
   const category = event.target.closest("[data-stall-category]");
   if (category) { selectedCategory = category.dataset.stallCategory; renderStall(); return; }
   if (event.target.closest("#clearStallFilters")) { selectedCategory = "All"; searchQuery = ""; renderStall(); return; }
-  if (event.target.closest("#retryStallLoad")) { loadStall(); return; }
+  if (event.target.closest("#retryStallLoad")) { loadStall();
+window.setInterval(() => { if (document.visibilityState === "visible" && document.activeElement?.id !== "stallMenuSearch") loadStall(); }, 15000);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && document.activeElement?.id !== "stallMenuSearch") loadStall(); }); return; }
   const add = event.target.closest("[data-add-stall-item]");
   if (!add || !restaurant) return;
   const item = restaurant.items.find(entry => String(entry.id) === String(add.dataset.addStallItem));

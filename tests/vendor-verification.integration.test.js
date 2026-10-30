@@ -273,6 +273,8 @@ test("restaurant verification onboarding is enforced end to end", async t => {
     assert.equal(status.vendor.documents.find(doc => doc.id === settlement.id).rejectionReason, "The account holder name does not match the restaurant owner.");
     const menu = await (await fetch(base + "/api/menu")).json();
     assert.equal(menu.restaurants.some(item => item.id === "CB"), false);
+    const availabilityReadBlocked = await api(restaurantCookie, "/api/restaurant/operations");
+    assert.equal(availabilityReadBlocked.status, 403, "a rejected required document must not load online controls");
     const availabilityBlocked = await api(restaurantCookie, "/api/restaurant/operations", {
       method: "PATCH",
       body: JSON.stringify({ online: true })

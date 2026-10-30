@@ -1193,6 +1193,45 @@ async function loadDashboard(automatic = false) {
       state.agentProfile = null;
     }
 
+
+    if (account.role === "restaurant") {
+      const verification = await api("/api/restaurant/vendor-verification");
+      if (verification.vendor.status !== "approved") {
+        const vendor = verification.vendor;
+        const statusLabel = vendor.status === "rejected" ? "Application rejected — action required" : "Pending verification";
+        const statusColor = vendor.status === "rejected" ? "#b42318" : "#9a6700";
+        const uploaded = new Set((vendor.documents || []).map(doc => doc.type));
+        const documentLabels = { identity: "Owner identity document", "business-proof": "Business / restaurant ownership proof", cac: "CAC certificate", "settlement-proof": "Settlement bank account proof", other: "Additional supporting document" };
+        const documentRows = (vendor.documents || []).map(doc => `<li><strong>${escapeHtml(documentLabels[doc.type] || doc.type)}</strong> — ${escapeHtml(doc.filename)} <span class="muted">· ${escapeHtml(new Date(doc.uploadedAt).toLocaleDateString())}</span></li>`).join("");
+        const missingLabels = verification.requiredDocuments.filter(item => verification.missingDocuments.includes(item.type)).map(item => item.label);
+        const rejectedMessage = vendor.status === "rejected" ? `<div class="empty-state" style="border-left:4px solid #b42318"><strong>Reason / reviewer feedback</strong><p>${escapeHtml(vendor.notes || "Please contact ChowOnCampus support for clarification.")}</p><p>Correct the issues, upload the updated documents, then select “Resubmit for review”.</p></div>` : "";
+        $("#dashboardContent").innerHTML = `
+          <section class="order-card" style="max-width:760px;margin:0 auto;padding:24px">
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span aria-hidden="true" style="font-size:28px">🛡️</span><div><span class="eyebrow">CHOWONCAMPUS PARTNER ONBOARDING</span><h2 style="margin:4px 0">Restaurant verification</h2></div></div>
+            <p><span class="status" style="color:${statusColor};font-weight:800">${escapeHtml(statusLabel)}</span></p>
+            <h3>Welcome to ChowOnCampus, ${escapeHtml(account.name)}!</h3>
+            <p>Your restaurant account has been successfully created. However, your restaurant is not yet approved to receive orders.</p>
+            <p>To activate your restaurant, please complete verification by submitting the required documents. Our Ultimate Admin will review your information and update your application status.</p>
+            <div class="restaurant-metrics" style="margin:18px 0"><article><span>Account</span><strong>Created</strong><small>Your login is active</small></article><article><span>Order access</span><strong>Disabled</strong><small>Until approval</small></article></div>
+            ${rejectedMessage}
+            <h3>Verification checklist</h3>
+            <ul>${verification.requiredDocuments.map(item => { const complete = uploaded.has(item.type) || (item.type === "business-proof" && uploaded.has("cac")); return `<li>${complete ? "✓" : "○"} ${escapeHtml(item.label)} — <strong>${complete ? "Uploaded" : "Required"}</strong></li>`; }).join("")}</ul>
+            ${missingLabels.length ? `<p><strong>Still required:</strong> ${missingLabels.map(escapeHtml).join(", ")}</p>` : '<p class="success"><strong>All required document categories have been uploaded.</strong></p>'}
+            <form id="vendorDocumentUploadForm" class="order-card" style="padding:16px;margin:18px 0">
+              <h3>Upload / replace a document</h3>
+              <label for="vendorDocumentType">Document type</label>
+              <select id="vendorDocumentType" name="type" required><option value="identity">Owner identity document</option><option value="business-proof">Business / restaurant ownership proof</option><option value="cac">CAC certificate</option><option value="settlement-proof">Settlement bank account proof</option><option value="other">Other supporting document</option></select>
+              <label for="vendorDocumentFile">Choose document (PDF, JPG or PNG; max 4 MB)</label>
+              <input id="vendorDocumentFile" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" required>
+              <button type="submit" class="primary-button">Securely upload document</button><p id="vendorDocumentUploadMessage" class="muted" role="status"></p>
+            </form>
+            <h3>Documents received</h3>${documentRows ? `<ul>${documentRows}</ul>` : '<p class="muted">No documents uploaded yet.</p>'}
+            ${vendor.status === "rejected" || missingLabels.length === 0 ? `<form id="vendorResubmitForm" style="margin-top:18px"><button type="submit" class="primary-button" ${missingLabels.length ? "disabled" : ""}>Resubmit for review</button><p id="vendorResubmitMessage" class="muted" role="status"></p></form>` : ""}
+            <p class="muted" style="margin-top:18px">You can use your account to access this page and submit documents. Order receiving and order processing remain disabled until the Ultimate Admin approves your restaurant.</p>
+          </section>`;
+        return;
+      }
+    }
     const { orders } = await api("/api/orders");
     // The staff member may have started handling an order while the request was in flight.
     if (automatic && Date.now() < dashboardInteractionUntil) return;
@@ -2010,6 +2049,48 @@ async function initialize() {
   });
   document.addEventListener("submit", async event => {
 
+    const vendorUploadForm = event.target.closest("#vendorDocumentUploadForm");
+    if (vendorUploadForm) {
+      event.preventDefault();
+      const file = vendorUploadForm.elements.document.files[0];
+      const message = $("#vendorDocumentUploadMessage");
+      const button = vendorUploadForm.querySelector('button[type="submit"]');
+      if (!file) { message.textContent = "Choose a document first."; return; }
+      if (file.size > 4 * 1024 * 1024) { message.textContent = "Each document must be 4 MB or smaller."; return; }
+      if (!["application/pdf", "image/jpeg", "image/png"].includes(file.type)) { message.textContent = "Only PDF, JPG and PNG files are accepted."; return; }
+      button.disabled = true;
+      message.textContent = "Encrypting and securely uploading your document…";
+      try {
+        const base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onerror = () => reject(new Error("Could not read the selected file."));
+          reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+          reader.readAsDataURL(file);
+        });
+        const result = await api("/api/restaurant/vendor-verification/documents", { method: "POST", body: JSON.stringify({ type: vendorUploadForm.elements.type.value, filename: file.name, mimeType: file.type, dataBase64: base64 }) });
+        showToast(result.message || "Document uploaded.");
+        await loadDashboard();
+      } catch (error) { message.textContent = error.message; }
+      finally { button.disabled = false; }
+      return;
+    }
+    const vendorResubmitForm = event.target.closest("#vendorResubmitForm");
+    if (vendorResubmitForm) {
+      event.preventDefault();
+      const button = vendorResubmitForm.querySelector('button[type="submit"]');
+      const message = $("#vendorResubmitMessage");
+      button.disabled = true;
+      message.textContent = "Submitting your application for review…";
+      try {
+        const result = await api("/api/restaurant/vendor-verification/resubmit", { method: "POST", body: JSON.stringify({}) });
+        message.textContent = result.message;
+        message.classList.add("success");
+        await loadDashboard();
+        showToast("Verification application resubmitted.");
+      } catch (error) { message.textContent = error.message; }
+      finally { button.disabled = false; }
+      return;
+    }
     const fullChatForm = event.target.closest("#fullPageChatForm");
     if (fullChatForm) {
       event.preventDefault();

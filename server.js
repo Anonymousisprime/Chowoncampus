@@ -3330,6 +3330,7 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
     const role = req.account.role;
 
     if (role === "restaurant") {
+      if (!vendorIsApproved(req.account.restaurantId)) return res.status(403).json({ error: "Your restaurant must pass vendor verification before it can accept or manage orders." });
       if (order.restaurantId !== req.account.restaurantId) {
         return res.status(403).json({
           error: "This order belongs to another restaurant."

@@ -3702,6 +3702,9 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
       order.updatedAt = changedAt;
       order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [{ status: previousStatus, at: order.createdAt, by: "system" }];
       order.statusHistory.push({ status: newStatus, at: changedAt, by: req.account.role });
+      const statusReason = String(req.body.cancellationReason || req.body.reason || "").trim().slice(0, 1000);
+      if (newStatus === "Cancelled" && statusReason) order.cancellationReason = statusReason;
+      recordOperationsEvent({ type: "order_status_changed", entityType: "order", entityId: order.id, entityName: order.restaurantName || "Order", orderId: order.id, actorRole: req.account.role, actorId: req.account.username, details: "Order status changed from " + previousStatus + " to " + newStatus + (statusReason ? ". Reason: " + statusReason : ".") });
     }
 
     if (newStatus === "Completed" && !order.foodbackRewardsProcessedAt) {

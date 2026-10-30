@@ -1093,7 +1093,7 @@ app.get("/api/delivery-area", (req, res) => {
 app.get("/api/menu", (req, res) => {
   const ratedOrders = readOrders().filter(order => order.rating);
   const average = values => values.length ? Math.round(values.reduce((sum, value) => sum + Number(value), 0) / values.length * 10) / 10 : null;
-  res.json({ restaurants: restaurants.map(restaurant => {
+  res.json({ restaurants: restaurants.filter(restaurant => vendorIsApproved(restaurant.id)).map(restaurant => {
     const restaurantReviews = ratedOrders.filter(order => order.restaurantId === restaurant.id && order.rating.restaurantRating);
     return {
       ...restaurant,

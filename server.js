@@ -573,6 +573,14 @@ function requireRole(...roles) {
     }
 
     req.account = session;
+    if (session.role === "restaurant") {
+      const partner = restaurants.find(item => item.id === session.restaurantId);
+      if (partner?.suspended) return res.status(403).json({ error: "This restaurant account is suspended. Contact ChowOnCampus support or submit an appeal to the Ultimate Admin." });
+    }
+    if (session.role === "agent") {
+      const agent = readAgentRecords().find(item => item.id === session.agentId);
+      if (agent?.suspended) return res.status(403).json({ error: "Your delivery-agent account is suspended. Contact ChowOnCampus support or submit an appeal to the Ultimate Admin." });
+    }
     next();
   };
 }
@@ -1343,6 +1351,12 @@ app.post("/api/login", (req, res) => {
     return res.status(401).json({
       error: "Incorrect username or password."
     });
+  }
+  if (account.role === "restaurant" && restaurants.find(item => item.id === account.restaurantId)?.suspended) {
+    return res.status(403).json({ error: "This restaurant account is suspended. Contact ChowOnCampus support or submit an appeal to the Ultimate Admin." });
+  }
+  if (account.role === "agent" && readAgentRecords().find(item => item.id === account.agentId)?.suspended) {
+    return res.status(403).json({ error: "Your delivery-agent account is suspended. Contact ChowOnCampus support or submit an appeal to the Ultimate Admin." });
   }
 
   const token = crypto.randomBytes(32).toString("hex");
@@ -2427,6 +2441,8 @@ app.get("/api/admin/restaurants", requireRole("admin"), (req, res) => {
       description: restaurant.description,
       username: accounts.find(a => a.role === "restaurant" && a.restaurantId === restaurant.id)?.username || "",
       itemCount: restaurant.items.length,
+      suspended: Boolean(restaurant.suspended),
+      suspensionReason: restaurant.suspensionReason || "",
       location: restaurant.location || ""
     }))
   });
@@ -2484,6 +2500,59 @@ app.get("/api/admin/locations", requireRole("admin"), (req, res) => {
   } catch (error) {
     console.error("Could not load admin location overview:", error.message);
     res.status(500).json({ error: "Could not load location data. Please refresh and try again." });
+  }
+});
+
+
+// Ultimate Admin can suspend or reinstate a restaurant or delivery-agent account.
+// A reason is mandatory; active deliveries must be resolved before suspension.
+app.patch("/api/superadmin/operations-suspensions/:role/:id", requireRole("admin"), (req, res) => {
+  if (!req.account.isSuperAdmin) return res.status(403).json({ error: "Ultimate Admin access is required." });
+  const role = String(req.params.role || "");
+  const suspended = req.body.suspended;
+  const reason = String(req.body.reason || "").trim().slice(0, 1000);
+  if (!["restaurant", "agent"].includes(role)) return res.status(400).json({ error: "Choose a restaurant or delivery agent." });
+  if (typeof suspended !== "boolean") return res.status(400).json({ error: "Choose suspend or reinstate." });
+  if (suspended && reason.length < 5) return res.status(400).json({ error: "Enter a clear reason of at least 5 characters." });
+  try {
+    let entity, entityId, entityName;
+    if (role === "restaurant") {
+      entity = restaurants.find(item => item.id === req.params.id);
+      if (!entity) return res.status(404).json({ error: "Restaurant not found." });
+      const activeOrders = readOrders().filter(order => order.restaurantId === entity.id && !["Completed", "Cancelled"].includes(order.status));
+      if (suspended && activeOrders.length) return res.status(409).json({ error: "Resolve, cancel or reassign the restaurant's active orders before suspension.", activeOrders: activeOrders.length });
+    } else {
+      const records = readAgentRecords();
+      entity = records.find(item => item.id === req.params.id);
+      if (!entity) return res.status(404).json({ error: "Delivery agent not found." });
+      const activeOrders = readOrders().filter(order => order.assignedAgentId === entity.id && !["Completed", "Cancelled"].includes(order.status));
+      if (suspended && activeOrders.length) return res.status(409).json({ error: "Reassign or complete the agent's active delivery before suspension.", activeOrders: activeOrders.length });
+    }
+    entity.suspended = suspended;
+    entity.suspensionReason = suspended ? reason : "";
+    entity.suspendedAt = suspended ? new Date().toISOString() : null;
+    entity.suspendedBy = suspended ? req.account.username : null;
+    if (role === "agent" && suspended) {
+      entity.online = false;
+      entity.latitude = null;
+      entity.longitude = null;
+      entity.locationUpdatedAt = null;
+      saveAgentRecords(readAgentRecords().map(item => item.id === entity.id ? entity : item));
+      agents = readAgentRecords().map(item => ({ id: item.id, name: item.name, username: item.username, online: Boolean(item.online), suspended: Boolean(item.suspended), activeOrderId: item.activeOrderId || null, createdAt: item.createdAt || null }));
+    } else if (role === "restaurant") {
+      saveRestaurants(restaurants);
+    } else {
+      saveAgentRecords(readAgentRecords().map(item => item.id === entity.id ? entity : item));
+    }
+    for (const [token, session] of sessions.entries()) {
+      if ((role === "restaurant" && session.role === "restaurant" && session.restaurantId === entity.id) ||
+          (role === "agent" && session.role === "agent" && session.agentId === entity.id)) sessions.delete(token);
+    }
+    entityId = entity.id; entityName = entity.name;
+    recordOperationsEvent({ type: suspended ? role + "_suspended" : role + "_reinstated", entityType: role, entityId, entityName, actorRole: req.account.role, actorId: req.account.username, details: suspended ? entityName + " suspended. Reason: " + reason : entityName + " reinstated." });
+    res.json({ ok: true, role, id: entityId, suspended, reason: entity.suspensionReason, message: suspended ? entityName + " has been suspended and signed out." : entityName + " has been reinstated." });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Could not update suspension." });
   }
 });
 
@@ -3126,7 +3195,8 @@ app.delete("/api/admin/students/:id", requireRole("admin"), (req, res) => {
 app.get("/api/agents", requireRole("admin"), (req, res) => {
   res.json({ agents: agents.map(agent => ({
     id: agent.id, name: agent.name, username: agent.username,
-    online: Boolean(agent.online), activeOrderId: agent.activeOrderId || null,
+    online: Boolean(agent.online), suspended: Boolean(agent.suspended),
+    suspensionReason: agent.suspensionReason || "", activeOrderId: agent.activeOrderId || null,
     createdAt: agent.createdAt || null
   })) });
 });
@@ -3138,7 +3208,7 @@ app.get("/api/agents/available", requireRole("restaurant", "admin"), (req, res) 
     .filter(order => order.assignedAgentId && !["Completed", "Cancelled"].includes(order.status))
     .map(order => order.assignedAgentId));
   const available = records
-    .filter(agent => agent.online && !busyIds.has(agent.id) && !agent.activeOrderId)
+    .filter(agent => agent.online && !agent.suspended && !busyIds.has(agent.id) && !agent.activeOrderId)
     .map(agent => ({ id: agent.id, name: agent.name, online: true }));
   res.json({ agents: available });
 });

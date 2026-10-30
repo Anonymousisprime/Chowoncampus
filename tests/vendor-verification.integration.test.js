@@ -113,6 +113,13 @@ test("restaurant verification onboarding is enforced end to end", async t => {
     assert.deepEqual(data.missingDocuments, ["identity", "business-proof", "settlement-proof"]);
   });
 
+  await t.test("unapproved restaurant is hidden from the public student menu", async () => {
+    const response = await fetch(base + "/api/menu");
+    assert.equal(response.status, 200);
+    const data = await response.json();
+    assert.equal(data.restaurants.some(item => item.id === "CB"), false);
+  });
+
   await t.test("restaurant account cannot see or receive orders before approval", async () => {
     const response = await api(restaurantCookie, "/api/orders");
     assert.equal(response.status, 200);
@@ -172,6 +179,13 @@ test("restaurant verification onboarding is enforced end to end", async t => {
     assert.equal(status.vendor.status, "approved");
     assert.equal(status.vendor.reviewer, "testsuper");
     assert.ok(status.vendor.approvalDate);
+  });
+
+  await t.test("approved restaurant becomes visible on the public student menu", async () => {
+    const response = await fetch(base + "/api/menu");
+    assert.equal(response.status, 200);
+    const data = await response.json();
+    assert.equal(data.restaurants.some(item => item.id === "CB"), true);
   });
 
   await t.test("approved restaurant can now see its incoming orders", async () => {

@@ -1741,10 +1741,10 @@ app.get("/api/orders", requireLogin, (req, res) => {
     let orders = readOrders();
 
     if (req.account.role === "restaurant") {
-      orders = orders.filter(
+      orders = vendorIsApproved(req.account.restaurantId) ? orders.filter(
         order => order.restaurantId === req.account.restaurantId &&
           ["Paid — demo verified", "Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)
-      );
+      ) : [];
     } else if (req.account.role === "agent") {
       orders = orders.filter(
         order => order.assignedAgentId === req.account.agentId &&
@@ -1752,8 +1752,6 @@ app.get("/api/orders", requireLogin, (req, res) => {
       );
     } else if (req.account.role === "admin" && !req.account.isSuperAdmin) {
       orders = orders.filter(order => !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval"));
-    } else if (req.account.role === "restaurant" && !vendorIsApproved(req.account.restaurantId)) {
-      orders = [];
     } else if (req.account.role === "student") {
       // Students see active orders and a short post-delivery feedback window only.
       // Older completed/cancelled orders remain available for admin review.
@@ -2184,6 +2182,22 @@ app.get("/api/superadmin/vendor-verifications/:restaurantId/documents/:documentI
     return res.status(503).json({ error: "Could not securely retrieve this document. Check the encryption-key configuration." });
   }
 });
+
+app.delete("/api/superadmin/vendor-verifications/:restaurantId/documents/:documentId", requireSuperAdmin, (req, res) => {
+  const records = readVendorVerifications();
+  const record = records.find(item => item.restaurantId === req.params.restaurantId);
+  if (!record) return res.status(404).json({ error: "Vendor verification record not found." });
+  const index = (record.documents || []).findIndex(item => item.id === req.params.documentId);
+  if (index < 0) return res.status(404).json({ error: "Document not found." });
+  const [removed] = record.documents.splice(index, 1);
+  record.documentDeletionAudit = Array.isArray(record.documentDeletionAudit) ? record.documentDeletionAudit : [];
+  record.documentDeletionAudit.push({ filename: removed.filename, type: removed.type, deletedAt: new Date().toISOString(), deletedBy: req.account.username });
+  record.updatedAt = new Date().toISOString();
+  if (record.status === "approved") { record.status = "pending"; record.approvalDate = null; record.reviewer = null; }
+  saveVendorVerifications(records);
+  return res.json({ ok: true, message: "Document deleted. The vendor has returned to pending review." });
+});
+
 app.patch("/api/superadmin/vendor-verifications/:restaurantId", requireSuperAdmin, (req, res) => {
   const restaurant = restaurants.find(item => item.id === req.params.restaurantId);
   if (!restaurant) return res.status(404).json({ error: "Restaurant not found." });

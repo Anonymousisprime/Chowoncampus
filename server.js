@@ -2285,8 +2285,11 @@ const VENDOR_REQUIRED_DOCUMENTS = [
   { type: "business-proof", label: "Business / restaurant ownership proof (CAC certificate may be used)" },
   { type: "settlement-proof", label: "Settlement bank account proof" }
 ];
+function vendorCurrentDocuments(record) {
+  return (record?.documents || []).filter(doc => !doc.supersededAt);
+}
 function vendorMissingDocumentTypes(record) {
-  const uploaded = new Set((record?.documents || []).map(doc => doc.type));
+  const uploaded = new Set(vendorCurrentDocuments(record).map(doc => doc.type));
   return VENDOR_REQUIRED_DOCUMENTS.filter(item =>
     !uploaded.has(item.type) && !(item.type === "business-proof" && uploaded.has("cac"))
   ).map(item => item.type);
@@ -2351,6 +2354,8 @@ app.post("/api/restaurant/vendor-verification/resubmit", requireRole("restaurant
     return res.status(400).json({ error: "Please upload the missing documents: " + labels.join(", ") + "." });
   }
   if (record.status === "approved") return res.status(409).json({ error: "Your restaurant is already approved." });
+  const rejectedDocuments = vendorCurrentDocuments(record).filter(doc => doc.reviewStatus === "rejected");
+  if (rejectedDocuments.length) return res.status(400).json({ error: "Replace every rejected document before resubmitting. Rejected documents: " + rejectedDocuments.map(doc => doc.filename).join(", ") + "." });
   record.status = "pending";
   record.identityStatus = "pending";
   record.businessStatus = "pending";
@@ -2485,10 +2490,16 @@ app.patch("/api/superadmin/vendor-verifications/:restaurantId", requireSuperAdmi
     return res.status(400).json({ error: "All three verification checks must be verified before approval." });
   }
   if (decision === "approved") {
-    const uploadedTypes = new Set((record.documents || []).map(doc => doc.type));
-    if (!uploadedTypes.has("identity")) return res.status(400).json({ error: "Upload an owner identity document before approving this vendor." });
-    if (!uploadedTypes.has("business-proof") && !uploadedTypes.has("cac")) return res.status(400).json({ error: "Upload business ownership proof or a CAC certificate before approving this vendor." });
-    if (!uploadedTypes.has("settlement-proof")) return res.status(400).json({ error: "Upload settlement bank account proof before approving this vendor." });
+    const currentDocuments = vendorCurrentDocuments(record);
+    const latestByType = new Map(currentDocuments.map(doc => [doc.type, doc]));
+    const identityDocument = latestByType.get("identity");
+    const businessDocument = latestByType.get("business-proof") || latestByType.get("cac");
+    const settlementDocument = latestByType.get("settlement-proof");
+    if (!identityDocument) return res.status(400).json({ error: "Upload an owner identity document before approving this vendor." });
+    if (!businessDocument) return res.status(400).json({ error: "Upload business ownership proof or a CAC certificate before approving this vendor." });
+    if (!settlementDocument) return res.status(400).json({ error: "Upload settlement bank account proof before approving this vendor." });
+    const unverified = [identityDocument, businessDocument, settlementDocument].filter(doc => (doc.reviewStatus || "pending") !== "verified");
+    if (unverified.length) return res.status(400).json({ error: "Verify each current required document individually before approving the restaurant: " + unverified.map(doc => doc.filename).join(", ") + "." });
   }
   record.identityStatus = identityStatus; record.businessStatus = businessStatus; record.settlementStatus = settlementStatus;
   record.status = decision; record.notes = String(req.body.notes || "").trim().slice(0, 1000);

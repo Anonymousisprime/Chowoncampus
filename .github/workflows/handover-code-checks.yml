@@ -1,6 +1,17 @@
 name: Handover code end-to-end checks
 
 on:
+  push:
+    branches:
+      - delivery-handover-code-b
+    paths:
+      - 'server.js'
+      - 'public/app.js'
+      - 'public/agent-dashboard.html'
+      - 'tests/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/handover-code-checks.yml'
   pull_request:
     paths:
       - 'server.js'

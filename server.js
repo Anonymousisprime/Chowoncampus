@@ -583,11 +583,27 @@ function requireRole(...roles) {
     req.account = session;
     if (session.role === "restaurant") {
       const partner = restaurants.find(item => item.id === session.restaurantId);
-      if (partner?.suspended) return res.status(403).json({ error: "This restaurant account is suspended. Contact ChowOnCampus support or submit an appeal to the Ultimate Admin." });
+      if (partner?.suspended) {
+        const reason = String(partner.suspensionReason || "").trim();
+        return res.status(403).json({
+          error: "This restaurant account is suspended.",
+          reason: reason || "No reason was recorded. Please contact ChowOnCampus support.",
+          support: "09169398221",
+          appeal: "Contact ChowOnCampus support to request a review by the Ultimate Admin."
+        });
+      }
     }
     if (session.role === "agent") {
       const agent = readAgentRecords().find(item => item.id === session.agentId);
-      if (agent?.suspended) return res.status(403).json({ error: "Your delivery-agent account is suspended. Contact ChowOnCampus support or submit an appeal to the Ultimate Admin." });
+      if (agent?.suspended) {
+        const reason = String(agent.suspensionReason || "").trim();
+        return res.status(403).json({
+          error: "Your delivery-agent account is suspended.",
+          reason: reason || "No reason was recorded. Please contact ChowOnCampus support.",
+          support: "09169398221",
+          appeal: "Contact ChowOnCampus support to request a review by the Ultimate Admin."
+        });
+      }
     }
     next();
   };
@@ -1360,11 +1376,29 @@ app.post("/api/login", (req, res) => {
       error: "Incorrect username or password."
     });
   }
-  if (account.role === "restaurant" && restaurants.find(item => item.id === account.restaurantId)?.suspended) {
-    return res.status(403).json({ error: "This restaurant account is suspended. Contact ChowOnCampus support or submit an appeal to the Ultimate Admin." });
+  if (account.role === "restaurant") {
+    const partner = restaurants.find(item => item.id === account.restaurantId);
+    if (partner?.suspended) {
+      const reason = String(partner.suspensionReason || "").trim();
+      return res.status(403).json({
+        error: "This restaurant account is suspended.",
+        reason: reason || "No reason was recorded. Please contact ChowOnCampus support.",
+        support: "09169398221",
+        appeal: "Contact ChowOnCampus support to request a review by the Ultimate Admin."
+      });
+    }
   }
-  if (account.role === "agent" && readAgentRecords().find(item => item.id === account.agentId)?.suspended) {
-    return res.status(403).json({ error: "Your delivery-agent account is suspended. Contact ChowOnCampus support or submit an appeal to the Ultimate Admin." });
+  if (account.role === "agent") {
+    const agent = readAgentRecords().find(item => item.id === account.agentId);
+    if (agent?.suspended) {
+      const reason = String(agent.suspensionReason || "").trim();
+      return res.status(403).json({
+        error: "Your delivery-agent account is suspended.",
+        reason: reason || "No reason was recorded. Please contact ChowOnCampus support.",
+        support: "09169398221",
+        appeal: "Contact ChowOnCampus support to request a review by the Ultimate Admin."
+      });
+    }
   }
 
   const token = crypto.randomBytes(32).toString("hex");

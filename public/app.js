@@ -1204,7 +1204,7 @@ async function loadDashboard(automatic = false) {
         const vendor = verification.vendor;
         const statusLabel = vendor.status === "rejected" ? "Application rejected — action required" : "Pending verification";
         const statusColor = vendor.status === "rejected" ? "#b42318" : "#9a6700";
-        const uploaded = new Set((vendor.documents || []).map(doc => doc.type));
+        const uploaded = new Set((vendor.documents || []).filter(doc => !doc.supersededAt).map(doc => doc.type));
         const documentLabels = { identity: "Owner identity document", "business-proof": "Business / restaurant ownership proof", cac: "CAC certificate", "settlement-proof": "Settlement bank account proof", other: "Additional supporting document" };
         const documentRows = (vendor.documents || []).map(doc => {
           const reviewStatus = doc.supersededAt ? "Replaced" : (doc.reviewStatus || "pending");
@@ -1213,6 +1213,7 @@ async function loadDashboard(automatic = false) {
           return `<li style="margin:10px 0"><strong>${escapeHtml(documentLabels[doc.type] || doc.type)}</strong> — ${escapeHtml(doc.filename)} <span class="muted">· ${escapeHtml(new Date(doc.uploadedAt).toLocaleDateString())}</span><br><strong>Document status: ${escapeHtml(reviewLabel)}</strong>${reason}</li>`;
         }).join("");
         const missingLabels = verification.requiredDocuments.filter(item => verification.missingDocuments.includes(item.type)).map(item => item.label);
+        const rejectedCurrentDocuments = (vendor.documents || []).filter(doc => !doc.supersededAt && doc.reviewStatus === "rejected");
         const rejectedMessage = vendor.status === "rejected" ? `<div class="empty-state" style="border-left:4px solid #b42318"><strong>Reason / reviewer feedback</strong><p>${escapeHtml(vendor.notes || "Please contact ChowOnCampus support for clarification.")}</p><p>Correct the issues, upload the updated documents, then select “Resubmit for review”.</p></div>` : "";
         $("#dashboardContent").innerHTML = `
           <section class="order-card" style="max-width:760px;margin:0 auto;padding:24px">

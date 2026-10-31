@@ -2479,7 +2479,7 @@ app.patch("/api/superadmin/vendor-verifications/:restaurantId/documents/:documen
   return res.json({ ok: true, vendor: publicVendorVerification(record), message: reviewStatus === "rejected" ? "Document rejected. The restaurant can see the reason and upload a replacement. If it was previously approved, its ordering access has been paused pending re-review." : reviewStatus === "verified" ? "Document marked as verified." : "Document review returned to pending." });
 });
 
-app.patch("/api/superadmin/vendor-verifications/:restaurantId", requireSuperAdmin, (req, res) => {
+app.patch("/api/superadmin/vendor-verifications/:restaurantId", requireSuperAdmin, async (req, res) => {
   const restaurant = restaurants.find(item => item.id === req.params.restaurantId);
   if (!restaurant) return res.status(404).json({ error: "Restaurant not found." });
   const valid = value => ["pending", "verified", "rejected"].includes(value);
@@ -2516,8 +2516,37 @@ app.patch("/api/superadmin/vendor-verifications/:restaurantId", requireSuperAdmi
   record.reviewer = req.account.username; record.updatedAt = new Date().toISOString();
   record.approvalDate = decision === "approved" ? record.updatedAt : null;
   saveVendorVerifications(records);
+  try {
+    // Confirm the queued database write before telling the reviewer it succeeded.
+    await storageWriteQueue;
+    if (storagePool) {
+      const persisted = await storagePool.query(
+        "SELECT data FROM coc_app_store WHERE store_key = $1",
+        ["vendorVerifications"]
+      );
+      const savedRecords = Array.isArray(persisted.rows[0]?.data) ? persisted.rows[0].data : [];
+      const savedRecord = savedRecords.find(item => item.restaurantId === restaurant.id);
+      if (!savedRecord || savedRecord.status !== decision ||
+          savedRecord.identityStatus !== identityStatus ||
+          savedRecord.businessStatus !== businessStatus ||
+          savedRecord.settlementStatus !== settlementStatus) {
+        throw new Error("Persisted vendor decision did not match the submitted values.");
+      }
+    } else {
+      const savedRecord = readVendorVerifications().find(item => item.restaurantId === restaurant.id);
+      if (!savedRecord || savedRecord.status !== decision ||
+          savedRecord.identityStatus !== identityStatus ||
+          savedRecord.businessStatus !== businessStatus ||
+          savedRecord.settlementStatus !== settlementStatus) {
+        throw new Error("Saved vendor decision could not be confirmed.");
+      }
+    }
+  } catch (error) {
+    console.error("Vendor verification persistence confirmation failed:", error.message);
+    return res.status(500).json({ error: "The decision could not be confirmed as saved. Refresh the records and try again." });
+  }
   res.setHeader("Cache-Control", "no-store");
-  return res.json({ ok: true, vendor: publicVendorVerification(record), message: decision === "approved" ? "Vendor approved. Restaurant ordering is now enabled." : decision === "rejected" ? "Vendor application rejected." : "Verification record updated." });
+  return res.json({ ok: true, vendor: publicVendorVerification(record), message: decision === "approved" ? "Vendor approval saved and confirmed. Restaurant ordering is now enabled." : decision === "rejected" ? "Vendor rejection saved and confirmed." : "Verification decision saved and confirmed." });
 });
 
 // Admin-only restaurant creation. New partner passwords are hashed before storage.

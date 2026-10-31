@@ -2454,7 +2454,7 @@ app.delete("/api/superadmin/vendor-verifications/:restaurantId/documents/:docume
   return res.json({ ok: true, message: "Document deleted. The vendor has returned to pending review." });
 });
 
-app.patch("/api/superadmin/vendor-verifications/:restaurantId/documents/:documentId/review", requireSuperAdmin, (req, res) => {
+app.patch("/api/superadmin/vendor-verifications/:restaurantId/documents/:documentId/review", requireSuperAdmin, async (req, res) => {
   const records = readVendorVerifications();
   const record = records.find(item => item.restaurantId === req.params.restaurantId);
   if (!record) return res.status(404).json({ error: "Vendor verification record not found." });
@@ -2475,8 +2475,38 @@ app.patch("/api/superadmin/vendor-verifications/:restaurantId/documents/:documen
     record.approvalDate = null;
   }
   saveVendorVerifications(records);
-  res.setHeader("Cache-Control", "no-store");
-  return res.json({ ok: true, vendor: publicVendorVerification(record), message: reviewStatus === "rejected" ? "Document rejected. The restaurant can see the reason and upload a replacement. If it was previously approved, its ordering access has been paused pending re-review." : reviewStatus === "verified" ? "Document marked as verified." : "Document review returned to pending." });
+  try {
+    await storageWriteQueue;
+    let savedRecord = readVendorVerifications().find(item => item.restaurantId === req.params.restaurantId);
+    if (storagePool) {
+      const persisted = await storagePool.query(
+        "SELECT data FROM coc_app_store WHERE store_key = $1",
+        ["vendorVerifications"]
+      );
+      const persistedRecords = persisted.rows[0]?.data;
+      if (Array.isArray(persistedRecords)) {
+        storageCache.set("vendorVerifications", persistedRecords);
+        savedRecord = persistedRecords.find(item => item.restaurantId === req.params.restaurantId);
+      }
+    }
+    const savedDocument = savedRecord && (savedRecord.documents || []).find(item => item.id === req.params.documentId);
+    if (!savedDocument || savedDocument.reviewStatus !== reviewStatus) {
+      throw new Error("The document review could not be confirmed in persistent storage.");
+    }
+    res.setHeader("Cache-Control", "no-store, private");
+    return res.json({
+      ok: true,
+      vendor: publicVendorVerification(savedRecord),
+      message: reviewStatus === "rejected"
+        ? "Document rejected and saved. The restaurant can see the reason and upload a replacement."
+        : reviewStatus === "verified"
+          ? "Document marked Verified and confirmed as saved."
+          : "Document review returned to Pending and was saved."
+    });
+  } catch (error) {
+    console.error("Vendor document review persistence failed:", error.message);
+    return res.status(500).json({ error: "The document status could not be confirmed as saved. Please refresh the records and try again." });
+  }
 });
 
 app.patch("/api/superadmin/vendor-verifications/:restaurantId", requireSuperAdmin, async (req, res) => {

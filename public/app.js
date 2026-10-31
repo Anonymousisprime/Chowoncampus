@@ -904,7 +904,52 @@ document.addEventListener("click", event => {
     }
   }
 });
-document.addEventListener("click", event => { if (event.target.closest("#refreshRestaurantRatings")) loadRestaurantRatings(); });
+document.addEventListener("click", async event => {
+  const button = event.target instanceof Element ? event.target.closest("#toggleRestaurantPause") : null;
+  if (!button) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if (button.disabled) return;
+
+  const ordersPaused = !Boolean(state.restaurantOperations?.ordersPaused);
+  const reason = document.getElementById("restaurantPauseReason")?.value || "other";
+  const payload = ordersPaused ? { ordersPaused: true, pauseReason: reason } : { ordersPaused: false };
+  const message = document.getElementById("restaurantAvailabilityMessage");
+  button.disabled = true;
+  button.textContent = ordersPaused ? "Pausing orders…" : "Resuming orders…";
+  if (message) {
+    message.className = "restaurant-operations-note";
+    message.textContent = ordersPaused ? "Saving pause status…" : "Saving resume status…";
+  }
+  try {
+    const result = await api("/api/restaurant/operations", {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+      cache: "no-store"
+    });
+    if (!result.operations || result.operations.ordersPaused !== ordersPaused) {
+      throw new Error("The server did not confirm the incoming-order status change.");
+    }
+    state.restaurantOperations = result.operations;
+    await refreshPublicMenu();
+    await loadDashboard();
+    const status = document.getElementById("restaurantAvailabilityMessage");
+    if (status) {
+      status.className = "restaurant-operations-note success";
+      status.textContent = result.message || (ordersPaused ? "Incoming orders are paused." : "Incoming orders have resumed.");
+    }
+    showToast(result.message || (ordersPaused ? "Incoming orders paused." : "Incoming orders resumed."));
+  } catch (error) {
+    const status = document.getElementById("restaurantAvailabilityMessage");
+    if (status) {
+      status.className = "restaurant-operations-note error";
+      status.textContent = error.message || "Could not change incoming-order status.";
+    }
+    showToast(error.message || "Could not change incoming-order status.");
+    button.disabled = false;
+    button.textContent = ordersPaused ? "⏸ Pause incoming orders" : "▶ Resume incoming orders";
+  }
+}, true);
 
 /* Keep restaurant availability clicks independent of dashboard rendering. */
 document.addEventListener("click", async event => {
@@ -2263,20 +2308,6 @@ async function initialize() {
         message.classList.remove("success");
         button.disabled = false;
       }
-      return;
-    }
-    const restaurantPauseButton = event.target.closest("#toggleRestaurantPause");
-    if (restaurantPauseButton) {
-      restaurantPauseButton.disabled = true;
-      try {
-        const ordersPaused = !Boolean(state.restaurantOperations?.ordersPaused);
-        const payload = ordersPaused ? { ordersPaused: true, pauseReason: $("#restaurantPauseReason")?.value || "other" } : { ordersPaused: false };
-        const result = await api("/api/restaurant/operations", { method: "PATCH", body: JSON.stringify(payload) });
-        state.restaurantOperations = result.operations;
-        await refreshPublicMenu();
-        showToast(result.message);
-        await loadDashboard();
-      } catch (error) { showToast(error.message); restaurantPauseButton.disabled = false; }
       return;
     }
     const availabilityButton = event.target.closest("#toggleAgentAvailability");

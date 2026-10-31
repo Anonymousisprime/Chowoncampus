@@ -2793,6 +2793,150 @@ function requireSuperAdmin(req, res, next) {
   next();
 }
 
+function maskBankAccount(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  return digits ? "••••" + digits.slice(-4) : "Not available";
+}
+function constantTimeTextMatch(actual, expected) {
+  const a = Buffer.from(String(actual || ""), "utf8");
+  const b = Buffer.from(String(expected || ""), "utf8");
+  return a.length === b.length && a.length > 0 && crypto.timingSafeEqual(a, b);
+}
+function verifyUltimateAdminPassword(username, password) {
+  const account = accounts.find(item => item.role === "admin" && item.isSuperAdmin && item.username === username);
+  if (!account) return false;
+  const overrides = readAccountPasswords();
+  const override = overrides["admin:" + username];
+  if (override?.passwordSalt && override?.passwordHash) return passwordMatches(password, override);
+  return account.passwordHash ? passwordMatches(password, account) : constantTimeTextMatch(password, account.password);
+}
+
+// Payout account changes are performed only against the existing Paystack subaccount.
+// The secondary approval code is configured as a Render secret and is never stored in app data.
+app.get("/api/superadmin/payout-banks", requireSuperAdmin, async (req, res) => {
+  if (!hasPaystackConfig()) return res.status(503).json({ error: "Live Paystack is not configured." });
+  try {
+    const data = await paystackRequest("/bank?country=nigeria&perPage=100");
+    res.setHeader("Cache-Control", "no-store, private");
+    res.json({ banks: (Array.isArray(data) ? data : []).map(bank => ({ name: bank.name, code: String(bank.code) })) });
+  } catch (error) {
+    res.status(502).json({ error: error.message || "Could not load supported banks." });
+  }
+});
+
+app.get("/api/superadmin/payout-accounts", requireSuperAdmin, async (req, res) => {
+  if (!hasPaystackConfig()) return res.status(503).json({ error: "Live Paystack is not configured." });
+  try {
+    const results = await Promise.all(restaurants.map(async restaurant => {
+      const code = getPaystackSubaccountCode(restaurant.id);
+      if (!code) return { restaurantId: restaurant.id, restaurantName: restaurant.name, configured: false };
+      try {
+        const data = await paystackRequest("/subaccount/" + encodeURIComponent(code));
+        return {
+          restaurantId: restaurant.id, restaurantName: restaurant.name, configured: true,
+          bankName: data.settlement_bank || "Unknown bank",
+          accountNumberMasked: maskBankAccount(data.account_number),
+          accountName: data.account_name || "Name not provided by Paystack"
+        };
+      } catch {
+        return { restaurantId: restaurant.id, restaurantName: restaurant.name, configured: true, lookupFailed: true };
+      }
+    }));
+    res.setHeader("Cache-Control", "no-store, private");
+    res.json({ accounts: results, secondaryVerificationConfigured: Boolean(process.env.PAYOUT_CHANGE_APPROVAL_CODE) });
+  } catch (error) {
+    res.status(502).json({ error: error.message || "Could not load payout accounts." });
+  }
+});
+
+app.post("/api/superadmin/payout-account/resolve", requireSuperAdmin, async (req, res) => {
+  if (!hasPaystackConfig()) return res.status(503).json({ error: "Live Paystack is not configured." });
+  const accountNumber = String(req.body.accountNumber || "").trim();
+  const bankCode = String(req.body.bankCode || "").trim();
+  if (!/^\d{10}$/.test(accountNumber)) return res.status(400).json({ error: "Enter a valid 10-digit Nigerian account number." });
+  if (!/^[A-Za-z0-9]{2,8}$/.test(bankCode)) return res.status(400).json({ error: "Choose a valid bank." });
+  const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
+  if (!resetRateLimit("payout-resolve:" + req.account.username + ":" + ip, 8, 15 * 60 * 1000)) {
+    return res.status(429).json({ error: "Too many account lookups. Wait 15 minutes and try again." });
+  }
+  try {
+    const data = await paystackRequest("/bank/resolve?account_number=" + encodeURIComponent(accountNumber) + "&bank_code=" + encodeURIComponent(bankCode));
+    if (String(data.account_number || "") !== accountNumber || !String(data.account_name || "").trim()) {
+      return res.status(422).json({ error: "Paystack could not confirm this account. Check the bank and account number." });
+    }
+    res.setHeader("Cache-Control", "no-store, private");
+    res.json({ verified: true, accountName: String(data.account_name).trim(), accountNumberMasked: maskBankAccount(accountNumber) });
+  } catch (error) {
+    res.status(422).json({ error: error.message || "Paystack could not verify this account." });
+  }
+});
+
+app.post("/api/superadmin/payout-account-change", requireSuperAdmin, async (req, res) => {
+  if (!IS_PRODUCTION || !hasPaystackConfig()) return res.status(503).json({ error: "Payout account changes are available only with live Paystack in production." });
+  const approvalCode = String(process.env.PAYOUT_CHANGE_APPROVAL_CODE || "");
+  if (approvalCode.length < 12) return res.status(503).json({ error: "Secondary verification is not configured. Set PAYOUT_CHANGE_APPROVAL_CODE in Render before changing any payout account." });
+  const restaurantId = String(req.body.restaurantId || "").trim();
+  const accountNumber = String(req.body.accountNumber || "").trim();
+  const bankCode = String(req.body.bankCode || "").trim();
+  const reason = String(req.body.reason || "").trim().slice(0, 300);
+  const expectedAccountName = String(req.body.expectedAccountName || "").trim();
+  const currentPassword = String(req.body.currentPassword || "");
+  const submittedApprovalCode = String(req.body.approvalCode || "");
+  if (!restaurants.some(item => item.id === restaurantId)) return res.status(404).json({ error: "Restaurant not found." });
+  if (!/^\d{10}$/.test(accountNumber) || !/^[A-Za-z0-9]{2,8}$/.test(bankCode)) return res.status(400).json({ error: "Enter a valid bank and 10-digit account number." });
+  if (!reason || reason.length < 10) return res.status(400).json({ error: "Enter a reason of at least 10 characters for the audit record." });
+  if (!expectedAccountName || expectedAccountName.length > 120) return res.status(400).json({ error: "Verify the account number first and confirm the bank account name." });
+  if (!currentPassword || !submittedApprovalCode) return res.status(400).json({ error: "Your current admin password and secondary approval code are required." });
+  const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
+  if (!resetRateLimit("payout-change:" + req.account.username + ":" + ip, 5, 15 * 60 * 1000)) {
+    return res.status(429).json({ error: "Too many payout change attempts. Wait 15 minutes and try again." });
+  }
+  if (!verifyUltimateAdminPassword(req.account.username, currentPassword) ||
+      !constantTimeTextMatch(submittedApprovalCode, approvalCode)) {
+    return res.status(403).json({ error: "The admin password or secondary approval code is incorrect." });
+  }
+  const subaccountCode = getPaystackSubaccountCode(restaurantId);
+  if (!subaccountCode) return res.status(409).json({ error: "This restaurant has no Paystack subaccount configured in Render." });
+  const restaurant = restaurants.find(item => item.id === restaurantId);
+  try {
+    const oldData = await paystackRequest("/subaccount/" + encodeURIComponent(subaccountCode));
+    const resolved = await paystackRequest("/bank/resolve?account_number=" + encodeURIComponent(accountNumber) + "&bank_code=" + encodeURIComponent(bankCode));
+    const resolvedName = String(resolved.account_name || "").trim();
+    if (String(resolved.account_number || "") !== accountNumber || !resolvedName ||
+        resolvedName.toLocaleUpperCase().replace(/\s+/g, " ") !== expectedAccountName.toLocaleUpperCase().replace(/\s+/g, " ")) {
+      return res.status(409).json({ error: "The account name no longer matches the verified details. Verify the account again before saving." });
+    }
+    const updated = await paystackRequest("/subaccount/" + encodeURIComponent(subaccountCode), {
+      method: "PUT",
+      body: JSON.stringify({ settlement_bank: bankCode, account_number: accountNumber })
+    });
+    if (String(updated.account_number || "") !== accountNumber) {
+      return res.status(502).json({ error: "Paystack did not confirm the new account number. Check the Paystack dashboard before retrying." });
+    }
+    recordOperationsEvent({
+      type: "restaurant_payout_account_changed", entityType: "restaurant",
+      entityId: restaurantId, entityName: restaurant.name,
+      actorRole: "admin", actorId: req.account.username,
+      details: "Paystack payout destination changed. Previous: " + String(oldData.settlement_bank || "Unknown bank") + " " + maskBankAccount(oldData.account_number) +
+        "; new: " + String(updated.settlement_bank || "Selected bank") + " " + maskBankAccount(updated.account_number) +
+        "; reason: " + reason
+    });
+    res.setHeader("Cache-Control", "no-store, private");
+    res.json({
+      ok: true,
+      restaurantId,
+      bankName: updated.settlement_bank || "Updated",
+      accountNumberMasked: maskBankAccount(updated.account_number),
+      accountName: updated.account_name || resolvedName,
+      message: "Paystack payout account updated and the change was recorded in the operations audit log."
+    });
+  } catch (error) {
+    console.error("Protected Paystack payout account update failed:", error.message);
+    res.status(502).json({ error: error.message || "Paystack could not update this payout account. Verify the current account in Paystack before retrying." });
+  }
+});
+
+
  
 // Ultimate-admin operations archive. Refund decisions are logged here; approval does
 // not itself move money through Paystack or issue FoodBack credit.
@@ -3844,11 +3988,26 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
         const matches = expected.length === supplied.length && crypto.timingSafeEqual(expected, supplied);
         if (!matches) {
           order.deliveryCodeAttempts = (Number(order.deliveryCodeAttempts) || 0) + 1;
-          if (order.deliveryCodeAttempts >= 5) order.deliveryCodeLocked = true;
+          if (order.deliveryCodeAttempts >= 5) {
+            order.deliveryCodeLocked = true;
+            recordOperationsEvent({
+              type: "delivery_handover_code_locked", entityType: "order", entityId: order.id,
+              entityName: order.restaurantName || "Order", orderId: order.id,
+              actorRole: "agent", actorId: req.account.username,
+              details: "Handover code locked after five incorrect attempts. No code value was recorded."
+            });
+          }
           saveOrders(orders);
           return res.status(order.deliveryCodeLocked ? 423 : 403).json({ error: order.deliveryCodeLocked ? "Too many incorrect codes. Handover is locked; contact the administrator." : "That handover code is incorrect. Ask the student to confirm it and try again.", attemptsRemaining: Math.max(0, 5 - order.deliveryCodeAttempts) });
         }
-        order.deliveryCodeVerifiedAt = new Date().toISOString(); order.deliveryCode = null;
+        order.deliveryCodeVerifiedAt = new Date().toISOString();
+        recordOperationsEvent({
+          type: "delivery_handover_code_verified", entityType: "order", entityId: order.id,
+          entityName: order.restaurantName || "Order", orderId: order.id,
+          actorRole: "agent", actorId: req.account.username,
+          details: "Assigned agent successfully verified the student's handover code."
+        });
+        order.deliveryCode = null;
       }
 
       if (!["Out for delivery", "Completed"].includes(newStatus)) {
@@ -3898,7 +4057,11 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
 
     // Delivery chat stays available for two minutes after successful delivery,
     // then its messages are removed on the next chat request.
-    if (newStatus === "Cancelled") delete order.chatMessages;
+    if (newStatus === "Cancelled") {
+      delete order.chatMessages;
+      order.deliveryCode = null;
+      order.deliveryCodeInvalidatedAt = new Date().toISOString();
+    }
 
     // Starting delivery accepts the 75-second pickup offer.
     if (newStatus === "Out for delivery" && order.assignedAgentId === req.account.agentId) {

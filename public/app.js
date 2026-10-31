@@ -1433,6 +1433,25 @@ async function loadDashboard(automatic = false) {
             <button type="button" class="secondary-button" data-admin-jump="adminRestaurantPartners">View / delete restaurants</button>
           </div>
         </section>
+        ${account.isSuperAdmin ? `
+        <section class="dashboard-order-section" id="adminPayoutSecurityPanel">
+          <div class="dashboard-section-heading"><div><span class="eyebrow">HIGH-SECURITY CONTROL</span><h2>Restaurant payout account protection</h2><p>Only the Ultimate Admin can change a restaurant's Paystack payout destination. Every change requires a fresh password, a separate Render approval code, account-name verification and an audit record.</p></div><button type="button" class="secondary-button" id="refreshPayoutAccounts">↻ Refresh accounts</button></div>
+          <div id="payoutAccountsList" class="muted">Loading protected payout account details…</div>
+          <form id="adminPayoutChangeForm" class="order-card">
+            <h3>Change a restaurant payout account</h3>
+            <label>Restaurant<select id="payoutRestaurantId" name="restaurantId" required><option value="">Loading restaurants…</option></select></label>
+            <label>Bank<select id="payoutBankCode" name="bankCode" required><option value="">Loading supported banks…</option></select></label>
+            <label>New 10-digit account number<input id="payoutAccountNumber" name="accountNumber" inputmode="numeric" pattern="[0-9]{10}" minlength="10" maxlength="10" required autocomplete="off"></label>
+            <button type="button" class="secondary-button" id="resolvePayoutAccount">Verify bank account name</button>
+            <p id="payoutResolveMessage" class="muted" role="status" aria-live="polite">Verify the account before submitting a change.</p>
+            <label>Reason for the change<textarea name="reason" minlength="10" maxlength="300" required placeholder="Explain why this restaurant's payout account must change."></textarea></label>
+            <label>Current Ultimate Admin password<input name="currentPassword" type="password" required autocomplete="current-password"></label>
+            <label>Separate payout approval code<input name="approvalCode" type="password" required autocomplete="off"></label>
+            <button type="submit" class="danger-button">Confirm and update Paystack payout account</button>
+            <p id="payoutChangeMessage" class="muted" role="status" aria-live="polite"></p>
+          </form>
+          <p class="tiny muted">Before this control can be used, configure a unique secret named PAYOUT_CHANGE_APPROVAL_CODE in Render. Use a long, private code that is not the admin password. Never put it in website code or share it with restaurant staff.</p>
+        </section>` : ""}
         <section class="dashboard-order-section" id="adminFoodBackPanel">
           <div class="dashboard-section-heading"><div><span class="eyebrow">REWARDS CONTROL</span><h2>FoodBack overview</h2><p>Track credits issued and referral activity. This panel is reporting-only; reward percentages are enforced server-side.</p></div><button type="button" class="secondary-button" id="refreshAdminFoodBack">↻ Refresh</button></div>
           <div class="student-foodback-metrics" id="adminFoodBackMetrics"><article><span>Outstanding credits</span><strong>Loading…</strong></article><article><span>Credits issued</span><strong>Loading…</strong></article><article><span>Credits redeemed</span><strong>Loading…</strong></article><article><span>Referral accounts</span><strong>Loading…</strong></article><article><span>Referral rewards issued</span><strong>Loading…</strong></article><article><span>Own-order cashback issued</span><strong>Loading…</strong></article><article><span>FoodBack orders awaiting review</span><strong>Loading…</strong></article></div>
@@ -1535,6 +1554,84 @@ async function loadDashboard(automatic = false) {
           if (status) status.textContent = error.message;
         } finally { button.disabled = false; }
       });
+
+      if (account.isSuperAdmin) {
+        let verifiedPayoutAccount = null;
+        const payoutStatus = $("#payoutChangeMessage");
+        const payoutResolveStatus = $("#payoutResolveMessage");
+        const refreshPayoutAccounts = async () => {
+          const list = $("#payoutAccountsList");
+          const restaurantSelect = $("#payoutRestaurantId");
+          const bankSelect = $("#payoutBankCode");
+          if (!list || !restaurantSelect || !bankSelect) return;
+          try {
+            const [accountsData, banksData] = await Promise.all([
+              api("/api/superadmin/payout-accounts"),
+              api("/api/superadmin/payout-banks")
+            ]);
+            list.innerHTML = (accountsData.accounts || []).map(item =>
+              '<article class="order-card"><strong>' + escapeHtml(item.restaurantName) + '</strong><p>' +
+              (item.configured ? item.lookupFailed ? 'Paystack subaccount lookup failed.' : escapeHtml(item.bankName) + ' · ' + escapeHtml(item.accountNumberMasked) + ' · ' + escapeHtml(item.accountName) : 'No Paystack subaccount configured') +
+              '</p></article>'
+            ).join("") || '<p class="muted">No restaurant accounts found.</p>';
+            restaurantSelect.innerHTML = '<option value="">Choose restaurant</option>' + (accountsData.accounts || []).map(item =>
+              '<option value="' + escapeHtml(item.restaurantId) + '"' + (item.configured ? '' : ' disabled') + '>' + escapeHtml(item.restaurantName) + (item.configured ? '' : ' — Paystack not configured') + '</option>'
+            ).join("");
+            bankSelect.innerHTML = '<option value="">Choose bank</option>' + (banksData.banks || []).map(bank =>
+              '<option value="' + escapeHtml(bank.code) + '">' + escapeHtml(bank.name) + '</option>'
+            ).join("");
+            if (!accountsData.secondaryVerificationConfigured && payoutStatus) {
+              payoutStatus.textContent = "Payout changes are locked until PAYOUT_CHANGE_APPROVAL_CODE is configured in Render.";
+            }
+          } catch (error) {
+            list.textContent = error.message;
+          }
+        };
+        $("#refreshPayoutAccounts")?.addEventListener("click", refreshPayoutAccounts);
+        $("#payoutRestaurantId")?.addEventListener("change", () => { verifiedPayoutAccount = null; if (payoutResolveStatus) payoutResolveStatus.textContent = "Verify the account before submitting a change."; });
+        $("#payoutBankCode")?.addEventListener("change", () => { verifiedPayoutAccount = null; if (payoutResolveStatus) payoutResolveStatus.textContent = "Verify the account before submitting a change."; });
+        $("#payoutAccountNumber")?.addEventListener("input", () => { verifiedPayoutAccount = null; if (payoutResolveStatus) payoutResolveStatus.textContent = "Account details changed. Verify the account again."; });
+        $("#resolvePayoutAccount")?.addEventListener("click", async event => {
+          const button = event.currentTarget;
+          const accountNumber = $("#payoutAccountNumber")?.value.trim() || "";
+          const bankCode = $("#payoutBankCode")?.value || "";
+          verifiedPayoutAccount = null;
+          button.disabled = true;
+          if (payoutResolveStatus) payoutResolveStatus.textContent = "Checking account details with Paystack…";
+          try {
+            const result = await api("/api/superadmin/payout-account/resolve", { method: "POST", body: JSON.stringify({ accountNumber, bankCode }) });
+            verifiedPayoutAccount = { accountNumber, bankCode, accountName: result.accountName };
+            if (payoutResolveStatus) payoutResolveStatus.textContent = "Verified account name: " + result.accountName + " · " + result.accountNumberMasked + ". Confirm this is the correct restaurant account.";
+          } catch (error) {
+            if (payoutResolveStatus) payoutResolveStatus.textContent = error.message;
+          } finally { button.disabled = false; }
+        });
+        $("#adminPayoutChangeForm")?.addEventListener("submit", async event => {
+          event.preventDefault();
+          const form = event.currentTarget;
+          const values = Object.fromEntries(new FormData(form).entries());
+          const button = form.querySelector('button[type="submit"]');
+          if (!verifiedPayoutAccount || verifiedPayoutAccount.accountNumber !== String(values.accountNumber).trim() || verifiedPayoutAccount.bankCode !== values.bankCode) {
+            if (payoutStatus) payoutStatus.textContent = "Verify the current bank and account number first.";
+            return;
+          }
+          if (!window.confirm("Update this restaurant's real Paystack payout destination to " + verifiedPayoutAccount.accountName + "? This affects future split-payment settlements.")) return;
+          values.expectedAccountName = verifiedPayoutAccount.accountName;
+          button.disabled = true;
+          if (payoutStatus) payoutStatus.textContent = "Submitting protected payout change to Paystack…";
+          try {
+            const result = await api("/api/superadmin/payout-account-change", { method: "POST", body: JSON.stringify(values) });
+            if (payoutStatus) payoutStatus.textContent = result.message + " New destination: " + result.bankName + " " + result.accountNumberMasked + " (" + result.accountName + ").";
+            form.reset();
+            verifiedPayoutAccount = null;
+            if (payoutResolveStatus) payoutResolveStatus.textContent = "Verify the account before submitting a change.";
+            await refreshPayoutAccounts();
+          } catch (error) {
+            if (payoutStatus) payoutStatus.textContent = error.message;
+          } finally { button.disabled = false; }
+        });
+        refreshPayoutAccounts();
+      }
       } else if (account.role === "agent") {
       const activeDeliveryOrders = orders.filter(order =>
         order.assignedAgentId === account.agentId && ["Ready for pickup", "Out for delivery"].includes(order.status)

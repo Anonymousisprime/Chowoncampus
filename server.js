@@ -3988,11 +3988,26 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
         const matches = expected.length === supplied.length && crypto.timingSafeEqual(expected, supplied);
         if (!matches) {
           order.deliveryCodeAttempts = (Number(order.deliveryCodeAttempts) || 0) + 1;
-          if (order.deliveryCodeAttempts >= 5) order.deliveryCodeLocked = true;
+          if (order.deliveryCodeAttempts >= 5) {
+            order.deliveryCodeLocked = true;
+            recordOperationsEvent({
+              type: "delivery_handover_code_locked", entityType: "order", entityId: order.id,
+              entityName: order.restaurantName || "Order", orderId: order.id,
+              actorRole: "agent", actorId: req.account.username,
+              details: "Handover code locked after five incorrect attempts. No code value was recorded."
+            });
+          }
           saveOrders(orders);
           return res.status(order.deliveryCodeLocked ? 423 : 403).json({ error: order.deliveryCodeLocked ? "Too many incorrect codes. Handover is locked; contact the administrator." : "That handover code is incorrect. Ask the student to confirm it and try again.", attemptsRemaining: Math.max(0, 5 - order.deliveryCodeAttempts) });
         }
-        order.deliveryCodeVerifiedAt = new Date().toISOString(); order.deliveryCode = null;
+        order.deliveryCodeVerifiedAt = new Date().toISOString();
+        recordOperationsEvent({
+          type: "delivery_handover_code_verified", entityType: "order", entityId: order.id,
+          entityName: order.restaurantName || "Order", orderId: order.id,
+          actorRole: "agent", actorId: req.account.username,
+          details: "Assigned agent successfully verified the student's handover code."
+        });
+        order.deliveryCode = null;
       }
 
       if (!["Out for delivery", "Completed"].includes(newStatus)) {

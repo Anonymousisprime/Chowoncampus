@@ -916,21 +916,34 @@ document.addEventListener("click", async event => {
   if (button.disabled) return;
 
   const online = !Boolean(state.restaurantOperations?.online);
+  const message = $("#restaurantAvailabilityMessage");
   button.disabled = true;
   button.textContent = online ? "Going online…" : "Going offline…";
+  if (message) { message.className = "restaurant-operations-note"; message.textContent = online ? "Connecting and saving your online status…" : "Connecting and saving your offline status…"; }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
   try {
     const result = await api("/api/restaurant/operations", {
       method: "PATCH",
-      body: JSON.stringify({ online })
+      body: JSON.stringify({ online }),
+      signal: controller.signal,
+      cache: "no-store"
     });
     state.restaurantOperations = result.operations;
     showToast(result.message || (online ? "Your restaurant is now online." : "Your restaurant is now offline."));
-    try { await refreshPublicMenu(); } catch (refreshError) { console.warn("Could not refresh the public restaurant menu:", refreshError); }
+    await refreshPublicMenu();
     await loadDashboard();
   } catch (error) {
-    showToast(error.message || "Could not update restaurant availability.");
+    const messageText = error.name === "AbortError"
+      ? "The server did not confirm the change within 20 seconds. Refresh your dashboard before trying again."
+      : (error.message || "Could not update restaurant availability.");
+    showToast(messageText);
+    const status = $("#restaurantAvailabilityMessage");
+    if (status) { status.className = "restaurant-operations-note error"; status.textContent = messageText; }
     button.disabled = false;
     button.textContent = state.restaurantOperations?.online ? "Go offline" : "Go online";
+  } finally {
+    clearTimeout(timeout);
   }
 }, true);
 
@@ -1317,6 +1330,7 @@ async function loadDashboard(automatic = false) {
               : '<button type="button" class="secondary-button" disabled title="Go online before pausing orders">⏸ Pause incoming orders</button>'}
           </div>
           <p class="restaurant-operations-note">Going offline or pausing affects new orders only. Orders already accepted remain in your dashboard and must still be fulfilled or reported to the Ultimate Admin.</p>
+          <p id="restaurantAvailabilityMessage" class="restaurant-operations-note" role="status" aria-live="polite"></p>
         </section>
         <nav class="restaurant-quick-actions" aria-label="Restaurant dashboard shortcuts">
           <button type="button" class="secondary-button" data-restaurant-jump="restaurant-section-incoming">📥 Incoming orders</button>

@@ -2794,7 +2794,7 @@ function requireSuperAdmin(req, res, next) {
 }
 
 function maskBankAccount(value) {
-  const digits = String(value || "").replace(/\\D/g, "");
+  const digits = String(value || "").replace(/\D/g, "");
   return digits ? "••••" + digits.slice(-4) : "Not available";
 }
 function constantTimeTextMatch(actual, expected) {
@@ -2853,7 +2853,7 @@ app.post("/api/superadmin/payout-account/resolve", requireSuperAdmin, async (req
   if (!hasPaystackConfig()) return res.status(503).json({ error: "Live Paystack is not configured." });
   const accountNumber = String(req.body.accountNumber || "").trim();
   const bankCode = String(req.body.bankCode || "").trim();
-  if (!/^\\d{10}$/.test(accountNumber)) return res.status(400).json({ error: "Enter a valid 10-digit Nigerian account number." });
+  if (!/^\d{10}$/.test(accountNumber)) return res.status(400).json({ error: "Enter a valid 10-digit Nigerian account number." });
   if (!/^[A-Za-z0-9]{2,8}$/.test(bankCode)) return res.status(400).json({ error: "Choose a valid bank." });
   const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
   if (!resetRateLimit("payout-resolve:" + req.account.username + ":" + ip, 8, 15 * 60 * 1000)) {
@@ -2883,7 +2883,7 @@ app.post("/api/superadmin/payout-account-change", requireSuperAdmin, async (req,
   const currentPassword = String(req.body.currentPassword || "");
   const submittedApprovalCode = String(req.body.approvalCode || "");
   if (!restaurants.some(item => item.id === restaurantId)) return res.status(404).json({ error: "Restaurant not found." });
-  if (!/^\\d{10}$/.test(accountNumber) || !/^[A-Za-z0-9]{2,8}$/.test(bankCode)) return res.status(400).json({ error: "Enter a valid bank and 10-digit account number." });
+  if (!/^\d{10}$/.test(accountNumber) || !/^[A-Za-z0-9]{2,8}$/.test(bankCode)) return res.status(400).json({ error: "Enter a valid bank and 10-digit account number." });
   if (!reason || reason.length < 10) return res.status(400).json({ error: "Enter a reason of at least 10 characters for the audit record." });
   if (!expectedAccountName || expectedAccountName.length > 120) return res.status(400).json({ error: "Verify the account number first and confirm the bank account name." });
   if (!currentPassword || !submittedApprovalCode) return res.status(400).json({ error: "Your current admin password and secondary approval code are required." });
@@ -2903,7 +2903,7 @@ app.post("/api/superadmin/payout-account-change", requireSuperAdmin, async (req,
     const resolved = await paystackRequest("/bank/resolve?account_number=" + encodeURIComponent(accountNumber) + "&bank_code=" + encodeURIComponent(bankCode));
     const resolvedName = String(resolved.account_name || "").trim();
     if (String(resolved.account_number || "") !== accountNumber || !resolvedName ||
-        resolvedName.toLocaleUpperCase().replace(/\\s+/g, " ") !== expectedAccountName.toLocaleUpperCase().replace(/\\s+/g, " ")) {
+        resolvedName.toLocaleUpperCase().replace(/\s+/g, " ") !== expectedAccountName.toLocaleUpperCase().replace(/\s+/g, " ")) {
       return res.status(409).json({ error: "The account name no longer matches the verified details. Verify the account again before saving." });
     }
     const updated = await paystackRequest("/subaccount/" + encodeURIComponent(subaccountCode), {
@@ -2919,7 +2919,7 @@ app.post("/api/superadmin/payout-account-change", requireSuperAdmin, async (req,
       actorRole: "admin", actorId: req.account.username,
       details: "Paystack payout destination changed. Previous: " + String(oldData.settlement_bank || "Unknown bank") + " " + maskBankAccount(oldData.account_number) +
         "; new: " + String(updated.settlement_bank || "Selected bank") + " " + maskBankAccount(updated.account_number) +
-        "; verified account name: " + resolvedName + "; reason: " + reason
+        "; reason: " + reason
     });
     res.setHeader("Cache-Control", "no-store, private");
     res.json({

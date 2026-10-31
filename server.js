@@ -9,7 +9,7 @@ const crypto = require("crypto");
 const { Pool } = require("pg");
 const webPush = require("web-push");
 const storagePool = process.env.DATABASE_URL
-  ? new Pool({ connectionString: process.env.DATABASE_URL, max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 })
+  ? new Pool({ connectionString: process.env.DATABASE_URL, max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000, statement_timeout: 15000, query_timeout: 15000, lock_timeout: 10000 })
   : null;
 const storageCache = new Map();
 const persistedOrderSnapshot = new Map();

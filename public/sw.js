@@ -57,7 +57,7 @@ self.addEventListener("fetch", event => {
     return;
   }
 
-  const isStaticAsset = /\\.(?:css|js|svg|png|webmanifest|woff2?)$/i.test(url.pathname);
+  const isStaticAsset = /\.(?:css|js|svg|png|webmanifest|woff2?)$/i.test(url.pathname);
   if (!isStaticAsset) return;
   event.respondWith((async () => {
     const cached = await caches.match(request);

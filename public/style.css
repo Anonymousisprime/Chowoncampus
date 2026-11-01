@@ -1005,3 +1005,79 @@ button,input,select,textarea{max-width:100%;min-width:0}
 .restaurant-operations-note{margin:14px 0 0;padding-top:12px;border-top:1px solid #edf1ee;color:var(--muted);font-size:.82rem;line-height:1.5}
 .restaurant-operations-actions button:disabled{opacity:.55;cursor:not-allowed}
 @media(max-width:600px){.restaurant-operations-heading{flex-direction:column}.restaurant-operations-actions{align-items:stretch;flex-direction:column}.restaurant-operations-actions>*{width:100%;max-width:100%}.restaurant-pause-reason{width:100%}}
+
+
+/* Restaurant dashboard: phone-first layout refinement */
+@media (max-width: 760px) {
+  body:has(#dashboardContent) { overflow-x: clip; }
+  #dashboardContent { width: 100%; min-width: 0; }
+  #dashboardContent > * { min-width: 0; max-width: 100%; }
+  #dashboardContent .restaurant-welcome {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    padding: 18px;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+  #dashboardContent .restaurant-welcome > div { min-width: 0; }
+  #dashboardContent .restaurant-welcome p { font-size: .88rem; line-height: 1.5; }
+  #dashboardContent .restaurant-welcome button { width: 100%; min-height: 46px; }
+  #dashboardContent .restaurant-operations-panel { padding: 16px; margin-bottom: 16px; }
+  #dashboardContent .restaurant-operations-heading { gap: 10px; }
+  #dashboardContent .restaurant-operations-heading > div { min-width: 0; }
+  #dashboardContent .restaurant-operations-heading p { font-size: .84rem; }
+  #dashboardContent .restaurant-availability-pill { align-self: flex-start; }
+  #dashboardContent .restaurant-operations-actions { display: grid; grid-template-columns: minmax(0, 1fr); gap: 9px; }
+  #dashboardContent .restaurant-operations-actions > *,
+  #dashboardContent .restaurant-pause-reason { width: 100%; min-width: 0; max-width: 100%; }
+  #dashboardContent .restaurant-operations-actions button { width: 100%; min-height: 46px; }
+  #dashboardContent .restaurant-operations-note { font-size: .78rem; }
+  #dashboardContent .restaurant-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-bottom: 18px; }
+  #dashboardContent .restaurant-metrics article { padding: 13px 12px; border-radius: 14px; }
+  #dashboardContent .restaurant-metrics span,
+  #dashboardContent .restaurant-metrics small { font-size: .73rem; line-height: 1.35; }
+  #dashboardContent .restaurant-metrics strong { font-size: clamp(1.05rem, 5vw, 1.4rem); margin: 6px 0; }
+  #dashboardContent .restaurant-quick-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 10px; }
+  #dashboardContent .restaurant-quick-actions button { min-height: 46px; padding: 10px 8px; font-size: .8rem; white-space: normal; }
+  #dashboardContent .dashboard-order-section { margin: 20px 0; }
+  #dashboardContent .dashboard-section-heading { align-items: flex-start; gap: 8px; }
+  #dashboardContent .dashboard-section-heading h2 { font-size: 1.08rem; }
+  #dashboardContent .dashboard-section-heading p { font-size: .8rem; }
+  #dashboardContent .order-list { grid-template-columns: minmax(0, 1fr); gap: 11px; }
+  #dashboardContent .order-card { padding: 14px; border-radius: 15px; }
+  #dashboardContent .order-top { display: flex; flex-wrap: wrap; gap: 8px; }
+  #dashboardContent .order-top > * { min-width: 0; max-width: 100%; }
+  #dashboardContent .order-card p,
+  #dashboardContent .order-card strong,
+  #dashboardContent .order-card small { overflow-wrap: anywhere; }
+  #dashboardContent .order-actions { display: grid; grid-template-columns: minmax(0, 1fr); gap: 9px; }
+  #dashboardContent .order-actions > *,
+  #dashboardContent .order-actions label { width: 100%; min-width: 0; }
+  #dashboardContent .order-actions button,
+  #dashboardContent .order-actions select { width: 100%; min-height: 46px; }
+  #dashboardContent .restaurant-menu-manager,
+  #dashboardContent .restaurant-location-manager,
+  #dashboardContent .rating-panel,
+  #dashboardContent .ratings-dashboard { padding: 14px; border-radius: 15px; }
+  #dashboardContent .menu-editor-row { grid-template-columns: minmax(0, 1fr) !important; gap: 10px; }
+  #dashboardContent .menu-editor-row label,
+  #dashboardContent .menu-editor-row input,
+  #dashboardContent .menu-editor-row select { width: 100%; min-width: 0; }
+  #dashboardContent .menu-item-image-preview { height: 150px; }
+  #dashboardContent .pickup-gps-tools,
+  #dashboardContent .restaurant-location-manager form { min-width: 0; max-width: 100%; }
+  #dashboardContent .restaurant-pickup-map { width: 100%; max-width: 100%; }
+  #dashboardContent .dashboard-order-section .table-wrap,
+  #dashboardContent .dashboard-order-section [style*="overflow-x:auto"] { max-width: 100%; }
+}
+@media (max-width: 420px) {
+  #dashboardContent .restaurant-welcome { padding: 15px; }
+  #dashboardContent .restaurant-metrics { gap: 7px; }
+  #dashboardContent .restaurant-metrics article { padding: 11px 9px; }
+  #dashboardContent .restaurant-metrics span,
+  #dashboardContent .restaurant-metrics small { font-size: .68rem; }
+  #dashboardContent .restaurant-quick-actions { grid-template-columns: minmax(0, 1fr); }
+  #dashboardContent .dashboard-section-heading { flex-wrap: nowrap; }
+  #dashboardContent .dashboard-section-heading > div { min-width: 0; }
+}

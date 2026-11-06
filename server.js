@@ -536,6 +536,134 @@ function notifyOrderStatusChanged(order, previousStatus, newStatus) {
     `Order ${order.id}: status changed from ${previousStatus} to ${newStatus}.`, order.id);
 }
 
+
+const smartNotificationKeys = new Set();
+const restaurantOnlineSnapshot = new Map();
+let smartNotificationSweepRunning = false;
+
+function createSmartNotificationOnce(target, key, title, message) {
+  if (!target || !key || smartNotificationKeys.has(key)) return false;
+  const items = readNotifications();
+  if (items.some(item => item.smartKey === key)) {
+    smartNotificationKeys.add(key);
+    return false;
+  }
+  items.unshift({ id: crypto.randomUUID(), ...target, title, message, orderId: null,
+    createdAt: new Date().toISOString(), read: false, category: "campus-activity", smartKey: key });
+  saveNotifications(items);
+  smartNotificationKeys.add(key);
+  sendPushToTarget(target, { title, body: message, url: "/" });
+  return true;
+}
+
+function smartNotificationEligibleOrders(orders) {
+  const accepted = new Set(["Confirmed", "Preparing", "Ready for pickup", "Out for delivery", "Completed"]);
+  return orders.filter(order => accepted.has(order.status) &&
+    ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus));
+}
+
+function smartDistanceMeters(lat1, lon1, lat2, lon2) {
+  const radians = value => value * Math.PI / 180;
+  const dLat = radians(lat2 - lat1), dLon = radians(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(radians(lat1)) * Math.cos(radians(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
+}
+
+function runSmartNotificationSweep() {
+  if (smartNotificationSweepRunning) return;
+  smartNotificationSweepRunning = true;
+  try {
+    const now = Date.now();
+    const today = new Date(now).toISOString().slice(0, 10);
+    const orders = readOrders();
+    const students = readStudents();
+    const paidOrders = smartNotificationEligibleOrders(orders);
+
+    const todaysOrders = paidOrders.filter(order => {
+      const created = new Date(order.createdAt || order.updatedAt || 0);
+      return !Number.isNaN(created.getTime()) && created.toISOString().slice(0, 10) === today;
+    });
+    const studentsOrderedToday = new Set(todaysOrders.map(order => String(order.customerPhone || "")).filter(Boolean)).size;
+    if (studentsOrderedToday > 0) {
+      for (const student of students) createSmartNotificationOnce(
+        { role: "student", username: student.phone },
+        "daily-orders:" + today + ":" + student.phone,
+        "Campus activity today",
+        studentsOrderedToday + " student" + (studentsOrderedToday === 1 ? "" : "s") + " ordered today."
+      );
+    }
+
+    const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+    const trendCounts = new Map();
+    for (const order of paidOrders) {
+      const timestamp = new Date(order.createdAt || 0).getTime();
+      if (!Number.isFinite(timestamp) || timestamp < weekAgo || timestamp > now) continue;
+      trendCounts.set(order.restaurantId, (trendCounts.get(order.restaurantId) || 0) + 1);
+    }
+    const trending = [...trendCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (trending && trending[1] >= 3) {
+      const restaurant = restaurants.find(item => item.id === trending[0]);
+      if (restaurant) for (const student of students) createSmartNotificationOnce(
+        { role: "student", username: student.phone },
+        "trending:" + today + ":" + restaurant.id + ":" + student.phone,
+        restaurant.name + " is trending",
+        restaurant.name + " is trending on campus this week. See what's popular."
+      );
+    }
+
+    for (const restaurant of restaurants) {
+      const isOpen = restaurantAcceptsOrders(restaurant);
+      const previous = restaurantOnlineSnapshot.get(restaurant.id);
+      restaurantOnlineSnapshot.set(restaurant.id, isOpen);
+      if (previous !== false || !isOpen) continue;
+      const favourites = new Map();
+      for (const order of paidOrders) {
+        const phone = String(order.customerPhone || "");
+        if (!phone) continue;
+        const counts = favourites.get(phone) || new Map();
+        counts.set(order.restaurantId, (counts.get(order.restaurantId) || 0) + 1);
+        favourites.set(phone, counts);
+      }
+      for (const student of students) {
+        const counts = favourites.get(student.phone);
+        if (!counts?.size) continue;
+        const favouriteId = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+        if (favouriteId === restaurant.id) createSmartNotificationOnce(
+          { role: "student", username: student.phone },
+          "favourite-open:" + restaurant.id + ":" + (getRestaurantOperations(restaurant.id).operationsUpdatedAt || today) + ":" + student.phone,
+          "Your favourite restaurant just opened",
+          restaurant.name + " is now accepting orders again."
+        );
+      }
+    }
+
+    const agentRecords = readAgentRecords();
+    for (const order of orders) {
+      if (order.status !== "Out for delivery" || order.approachingHostelNotifiedAt || !order.assignedAgentId) continue;
+      const destination = order.deliveryLocation || {};
+      if (!validCoordinatePair(destination.latitude, destination.longitude)) continue;
+      const agent = agentRecords.find(item => item.id === order.assignedAgentId);
+      if (!agent || !validCoordinatePair(agent.latitude, agent.longitude) || !agent.locationUpdatedAt) continue;
+      const age = now - new Date(agent.locationUpdatedAt).getTime();
+      if (!Number.isFinite(age) || age < 0 || age > 90000) continue;
+      const distance = smartDistanceMeters(Number(agent.latitude), Number(agent.longitude), Number(destination.latitude), Number(destination.longitude));
+      if (distance > 250) continue;
+      createNotification(
+        { role: "student", username: order.customerPhone },
+        "Your delivery agent is approaching your hostel",
+        "Your delivery agent is about " + Math.max(1, Math.round(distance)) + " metres from your delivery pin. Please get ready to collect your order.",
+        order.id
+      );
+      order.approachingHostelNotifiedAt = new Date(now).toISOString();
+      saveOrders(orders);
+    }
+  } catch (error) {
+    console.error("Smart campus notification sweep failed:", error.message);
+  } finally {
+    smartNotificationSweepRunning = false;
+  }
+}
+
 function safeAccount(account) {
   return {
     username: account.username,
@@ -789,6 +917,15 @@ function awardFoodBackForCompletedOrder(order) {
         }
       }
     }
+  }
+  if (referralReward > 0 && customer.referredByPhone) {
+    const referralRecipient = students.find(item => item.phone === customer.referredByPhone);
+    if (referralRecipient) createNotification(
+      { role: "student", username: referralRecipient.phone },
+      "You received a referral reward",
+      "Your friend completed a qualifying order. ₦" + referralReward.toLocaleString("en-NG") + " has been added to your FoodBack wallet.",
+      order.id
+    );
   }
   order.foodbackRewardsProcessedAt = now.toISOString();
   order.foodbackOwnReward = ownReward;
@@ -4247,6 +4384,9 @@ app.use("/api", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Chowoncampus running at http://localhost:${PORT}`);
+  for (const restaurant of restaurants) restaurantOnlineSnapshot.set(restaurant.id, restaurantAcceptsOrders(restaurant));
+  runSmartNotificationSweep();
+  setInterval(runSmartNotificationSweep, 30000);
 });
 }
 

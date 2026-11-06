@@ -1452,7 +1452,7 @@ async function loadDashboard(automatic = false) {
           </form>
           <p class="tiny muted">Before this control can be used, configure a unique secret named PAYOUT_CHANGE_APPROVAL_CODE in Render. Use a long, private code that is not the admin password. Never put it in website code or share it with restaurant staff.</p>
         </section>` : ""}
-        \${account.isSuperAdmin ? \`
+        ${account.isSuperAdmin ? `
         <section class="dashboard-order-section" id="adminDailyReportsPanel">
           <div class="dashboard-section-heading"><div><span class="eyebrow">BUSINESS INTELLIGENCE</span><h2>Daily operations & earnings reports</h2><p>Generate date-based reports in Nigeria time. Reports use recorded platform data and clearly separate sales from confirmed bank credits.</p></div></div>
           <form id="adminDailyReportForm" class="order-card">
@@ -1463,7 +1463,7 @@ async function loadDashboard(automatic = false) {
           <form id="restaurantSettlementForm" class="order-card">
             <h3>Record actual restaurant bank settlement</h3>
             <p class="muted">Enter the net amount that has actually reached the restaurant’s bank account after fees. This is an admin-confirmed record, not an automatic bank verification.</p>
-            <label>Restaurant<select name="restaurantId" required><option value="">Choose restaurant</option>\${restaurantResult.restaurants.map(item => \`<option value="\${escapeHtml(item.id)}">\${escapeHtml(item.name)}</option>\`).join("")}</select></label>
+            <label>Restaurant<select name="restaurantId" required><option value="">Choose restaurant</option>${restaurantResult.restaurants.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`).join("")}</select></label>
             <label>Date credited<input name="settlementDate" type="date" required></label>
             <label>Net amount credited (₦)<input name="amount" type="number" min="1" step="1" required placeholder="Actual amount received"></label>
             <label>Bank / transfer reference<input name="bankReference" required minlength="4" maxlength="120" placeholder="Reference from bank transaction"></label>
@@ -1472,7 +1472,7 @@ async function loadDashboard(automatic = false) {
             <p id="restaurantSettlementStatus" class="muted" role="status" aria-live="polite"></p>
           </form>
           <div id="adminDailyReportOutput" class="order-list"><div class="empty-state">Your daily report will appear here.</div></div>
-        </section>\` : ""}
+        </section>` : ""}
         <section class="dashboard-order-section" id="adminFoodBackPanel">
           <div class="dashboard-section-heading"><div><span class="eyebrow">REWARDS CONTROL</span><h2>FoodBack overview</h2><p>Track credits issued and referral activity. This panel is reporting-only; reward percentages are enforced server-side.</p></div><button type="button" class="secondary-button" id="refreshAdminFoodBack">↻ Refresh</button></div>
           <div class="student-foodback-metrics" id="adminFoodBackMetrics"><article><span>Outstanding credits</span><strong>Loading…</strong></article><article><span>Credits issued</span><strong>Loading…</strong></article><article><span>Credits redeemed</span><strong>Loading…</strong></article><article><span>Referral accounts</span><strong>Loading…</strong></article><article><span>Referral rewards issued</span><strong>Loading…</strong></article><article><span>Own-order cashback issued</span><strong>Loading…</strong></article><article><span>FoodBack orders awaiting review</span><strong>Loading…</strong></article></div>

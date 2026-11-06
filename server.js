@@ -585,12 +585,28 @@ function runSmartNotificationSweep() {
     });
     const studentsOrderedToday = new Set(todaysOrders.map(order => String(order.customerPhone || "")).filter(Boolean)).size;
     if (studentsOrderedToday > 0) {
-      for (const student of students) createSmartNotificationOnce(
-        { role: "student", username: student.phone },
-        "daily-orders:" + today + ":" + student.phone,
-        "Campus activity today",
-        studentsOrderedToday + " student" + (studentsOrderedToday === 1 ? "" : "s") + " ordered today."
-      );
+      const dailyMessage = studentsOrderedToday + " student" + (studentsOrderedToday === 1 ? "" : "s") + " ordered today.";
+      const existingNotifications = readNotifications();
+      let dailyUpdates = false;
+      for (const student of students) {
+        const key = "daily-orders:" + today + ":" + student.phone;
+        const existing = existingNotifications.find(item => item.smartKey === key);
+        if (existing) {
+          if (existing.message !== dailyMessage) {
+            existing.message = dailyMessage;
+            dailyUpdates = true;
+          }
+          smartNotificationKeys.add(key);
+        } else {
+          createSmartNotificationOnce(
+            { role: "student", username: student.phone },
+            key,
+            "Campus activity today",
+            dailyMessage
+          );
+        }
+      }
+      if (dailyUpdates) saveNotifications(existingNotifications);
     }
 
     const weekAgo = now - 7 * 24 * 60 * 60 * 1000;

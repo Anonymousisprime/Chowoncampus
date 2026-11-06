@@ -1618,7 +1618,8 @@ async function loadDashboard(automatic = false) {
           for (const [key,value] of Object.entries(d.payments)) rows.push(["Payments",key,value]);
           for (const item of d.restaurants) rows.push(["Restaurant",item.name,JSON.stringify(item)]);
           for (const item of d.agents) rows.push(["Agent",item.name,JSON.stringify(item)]);
-          for (const item of (d.orderRatings || [])) rows.push(["Order rating",item.orderId,JSON.stringify(item)]);\n          for (const item of d.studentRemarks) rows.push(["Student remark",item.student,JSON.stringify(item)]);
+          for (const item of (d.orderRatings || [])) rows.push(["Order rating",item.orderId,JSON.stringify(item)]);
+          for (const item of d.studentRemarks) rows.push(["Student remark",item.student,JSON.stringify(item)]);
           for (const item of d.foodback.transactions) rows.push(["FoodBack",item.student,JSON.stringify(item)]);
           const csv = rows.map(row => row.map(value => '"' + String(value ?? "").replace(/"/g,'""') + '"').join(",")).join("\r\n");
           const url = URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" }));

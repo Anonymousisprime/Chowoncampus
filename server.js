@@ -2978,7 +2978,7 @@ function nigeriaDayRange(value) {
   const day = String(value || "");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
   const start = new Date(day + "T00:00:00+01:00");
-  if (Number.isNaN(start.getTime()) || start.toISOString().slice(0, 10) !== day && !Number.isFinite(start.getTime())) return null;
+  if (Number.isNaN(start.getTime()) || new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(start) !== day) return null;
   const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
   return { day, start, end };
 }
@@ -3036,6 +3036,13 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
     const newStudents = students.filter(student => inReportDay(student.createdAt, range));
     const activeStudentIds = new Set(dayOrders.filter(order => order.customerPhone).map(order => String(order.customerPhone)));
     const feedback = readFeedbackConversations();
+    const orderRatings = orders.filter(order => order.rating && inReportDay(order.rating.ratedAt, range)).map(order => ({
+      orderId: order.id, student: order.customerName || order.rating.studentName || "Student",
+      restaurant: order.restaurantName, restaurantRating: Number(order.rating.restaurantRating) || null,
+      agentRating: Number(order.rating.agentRating) || null,
+      foodRatings: (order.rating.foodRatings || []).map(item => ({ item: item.itemName, rating: Number(item.rating) })),
+      ratedAt: order.rating.ratedAt
+    }));
     const studentRemarks = [];
     for (const order of orders) {
       if (!order.rating || !inReportDay(order.rating.ratedAt, range)) continue;
@@ -3078,7 +3085,7 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
         outstandingWalletBalance: outstandingFoodback, transactions: foodbackLedger },
       system: { events: events.length, errors: events.filter(item => /error|fail/i.test(String(item.type || item.event || item.action || ""))),
         suspiciousActivity: events.filter(item => /suspicious|security|unauthori[sz]ed|blocked/i.test(String(item.type || item.event || item.action || ""))) },
-      studentRemarks: studentRemarks.sort((a,b) => new Date(b.at) - new Date(a.at)),
+      orderRatings: orderRatings.sort((a,b) => new Date(b.ratedAt) - new Date(a.ratedAt)),\n      studentRemarks: studentRemarks.sort((a,b) => new Date(b.at) - new Date(a.at)),
       notes: {
         restaurantBankCredits: "Only settlement records manually confirmed by the Ultimate Admin are included. These are admin-entered bank credits, not independently fetched bank statements.",
         restaurantFoodSales: "Completed-order subtotal before payout fees; not the same as actual bank credits.",

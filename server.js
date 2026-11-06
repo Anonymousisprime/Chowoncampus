@@ -3027,11 +3027,16 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
         actualBankAmountCredited: sum(bankCredits, item => item.amount)
       };
     }).sort((a,b) => b.orders - a.orders);
+    const agentPayouts = readAgentPayments().filter(payment => inReportDay(payment.paidAt, range));
     const agentRows = agentRecords.map(agent => {
       const deliveries = completedOrders.filter(order => String(order.assignedAgentId || "") === String(agent.id));
       const earned = sum(deliveries.filter(order => order.agentEarningsRecorded), order => order.agentEarnings ?? AGENT_EARNING_PER_DELIVERY);
+      const paid = sum(agentPayouts.filter(payment => String(payment.agentId) === String(agent.id)), payment => payment.amount);
+      const ratings = deliveries.map(order => Number(order.rating?.agentRating)).filter(score => Number.isFinite(score) && score >= 1 && score <= 5);
       return { id: agent.id, name: agent.name, completedDeliveries: deliveries.length, earningsRecorded: earned,
-        deliverySuccessCount: deliveries.length, averageRating: null };
+        paidToday: paid, outstanding: Math.max(0, earned - paid),
+        averageRating: ratings.length ? Math.round(ratings.reduce((a,b) => a+b, 0) / ratings.length * 10) / 10 : null,
+        ratingCount: ratings.length };
     }).sort((a,b) => b.completedDeliveries - a.completedDeliveries);
     const newStudents = students.filter(student => inReportDay(student.createdAt, range));
     const activeStudentIds = new Set(dayOrders.filter(order => order.customerPhone).map(order => String(order.customerPhone)));
@@ -3061,7 +3066,6 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
       .filter(entry => inReportDay(entry.createdAt, range))
       .map(entry => ({ student: student.name, type: entry.type, kind: entry.kind, amount: entry.amount, orderId: entry.orderId || null, description: entry.description || "" })));
     const outstandingFoodback = sum(students, student => student.foodbackBalance);
-    const agentPayouts = readAgentPayments().filter(payment => inReportDay(payment.paidAt, range));
     const complaints = cases.filter(item => /complaint|dispute|refund/i.test(String(item.type || item.category || item.title || "")));
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
     res.json({
@@ -3071,7 +3075,7 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
         successfulFoodSales: sum(completedOrders, order => order.subtotal) },
       payments: { paystackCount: paystackOrders.length, paystackGross: sum(paystackOrders, order => order.total),
         foodbackCount: foodbackOrders.length, foodbackValue: sum(foodbackOrders, order => order.total),
-        outstandingPaymentOrders: dayOrders.filter(order => !["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)).length },
+        outstandingPaymentOrders: dayOrders.filter(order => !["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus) && !["Cancelled", "Failed"].includes(order.status)).length },
       restaurants: restaurantRows,
       restaurantRanking: restaurantRows.map((item,index) => ({ rank: index + 1, restaurant: item.name, orders: item.orders, averageRating: item.averageRating, ratingCount: item.ratingCount })),
       agents: agentRows,
@@ -3112,7 +3116,7 @@ app.post("/api/superadmin/restaurant-settlements", requireSuperAdmin, (req, res)
     if (!Number.isSafeInteger(amount) || amount <= 0) return res.status(400).json({ error: "Enter a whole-number amount greater than ₦0." });
     if (!bankReference || bankReference.length < 4) return res.status(400).json({ error: "Enter the bank transfer reference or statement reference." });
     const records = readRestaurantSettlements();
-    if (records.some(item => item.bankReference.toLowerCase() === bankReference.toLowerCase())) return res.status(409).json({ error: "That bank reference has already been recorded." });
+    if (records.some(item => String(item.bankReference || "").toLowerCase() === bankReference.toLowerCase())) return res.status(409).json({ error: "That bank reference has already been recorded." });
     const record = {
       id: "RST-" + crypto.randomBytes(6).toString("hex").toUpperCase(),
       restaurantId: restaurant.id, restaurantName: restaurant.name, settlementDate, amount,

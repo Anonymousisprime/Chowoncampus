@@ -3122,7 +3122,7 @@ app.post("/api/superadmin/restaurant-settlements", requireSuperAdmin, (req, res)
       id: "RST-" + crypto.randomBytes(6).toString("hex").toUpperCase(),
       restaurantId: restaurant.id, restaurantName: restaurant.name, settlementDate, amount,
       bankReference, note, status: "confirmed", confirmationMethod: "ultimate-admin-entered",
-      createdAt: new Date().toISOString(), creditedAt: req.body.creditedAt ? new Date(req.body.creditedAt).toISOString() : new Date().toISOString(),
+      createdAt: new Date().toISOString(), creditedAt: req.body.creditedAt ? new Date(req.body.creditedAt).toISOString() : new Date(settlementDate + "T12:00:00+01:00").toISOString(),
       enteredBy: req.account.username
     };
     records.unshift(record);

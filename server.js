@@ -3002,7 +3002,7 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
     const restaurantsList = restaurants;
     const settlements = readRestaurantSettlements().filter(item => item.status === "confirmed" && item.settlementDate === range.day);
     const dayOrders = orders.filter(order => inReportDay(order.createdAt, range));
-    const completedOrders = orders.filter(order => order.status === "Completed" && inReportDay(order.completedAt || order.updatedAt, range));
+    const completedOrders = orders.filter(order => order.status === "Completed" && ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus) && inReportDay(order.completedAt || order.updatedAt, range));
     const cancelledOrders = dayOrders.filter(order => order.status === "Cancelled");
     const failedOrders = dayOrders.filter(order => /failed|declined|rejected/i.test(String(order.paymentStatus || "")) || order.status === "Failed");
     const pendingOrders = dayOrders.filter(order => !["Completed", "Cancelled", "Failed"].includes(order.status));
@@ -3075,7 +3075,7 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
         successfulFoodSales: sum(completedOrders, order => order.subtotal) },
       payments: { paystackCount: paystackOrders.length, paystackGross: sum(paystackOrders, order => order.total),
         foodbackCount: foodbackOrders.length, foodbackValue: sum(foodbackOrders, order => order.total),
-        outstandingPaymentOrders: dayOrders.filter(order => !["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus) && !["Cancelled", "Failed"].includes(order.status)).length },
+        outstandingPaymentOrders: dayOrders.filter(order => !["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus) && !["Cancelled", "Failed"].includes(order.status)).length,\n        outstandingAmount: sum(dayOrders.filter(order => !["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus) && !["Cancelled", "Failed"].includes(order.status)), order => order.total) },
       restaurants: restaurantRows,
       restaurantRanking: restaurantRows.map((item,index) => ({ rank: index + 1, restaurant: item.name, orders: item.orders, averageRating: item.averageRating, ratingCount: item.ratingCount })),
       agents: agentRows,

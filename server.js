@@ -3086,7 +3086,8 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
         outstandingWalletBalance: outstandingFoodback, transactions: foodbackLedger },
       system: { events: events.length, errors: events.filter(item => /error|fail/i.test(String(item.type || item.event || item.action || ""))),
         suspiciousActivity: events.filter(item => /suspicious|security|unauthori[sz]ed|blocked/i.test(String(item.type || item.event || item.action || ""))) },
-      orderRatings: orderRatings.sort((a,b) => new Date(b.ratedAt) - new Date(a.ratedAt)),\n      studentRemarks: studentRemarks.sort((a,b) => new Date(b.at) - new Date(a.at)),
+      orderRatings: orderRatings.sort((a,b) => new Date(b.ratedAt) - new Date(a.ratedAt)),
+      studentRemarks: studentRemarks.sort((a,b) => new Date(b.at) - new Date(a.at)),
       notes: {
         restaurantBankCredits: "Only settlement records manually confirmed by the Ultimate Admin are included. These are admin-entered bank credits, not independently fetched bank statements.",
         restaurantFoodSales: "Completed-order subtotal before payout fees; not the same as actual bank credits.",

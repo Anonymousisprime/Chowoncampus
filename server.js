@@ -34,7 +34,8 @@ const storageFiles = {
   "restaurant-operations.json": "restaurantOperations",
   "operations-events.json": "operationsEvents",
   "operations-cases.json": "operationsCases",
-  "restaurant-suspensions.json": "restaurantSuspensions"
+  "restaurant-suspensions.json": "restaurantSuspensions",
+  "restaurant-settlements.json": "restaurantSettlements"
 };
 
 function readLocalJson(filename, fallback) {
@@ -69,7 +70,8 @@ async function initializePersistentStorage() {
     ["restaurant-operations.json", {}],
     ["operations-events.json", []],
     ["operations-cases.json", []],
-    ["restaurant-suspensions.json", {}]
+    ["restaurant-suspensions.json", {}],
+    ["restaurant-settlements.json", []]
   ];
   if (!storagePool) {
     for (const [filename, fallback] of definitions) {
@@ -2963,6 +2965,177 @@ function verifyUltimateAdminPassword(username, password) {
   if (override?.passwordSalt && override?.passwordHash) return passwordMatches(password, override);
   return account.passwordHash ? passwordMatches(password, account) : constantTimeTextMatch(password, account.password);
 }
+
+// Ultimate Admin daily reporting. All date filters use Nigeria time (UTC+01:00).
+const RESTAURANT_SETTLEMENTS_FILE = path.join(__dirname, "restaurant-settlements.json");
+function readRestaurantSettlements() {
+  return readStoredJson(RESTAURANT_SETTLEMENTS_FILE, []);
+}
+function saveRestaurantSettlements(records) {
+  saveStoredJson(RESTAURANT_SETTLEMENTS_FILE, records);
+}
+function nigeriaDayRange(value) {
+  const day = String(value || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const start = new Date(day + "T00:00:00+01:00");
+  if (Number.isNaN(start.getTime()) || new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(start) !== day) return null;
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return { day, start, end };
+}
+function inReportDay(value, range) {
+  if (!value) return false;
+  const date = new Date(value);
+  return !Number.isNaN(date.getTime()) && date >= range.start && date < range.end;
+}
+function reportMoney(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.round(number) : 0;
+}
+app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
+  try {
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    const range = nigeriaDayRange(req.query.date || today);
+    if (!range) return res.status(400).json({ error: "Choose a valid report date in YYYY-MM-DD format." });
+    const orders = readOrders();
+    const students = readStudents();
+    const agentRecords = readAgentRecords();
+    const restaurantsList = restaurants;
+    const settlements = readRestaurantSettlements().filter(item => item.status === "confirmed" && item.settlementDate === range.day);
+    const dayOrders = orders.filter(order => inReportDay(order.createdAt, range));
+    const completedOrders = orders.filter(order => order.status === "Completed" && ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus) && inReportDay(order.completedAt || order.updatedAt, range));
+    const cancelledOrders = dayOrders.filter(order => order.status === "Cancelled");
+    const failedOrders = dayOrders.filter(order => /failed|declined|rejected/i.test(String(order.paymentStatus || "")) || order.status === "Failed");
+    const pendingOrders = dayOrders.filter(order => !["Completed", "Cancelled", "Failed"].includes(order.status));
+    const paidOrders = dayOrders.filter(order => ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus));
+    const paystackOrders = paidOrders.filter(order => order.paymentStatus === "Paid — Paystack verified");
+    const foodbackOrders = paidOrders.filter(order => order.paymentStatus === "Paid — FoodBack approved");
+    const sum = (items, selector) => items.reduce((total, item) => total + reportMoney(selector(item)), 0);
+    const restaurantRows = restaurantsList.map(restaurant => {
+      const own = dayOrders.filter(order => String(order.restaurantId) === String(restaurant.id));
+      const successful = completedOrders.filter(order => String(order.restaurantId) === String(restaurant.id));
+      const reviews = orders.filter(order => String(order.restaurantId) === String(restaurant.id) && order.rating && inReportDay(order.rating.ratedAt, range));
+      const scores = reviews.map(order => Number(order.rating.restaurantRating)).filter(score => Number.isFinite(score) && score >= 1 && score <= 5);
+      const bankCredits = settlements.filter(item => String(item.restaurantId) === String(restaurant.id));
+      return {
+        id: restaurant.id, name: restaurant.name, orders: own.length, completedOrders: successful.length,
+        cancelledOrders: own.filter(order => order.status === "Cancelled").length,
+        foodSales: sum(successful, order => order.subtotal),
+        averageRating: scores.length ? Math.round(scores.reduce((a,b) => a+b, 0) / scores.length * 10) / 10 : null,
+        ratingCount: scores.length,
+        unavailableFood: (restaurant.items || []).filter(item => item.available === false || item.isAvailable === false || item.soldOut === true).map(item => item.name),
+        bankSettlements: bankCredits.map(item => ({ amount: item.amount, reference: item.bankReference, creditedAt: item.creditedAt, enteredAt: item.createdAt })),
+        actualBankAmountCredited: sum(bankCredits, item => item.amount)
+      };
+    }).sort((a,b) => b.orders - a.orders);
+    const agentPayouts = readAgentPayments().filter(payment => inReportDay(payment.paidAt, range));
+    const agentRows = agentRecords.map(agent => {
+      const deliveries = completedOrders.filter(order => String(order.assignedAgentId || "") === String(agent.id));
+      const earned = sum(deliveries.filter(order => order.agentEarningsRecorded), order => order.agentEarnings ?? AGENT_EARNING_PER_DELIVERY);
+      const paid = sum(agentPayouts.filter(payment => String(payment.agentId) === String(agent.id)), payment => payment.amount);
+      const ratings = deliveries.map(order => Number(order.rating?.agentRating)).filter(score => Number.isFinite(score) && score >= 1 && score <= 5);
+      return { id: agent.id, name: agent.name, completedDeliveries: deliveries.length, earningsRecorded: earned,
+        paidToday: paid, outstanding: Math.max(0, earned - paid),
+        averageRating: ratings.length ? Math.round(ratings.reduce((a,b) => a+b, 0) / ratings.length * 10) / 10 : null,
+        ratingCount: ratings.length };
+    }).sort((a,b) => b.completedDeliveries - a.completedDeliveries);
+    const newStudents = students.filter(student => inReportDay(student.createdAt, range));
+    const activeStudentIds = new Set(dayOrders.filter(order => order.customerPhone).map(order => String(order.customerPhone)));
+    const feedback = readFeedbackConversations();
+    const orderRatings = orders.filter(order => order.rating && inReportDay(order.rating.ratedAt, range)).map(order => ({
+      orderId: order.id, student: order.customerName || order.rating.studentName || "Student",
+      restaurant: order.restaurantName, restaurantRating: Number(order.rating.restaurantRating) || null,
+      agentRating: Number(order.rating.agentRating) || null,
+      foodRatings: (order.rating.foodRatings || []).map(item => ({ item: item.itemName, rating: Number(item.rating) })),
+      ratedAt: order.rating.ratedAt
+    }));
+    const studentRemarks = [];
+    for (const order of orders) {
+      if (!order.rating || !inReportDay(order.rating.ratedAt, range)) continue;
+      if (order.rating.restaurantComment) studentRemarks.push({ source: "Restaurant review", student: order.customerName || order.rating.studentName || "Student", restaurant: order.restaurantName, orderId: order.id, remark: order.rating.restaurantComment, at: order.rating.ratedAt });
+      if (order.rating.agentComment) studentRemarks.push({ source: "Delivery review", student: order.customerName || order.rating.studentName || "Student", restaurant: order.restaurantName, orderId: order.id, remark: order.rating.agentComment, at: order.rating.ratedAt });
+    }
+    for (const thread of feedback) for (const message of thread.messages || []) {
+      if (message.senderRole === "student" && inReportDay(message.createdAt, range)) studentRemarks.push({
+        source: thread.category || "Student feedback", student: thread.studentName || "Student",
+        orderId: thread.orderId || null, remark: message.body, at: message.createdAt
+      });
+    }
+    const events = readOperationsEvents().filter(event => inReportDay(event.createdAt || event.at, range));
+    const cases = readOperationsCases().filter(item => inReportDay(item.createdAt || item.updatedAt, range));
+    const foodbackLedger = students.flatMap(student => (student.foodbackLedger || [])
+      .filter(entry => inReportDay(entry.createdAt, range))
+      .map(entry => ({ student: student.name, type: entry.type, kind: entry.kind, amount: entry.amount, orderId: entry.orderId || null, description: entry.description || "" })));
+    const outstandingFoodback = sum(students, student => student.foodbackBalance);
+    const complaints = cases.filter(item => /complaint|dispute|refund/i.test(String(item.type || item.category || item.title || "")));
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    res.json({
+      date: range.day, timezone: "Africa/Lagos",
+      generatedAt: new Date().toISOString(),
+      orders: { total: dayOrders.length, successful: completedOrders.length, cancelled: cancelledOrders.length, failed: failedOrders.length, pending: pendingOrders.length,
+        successfulFoodSales: sum(completedOrders, order => order.subtotal) },
+      payments: { paystackCount: paystackOrders.length, paystackGross: sum(paystackOrders, order => order.total),
+        foodbackCount: foodbackOrders.length, foodbackValue: sum(foodbackOrders, order => order.total),
+        outstandingPaymentOrders: dayOrders.filter(order => !["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus) && !["Cancelled", "Failed"].includes(order.status)).length,
+        outstandingAmount: sum(dayOrders.filter(order => !["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus) && !["Cancelled", "Failed"].includes(order.status)), order => order.total) },
+      restaurants: restaurantRows,
+      restaurantRanking: restaurantRows.map((item,index) => ({ rank: index + 1, restaurant: item.name, orders: item.orders, averageRating: item.averageRating, ratingCount: item.ratingCount })),
+      agents: agentRows,
+      agentTotals: { completedDeliveries: sum(agentRows, item => item.completedDeliveries), earned: sum(agentRows, item => item.earningsRecorded),
+        paid: sum(agentPayouts, item => item.amount), payoutsRecorded: agentPayouts.length },
+      students: { newRegistrations: newStudents.length, activeCustomers: activeStudentIds.size },
+      customerIssues: { casesOpened: cases.length, complaintsAndDisputes: complaints.length,
+        refundsMentionedInCases: cases.filter(item => /refund/i.test(String(item.type || item.category || item.title || ""))).length },
+      foodback: { issued: sum(foodbackLedger.filter(item => Number(item.amount) > 0 && !/deduct/i.test(String(item.kind || item.type || ""))), item => item.amount),
+        used: Math.abs(sum(foodbackLedger.filter(item => /redeem|order/i.test(String(item.kind || "")) && Number(item.amount) < 0), item => item.amount)),
+        deducted: sum(foodbackLedger.filter(item => /deduct/i.test(String(item.kind || item.type || ""))), item => Math.abs(Number(item.amount) || 0)),
+        outstandingWalletBalance: outstandingFoodback, transactions: foodbackLedger },
+      system: { events: events.length, errors: events.filter(item => /error|fail/i.test(String(item.type || item.event || item.action || ""))),
+        suspiciousActivity: events.filter(item => /suspicious|security|unauthori[sz]ed|blocked/i.test(String(item.type || item.event || item.action || ""))) },
+      orderRatings: orderRatings.sort((a,b) => new Date(b.ratedAt) - new Date(a.ratedAt)),
+      studentRemarks: studentRemarks.sort((a,b) => new Date(b.at) - new Date(a.at)),
+      notes: {
+        restaurantBankCredits: "Only settlement records manually confirmed by the Ultimate Admin are included. These are admin-entered bank credits, not independently fetched bank statements.",
+        restaurantFoodSales: "Completed-order subtotal before payout fees; not the same as actual bank credits.",
+        agentPayments: "Agent payouts are admin bookkeeping records and are not proof of a bank transfer."
+      }
+    });
+  } catch (error) {
+    console.error("Daily report failed:", error);
+    res.status(500).json({ error: "Could not generate the daily report." });
+  }
+});
+app.post("/api/superadmin/restaurant-settlements", requireSuperAdmin, (req, res) => {
+  try {
+    const restaurantId = String(req.body.restaurantId || "").trim();
+    const settlementDate = String(req.body.settlementDate || "").trim();
+    const amount = Number(req.body.amount);
+    const bankReference = String(req.body.bankReference || "").trim().slice(0, 120);
+    const note = String(req.body.note || "").trim().slice(0, 300);
+    const restaurant = restaurants.find(item => String(item.id) === restaurantId);
+    if (!restaurant) return res.status(404).json({ error: "Restaurant not found." });
+    if (!nigeriaDayRange(settlementDate)) return res.status(400).json({ error: "Enter a valid settlement date." });
+    if (!Number.isSafeInteger(amount) || amount <= 0) return res.status(400).json({ error: "Enter a whole-number amount greater than ₦0." });
+    if (!bankReference || bankReference.length < 4) return res.status(400).json({ error: "Enter the bank transfer reference or statement reference." });
+    const records = readRestaurantSettlements();
+    if (records.some(item => String(item.bankReference || "").toLowerCase() === bankReference.toLowerCase())) return res.status(409).json({ error: "That bank reference has already been recorded." });
+    const record = {
+      id: "RST-" + crypto.randomBytes(6).toString("hex").toUpperCase(),
+      restaurantId: restaurant.id, restaurantName: restaurant.name, settlementDate, amount,
+      bankReference, note, status: "confirmed", confirmationMethod: "ultimate-admin-entered",
+      createdAt: new Date().toISOString(), creditedAt: req.body.creditedAt ? new Date(req.body.creditedAt).toISOString() : new Date(settlementDate + "T12:00:00+01:00").toISOString(),
+      enteredBy: req.account.username
+    };
+    records.unshift(record);
+    saveRestaurantSettlements(records);
+    res.status(201).json({ settlement: { id: record.id, restaurantId: record.restaurantId, restaurantName: record.restaurantName,
+      settlementDate: record.settlementDate, amount: record.amount, bankReference: record.bankReference,
+      note: record.note, creditedAt: record.creditedAt, createdAt: record.createdAt },
+      message: "Settlement record saved as an Ultimate Admin-confirmed bank credit. It was not independently verified against the bank." });
+  } catch (error) {
+    console.error("Could not record restaurant settlement:", error);
+    res.status(500).json({ error: "Could not save the restaurant settlement." });
+  }
+});
 
 // Payout account changes are performed only against the existing Paystack subaccount.
 // The secondary approval code is configured as a Render secret and is never stored in app data.

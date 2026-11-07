@@ -1452,6 +1452,27 @@ async function loadDashboard(automatic = false) {
           </form>
           <p class="tiny muted">Before this control can be used, configure a unique secret named PAYOUT_CHANGE_APPROVAL_CODE in Render. Use a long, private code that is not the admin password. Never put it in website code or share it with restaurant staff.</p>
         </section>` : ""}
+        ${account.isSuperAdmin ? `
+        <section class="dashboard-order-section" id="adminDailyReportsPanel">
+          <div class="dashboard-section-heading"><div><span class="eyebrow">BUSINESS INTELLIGENCE</span><h2>Daily operations & earnings reports</h2><p>Generate date-based reports in Nigeria time. Reports use recorded platform data and clearly separate sales from confirmed bank credits.</p></div></div>
+          <form id="adminDailyReportForm" class="order-card">
+            <label>Report date (Nigeria time)<input id="adminReportDate" name="date" type="date" required></label>
+            <div class="order-actions"><button type="submit" class="primary-button">Generate daily report</button><button type="button" class="secondary-button" id="downloadDailyReportCsv" disabled>Download CSV</button><button type="button" class="secondary-button" id="printDailyReport" disabled>Print / Save PDF</button></div>
+            <p id="dailyReportStatus" class="muted" role="status" aria-live="polite">Choose a date to generate the report.</p>
+          </form>
+          <form id="restaurantSettlementForm" class="order-card">
+            <h3>Record actual restaurant bank settlement</h3>
+            <p class="muted">Enter the net amount that has actually reached the restaurant’s bank account after fees. This is an admin-confirmed record, not an automatic bank verification.</p>
+            <label>Restaurant<select name="restaurantId" required><option value="">Choose restaurant</option>${restaurantResult.restaurants.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`).join("")}</select></label>
+            <label>Date credited<input name="settlementDate" type="date" required></label>
+            <label>Net amount credited (₦)<input name="amount" type="number" min="1" step="1" required placeholder="Actual amount received"></label>
+            <label>Bank / transfer reference<input name="bankReference" required minlength="4" maxlength="120" placeholder="Reference from bank transaction"></label>
+            <label>Note (optional)<textarea name="note" maxlength="300" placeholder="Optional reconciliation note"></textarea></label>
+            <button type="submit" class="primary-button">Save confirmed bank credit</button>
+            <p id="restaurantSettlementStatus" class="muted" role="status" aria-live="polite"></p>
+          </form>
+          <div id="adminDailyReportOutput" class="order-list"><div class="empty-state">Your daily report will appear here.</div></div>
+        </section>` : ""}
         <section class="dashboard-order-section" id="adminFoodBackPanel">
           <div class="dashboard-section-heading"><div><span class="eyebrow">REWARDS CONTROL</span><h2>FoodBack overview</h2><p>Track credits issued and referral activity. This panel is reporting-only; reward percentages are enforced server-side.</p></div><button type="button" class="secondary-button" id="refreshAdminFoodBack">↻ Refresh</button></div>
           <div class="student-foodback-metrics" id="adminFoodBackMetrics"><article><span>Outstanding credits</span><strong>Loading…</strong></article><article><span>Credits issued</span><strong>Loading…</strong></article><article><span>Credits redeemed</span><strong>Loading…</strong></article><article><span>Referral accounts</span><strong>Loading…</strong></article><article><span>Referral rewards issued</span><strong>Loading…</strong></article><article><span>Own-order cashback issued</span><strong>Loading…</strong></article><article><span>FoodBack orders awaiting review</span><strong>Loading…</strong></article></div>
@@ -1536,6 +1557,96 @@ async function loadDashboard(automatic = false) {
           if (launchStatus) launchStatus.textContent = data.launchStartAt ? "Launch window starts " + new Date(data.launchStartAt).toLocaleString() + "." : "Launch date is not set. The ongoing 2% referral rate applies until you configure it.";
         } catch (error) { metrics.innerHTML = '<p class="muted">' + escapeHtml(error.message) + '</p>'; }
       };
+      if (account.isSuperAdmin) {
+        const reportForm = $("#adminDailyReportForm");
+        const settlementForm = $("#restaurantSettlementForm");
+        const reportDateInput = $("#adminReportDate");
+        const reportStatus = $("#dailyReportStatus");
+        const reportOutput = $("#adminDailyReportOutput");
+        let latestDailyReport = null;
+        const todayInNigeria = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+        if (reportDateInput && !reportDateInput.value) reportDateInput.value = todayInNigeria();
+        if (settlementForm?.elements.settlementDate && !settlementForm.elements.settlementDate.value) settlementForm.elements.settlementDate.value = todayInNigeria();
+        const reportTable = (headers, rows) => '<div style="overflow-x:auto"><table style="width:100%;min-width:640px;border-collapse:collapse;text-align:left"><thead><tr>' + headers.map(h => '<th style="padding:8px">' + escapeHtml(h) + '</th>').join("") + '</tr></thead><tbody>' + (rows.length ? rows.map(row => '<tr>' + row.map(cell => '<td style="padding:8px;border-top:1px solid var(--border-color,#ddd)">' + escapeHtml(cell ?? "—") + '</td>').join("") + '</tr>').join("") : '<tr><td colspan="' + headers.length + '" style="padding:8px">No records for this date.</td></tr>') + '</tbody></table></div>';
+        const renderDailyReport = data => {
+          const cards = [
+            ["Orders", data.orders.total], ["Successful", data.orders.successful], ["Cancelled", data.orders.cancelled],
+            ["Failed", data.orders.failed], ["Pending", data.orders.pending], ["Food sales", money(data.orders.successfulFoodSales)],
+            ["Paystack collected", money(data.payments.paystackGross)], ["FoodBack orders", data.payments.foodbackCount],
+            ["New students", data.students.newRegistrations], ["Active customers", data.students.activeCustomers],
+            ["Agent earnings recorded", money(data.agentTotals.earned)], ["Agent payouts recorded", money(data.agentTotals.paid)]
+          ];
+          const restaurantsHtml = reportTable(["Restaurant","Orders","Completed","Food sales","Avg rating","Reviews","Unavailable food","Actual bank credits"], data.restaurants.map(x => [x.name,x.orders,x.completedOrders,money(x.foodSales),x.averageRating ?? "No ratings",x.ratingCount,(x.unavailableFood || []).join(", ") || "None recorded",money(x.actualBankAmountCredited)]));
+          const settlementsHtml = reportTable(["Restaurant","Net credited","Bank reference","Credited at"], data.restaurants.flatMap(x => (x.bankSettlements || []).map(y => [x.name,money(y.amount),y.reference,y.creditedAt ? new Date(y.creditedAt).toLocaleString() : "—"])));
+          const agentsHtml = reportTable(["Agent","Completed deliveries","Average rating","Earnings recorded","Paid today","Outstanding"], data.agents.map(x => [x.name,x.completedDeliveries,x.averageRating ?? "No ratings",money(x.earningsRecorded),money(x.paidToday),money(x.outstanding)]));
+          const remarksHtml = reportTable(["Source","Student","Restaurant","Order","Remark","Time"], data.studentRemarks.map(x => [x.source,x.student,x.restaurant || "—",x.orderId || "—",x.remark,x.at ? new Date(x.at).toLocaleString() : "—"]));
+          const orderRatingsHtml = reportTable(["Order","Student","Restaurant","Restaurant rating","Agent rating","Food ratings","Rated at"], (data.orderRatings || []).map(x => [x.orderId,x.student,x.restaurant,x.restaurantRating ?? "—",x.agentRating ?? "—",(x.foodRatings || []).map(f => f.item + ": " + f.rating + "/5").join("; "),x.ratedAt ? new Date(x.ratedAt).toLocaleString() : "—"]));
+          const rankingsHtml = reportTable(["Rank","Restaurant","Orders","Average rating","Ratings"], data.restaurantRanking.map(x => [x.rank,x.restaurant,x.orders,x.averageRating ?? "No ratings",x.ratingCount]));
+          reportOutput.innerHTML = '<section class="order-card"><h3>Daily overview · ' + escapeHtml(data.date) + '</h3><div class="restaurant-metrics">' + cards.map(x => '<article><span>' + escapeHtml(x[0]) + '</span><strong>' + escapeHtml(x[1]) + '</strong></article>').join("") + '</div><p class="muted">Timezone: Nigeria (Africa/Lagos). Generated: ' + escapeHtml(new Date(data.generatedAt).toLocaleString()) + '</p></section>' +
+            '<section class="order-card"><h3>Restaurant performance & bank credits</h3>' + restaurantsHtml + '<h4>Confirmed bank settlement entries</h4>' + settlementsHtml + '<p class="muted">Bank credits are based only on settlement entries confirmed by the Ultimate Admin. They are not fetched or independently verified against bank statements.</p></section>' +
+            '<section class="order-card"><h3>Restaurant rankings</h3>' + rankingsHtml + '</section>' +
+            '<section class="order-card"><h3>Delivery agent performance</h3>' + agentsHtml + '<p class="muted">Agent earnings use completed-delivery bookkeeping; recorded payouts do not independently prove a bank transfer.</p></section>' +
+            '<section class="order-card"><h3>Students, payments & customer issues</h3><p>Paystack: ' + data.payments.paystackCount + ' · ' + money(data.payments.paystackGross) + '</p><p>FoodBack: ' + data.payments.foodbackCount + ' · ' + money(data.payments.foodbackValue) + '</p><p>Orders with outstanding/unconfirmed payment: ' + data.payments.outstandingPaymentOrders + '</p><p>Cases opened: ' + data.customerIssues.casesOpened + ' · Complaints/disputes: ' + data.customerIssues.complaintsAndDisputes + ' · Refund cases: ' + data.customerIssues.refundsMentionedInCases + '</p><p>Outstanding payment orders: ' + data.payments.outstandingPaymentOrders + ' · Amount: ' + money(data.payments.outstandingAmount) + '</p><p>FoodBack issued: ' + money(data.foodback.issued) + ' · used: ' + money(data.foodback.used) + ' · deducted: ' + money(data.foodback.deducted) + ' · outstanding wallet balance: ' + money(data.foodback.outstandingWalletBalance) + '</p></section>' +
+            '<section class="order-card"><h3>System errors & suspicious activity</h3><p>Recorded system events: ' + data.system.events.length + ' · Errors: ' + data.system.errors.length + ' · Suspicious/security events: ' + data.system.suspiciousActivity.length + '</p>' + reportTable(["Event","Type","Date"], data.system.errors.concat(data.system.suspiciousActivity).map(x => [x.message || x.description || x.action || "Event",x.type || x.event || x.action || "—",x.createdAt || x.at || "—"])) + '</section>' +
+            '<section class="order-card"><h3>Individual order ratings</h3>' + orderRatingsHtml + '</section>' + '<section class="order-card"><h3>Student remarks</h3>' + remarksHtml + '</section>';
+        };
+        const generateDailyReport = async () => {
+          const date = reportDateInput?.value || "";
+          if (!date) return;
+          if (reportStatus) reportStatus.textContent = "Generating report…";
+          try {
+            const data = await api("/api/superadmin/daily-report?date=" + encodeURIComponent(date));
+            latestDailyReport = data;
+            renderDailyReport(data);
+            if (reportStatus) reportStatus.textContent = "Report generated from recorded data for " + data.date + ".";
+            $("#downloadDailyReportCsv").disabled = false;
+            $("#printDailyReport").disabled = false;
+          } catch (error) {
+            latestDailyReport = null;
+            if (reportStatus) reportStatus.textContent = error.message;
+            if (reportOutput) reportOutput.innerHTML = '<div class="empty-state">' + escapeHtml(error.message) + '</div>';
+            $("#downloadDailyReportCsv").disabled = true;
+            $("#printDailyReport").disabled = true;
+          }
+        };
+        reportForm?.addEventListener("submit", async event => { event.preventDefault(); await generateDailyReport(); });
+        $("#downloadDailyReportCsv")?.addEventListener("click", () => {
+          if (!latestDailyReport) return;
+          const rows = [["Section","Item","Value"]];
+          const d = latestDailyReport;
+          for (const [key,value] of Object.entries(d.orders)) rows.push(["Orders",key,value]);
+          for (const [key,value] of Object.entries(d.payments)) rows.push(["Payments",key,value]);
+          for (const item of d.restaurants) rows.push(["Restaurant",item.name,JSON.stringify(item)]);
+          for (const item of d.agents) rows.push(["Agent",item.name,JSON.stringify(item)]);
+          for (const item of (d.orderRatings || [])) rows.push(["Order rating",item.orderId,JSON.stringify(item)]);
+          for (const item of d.studentRemarks) rows.push(["Student remark",item.student,JSON.stringify(item)]);
+          for (const item of d.foodback.transactions) rows.push(["FoodBack",item.student,JSON.stringify(item)]);
+          const csv = rows.map(row => row.map(value => '"' + String(value ?? "").replace(/"/g,'""') + '"').join(",")).join("\r\n");
+          const url = URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" }));
+          const link = document.createElement("a"); link.href = url; link.download = "chowoncampus-daily-report-" + d.date + ".csv"; link.click(); URL.revokeObjectURL(url);
+        });
+        $("#printDailyReport")?.addEventListener("click", () => { if (latestDailyReport) window.print(); });
+        settlementForm?.addEventListener("submit", async event => {
+          event.preventDefault();
+          const form = event.currentTarget;
+          const button = form.querySelector('button[type="submit"]');
+          const status = $("#restaurantSettlementStatus");
+          const values = Object.fromEntries(new FormData(form).entries());
+          values.amount = Number(values.amount);
+          if (!window.confirm("Confirm that this net amount has actually reached the restaurant's bank account after fees?")) return;
+          button.disabled = true;
+          if (status) status.textContent = "Saving settlement record…";
+          try {
+            const result = await api("/api/superadmin/restaurant-settlements", { method: "POST", body: JSON.stringify(values) });
+            if (status) status.textContent = result.message;
+            form.reset();
+            form.elements.settlementDate.value = todayInNigeria();
+            await generateDailyReport();
+          } catch (error) { if (status) status.textContent = error.message; }
+          finally { button.disabled = false; }
+        });
+        generateDailyReport();
+      }
       if (account.isSuperAdmin) refreshFoodBackAdmin();
       else $("#adminFoodBackPanel")?.remove();
       $("#refreshAdminFoodBack")?.addEventListener("click", refreshFoodBackAdmin);

@@ -1431,6 +1431,7 @@ async function loadDashboard(automatic = false) {
           <div class="order-actions" style="display:flex;gap:10px;flex-wrap:wrap">
             <button type="button" class="secondary-button" data-admin-jump="adminStudentAccounts">Manage students · Ban / Unban</button>
             <button type="button" class="secondary-button" data-admin-jump="adminRestaurantPartners">View / delete restaurants</button>
+            ${account.isSuperAdmin ? '<a class="primary-button" href="/superadmin-ads.html" style="text-decoration:none;display:inline-flex;align-items:center">📣 Post / Manage Advertisements</a>' : ""}
           </div>
         </section>
         ${account.isSuperAdmin ? `
@@ -2781,13 +2782,13 @@ async function initialize() {
   startTrackingRefresh();
   // Keep orders current without interrupting staff while they handle an order.
   window.setInterval(() => {
-    if (!["restaurant", "agent"].includes(state.account?.role) || document.visibilityState !== "visible") return;
+    if (state.account?.role !== "agent" || document.visibilityState !== "visible") return;
     if (Date.now() < dashboardInteractionUntil) return;
     if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) return;
     loadDashboard(true);
   }, 15000);
   window.addEventListener("focus", () => {
-    if (!["restaurant", "agent"].includes(state.account?.role)) return;
+    if (state.account?.role !== "agent") return;
     if (Date.now() < dashboardInteractionUntil) return;
     loadDashboard(true);
   });

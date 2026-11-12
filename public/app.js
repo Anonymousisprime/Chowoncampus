@@ -853,6 +853,25 @@ function renderOrderCard(order) {
   `;
 }
 
+let restaurantOrderRefreshInProgress = false;
+let lastRestaurantOrdersSnapshot = "";
+async function refreshRestaurantOrdersInBackground(force = false) {
+  if (state.account?.role !== "restaurant" || restaurantOrderRefreshInProgress) return;
+  if (!force && (document.visibilityState !== "visible" || Date.now() < dashboardInteractionUntil || ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName))) return;
+  if (!document.getElementById("restaurant-section-incoming")) return;
+  restaurantOrderRefreshInProgress = true;
+  try {
+    const [orderData, agentData] = await Promise.all([api("/api/orders", { cache: "no-store" }), api("/api/agents/available", { cache: "no-store" }).catch(() => ({ agents: state.availableAgents || [] }))]);
+    if (state.account?.role !== "restaurant") return;
+    if (!force && (Date.now() < dashboardInteractionUntil || ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName))) return;
+    const orders = Array.isArray(orderData.orders) ? orderData.orders : []; state.availableAgents = Array.isArray(agentData.agents) ? agentData.agents : [];
+    const snapshot = JSON.stringify(orders.map(order => [order.id, order.status, order.assignedAgentId, order.updatedAt, order.paymentStatus, order.deliveredAt, order.completedAt, order.total]));
+    if (!force && snapshot === lastRestaurantOrdersSnapshot) return; lastRestaurantOrdersSnapshot = snapshot;
+    const groups = { incoming: orders.filter(order => ["Awaiting payment", "Confirmed"].includes(order.status)), preparing: orders.filter(order => order.status === "Preparing"), pickup: orders.filter(order => ["Ready for pickup", "Out for delivery"].includes(order.status)), completed: orders.filter(order => ["Completed", "Cancelled"].includes(order.status)) };
+    for (const [key, list] of Object.entries(groups)) { const section = document.getElementById("restaurant-section-" + key); if (!section) continue; const count = section.querySelector(".count-pill"); if (count) count.textContent = String(list.length); const oldContent = section.querySelector(".order-list, .empty-state"); if (!oldContent) continue; const replacement = document.createElement("div"); replacement.className = list.length ? "order-list" : "empty-state compact-empty"; replacement.innerHTML = list.length ? list.map(renderOrderCard).join("") : "No " + key + " orders right now."; oldContent.replaceWith(replacement); }
+    const metrics = document.querySelector("#dashboardContent .restaurant-metrics"); if (metrics) { const completed = orders.filter(order => order.status === "Completed"); const sales = completed.reduce((sum, order) => sum + Number(order.total || 0), 0); const values = [[groups.incoming.length, "Awaiting action"], [groups.preparing.length, "In the kitchen"], [groups.pickup.length, "Agent coordination"], [money(sales), completed.length + " completed orders"]]; metrics.querySelectorAll("article").forEach((article, index) => { if (!values[index]) return; const strong = article.querySelector("strong"), small = article.querySelector("small"); if (strong) strong.textContent = String(values[index][0]); if (small) small.textContent = values[index][1]; }); }
+  } catch (error) { console.warn("Background restaurant order refresh failed:", error); } finally { restaurantOrderRefreshInProgress = false; }
+}
 document.addEventListener("submit", async event => {
   const form = event.target.closest("form[data-delivery-code-order]");
   if (!form) return;
@@ -1361,6 +1380,7 @@ async function loadDashboard(automatic = false) {
     // The staff member may have started handling an order while the request was in flight.
     if (automatic && Date.now() < dashboardInteractionUntil) return;
     if (account.role === "restaurant") {
+      lastRestaurantOrdersSnapshot = JSON.stringify(orders.map(order => [order.id, order.status, order.assignedAgentId, order.updatedAt, order.paymentStatus, order.deliveredAt, order.completedAt, order.total]));
       const incoming = orders.filter(order => ["Awaiting payment", "Confirmed"].includes(order.status));
       const preparing = orders.filter(order => order.status === "Preparing");
       const pickup = orders.filter(order => ["Ready for pickup", "Out for delivery"].includes(order.status));
@@ -1459,6 +1479,7 @@ async function loadDashboard(automatic = false) {
           <div class="order-actions" style="display:flex;gap:10px;flex-wrap:wrap">
             <button type="button" class="secondary-button" data-admin-jump="adminStudentAccounts">Manage students · Ban / Unban</button>
             <button type="button" class="secondary-button" data-admin-jump="adminRestaurantPartners">View / delete restaurants</button>
+            ${account.isSuperAdmin ? "<a class=\"primary-button\" href=\"/superadmin-ads.html\" style=\"text-decoration:none;display:inline-flex;align-items:center\">📣 Post / Manage Advertisements</a>" : ""}
           </div>
         </section>
         ${account.isSuperAdmin ? `
@@ -2229,7 +2250,8 @@ async function initialize() {
     }
 
     if (event.target.closest("#refreshRestaurantOrders")) {
-      await loadDashboard();
+      await refreshRestaurantOrdersInBackground(true);
+      showToast("Orders refreshed without reloading your dashboard.");
       return;
     }
 
@@ -2809,15 +2831,12 @@ async function initialize() {
   startTrackingRefresh();
   // Keep orders current without interrupting staff while they handle an order.
   window.setInterval(() => {
-    if (!["restaurant", "agent"].includes(state.account?.role) || document.visibilityState !== "visible") return;
-    if (Date.now() < dashboardInteractionUntil) return;
-    if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) return;
-    loadDashboard(true);
+    if (state.account?.role === "agent" && document.visibilityState === "visible" && Date.now() >= dashboardInteractionUntil && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) loadDashboard(true);
+    else if (state.account?.role === "restaurant") refreshRestaurantOrdersInBackground();
   }, 15000);
   window.addEventListener("focus", () => {
-    if (!["restaurant", "agent"].includes(state.account?.role)) return;
-    if (Date.now() < dashboardInteractionUntil) return;
-    loadDashboard(true);
+    if (state.account?.role === "agent" && Date.now() >= dashboardInteractionUntil) loadDashboard(true);
+    else if (state.account?.role === "restaurant") refreshRestaurantOrdersInBackground();
   });
   // Keep student prices and sold-out status current even when the portal stays open.
   window.addEventListener("focus", refreshPublicMenu);

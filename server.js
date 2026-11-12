@@ -4781,8 +4781,11 @@ function voiceOrderIsActive(order) {
 app.get("/api/voice/config", requireLogin, (req, res) => {
   const turnUrl = String(process.env.VOICE_TURN_URL || "").trim();
   const iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
-  if (turnUrl && process.env.VOICE_TURN_USERNAME && process.env.VOICE_TURN_CREDENTIAL) {
-    iceServers.push({ urls: turnUrl, username: process.env.VOICE_TURN_USERNAME, credential: process.env.VOICE_TURN_CREDENTIAL });
+  if (turnUrl && process.env.VOICE_TURN_SHARED_SECRET) {
+    const expiry = Math.floor(Date.now() / 1000) + 3600;
+    const username = expiry + ":" + String(process.env.VOICE_TURN_USERNAME || "chowoncampus");
+    const credential = crypto.createHmac("sha1", process.env.VOICE_TURN_SHARED_SECRET).update(username).digest("base64");
+    iceServers.push({ urls: turnUrl, username, credential });
   }
   res.json({ enabled: true, iceServers, turnConfigured: iceServers.length > 1 });
 });

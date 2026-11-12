@@ -4,8 +4,8 @@ if(!root||!grid)return;
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 fetch("/api/ads/public",{credentials:"same-origin"}).then(r=>r.ok?r.json():Promise.reject()).then(data=>{
  const ads=Array.isArray(data.ads)?data.ads:[];
- if(!ads.length)return;
  root.hidden=false;
+ if(!ads.length){grid.innerHTML='<div class="campus-ads-empty"><strong>No sponsored promotions yet.</strong><p>New campus offers will appear here when an advertisement is approved and activated.</p></div>';return;}
  grid.innerHTML=ads.slice(0,4).map(ad=>{const internal=ad.destinationType==="internal";return '<a class="campus-ad-card" href="'+esc(ad.targetUrl)+'" '+(internal?'':'target="_blank" rel="noopener noreferrer" ')+'data-ad-click="'+esc(ad.id)+'"><img src="'+esc(ad.imageUrl)+'" alt=""><div class="campus-ad-copy"><span class="campus-ad-tag">Sponsored</span><h3>'+esc(ad.title)+'</h3><p>'+esc(ad.description||ad.advertiser)+'</p></div></a>';}).join("");
  ads.slice(0,4).forEach(ad=>fetch("/api/ads/"+encodeURIComponent(ad.id)+"/impression",{method:"POST",credentials:"same-origin"}).catch(()=>{}));
 }).catch(()=>{});

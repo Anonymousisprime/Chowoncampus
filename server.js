@@ -4824,7 +4824,7 @@ app.post("/api/voice/calls/:id/answer", requireRole("student"), (req, res) => {
     call.status = "ended"; return res.status(409).json({ error: "This delivery is no longer active." });
   }
   if (call.status !== "ringing") return res.status(409).json({ error: "This call has already been answered or ended." });
-  call.status = "accepted"; call.answeredAt = Date.now();
+  call.status = "accepted"; call.answeredAt = Date.now(); call.expiresAt = Date.now() + 2 * 60 * 60 * 1000;
   res.json({ ok: true, callId: call.id, orderId: call.orderId, agentName: call.agentName });
 });
 app.post("/api/voice/calls/:id/decline", requireRole("student"), (req, res) => {
@@ -4864,7 +4864,7 @@ app.post("/api/voice/calls/:id/events", requireLogin, (req, res) => {
     call.events.push({ seq: call.nextSeq++, from: participant, type, payload: null, at: Date.now() });
     return res.json({ ok: true });
   }
-  if (type !== "offer" && call.status !== "accepted") return res.status(409).json({ error: "The student must answer before media can connect." });
+  if (type === "answer" && call.status !== "accepted") return res.status(409).json({ error: "The student must answer before media can connect." });
   const payload = req.body.payload;
   if (!payload || JSON.stringify(payload).length > 12000) return res.status(400).json({ error: "Invalid signalling data." });
   call.events.push({ seq: call.nextSeq++, from: participant, type, payload, at: Date.now() });

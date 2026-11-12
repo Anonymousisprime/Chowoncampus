@@ -4754,6 +4754,124 @@ app.post("/api/superadmin/ads/:id/action", requireSuperAdmin, (req, res) => {
   res.json({ ad, message: action === "approve" ? "Restaurant advertisement application approved. Confirm payment before activation." : action === "activate" ? "Promotion activated." : action === "pause" ? "Promotion paused." : "Promotion rejected." });
 });
 
+
+/* ChowOnCampus Voice Connect: short-lived WebRTC signalling, never stores audio. */
+const voiceCalls = new Map();
+const VOICE_CALL_TTL_MS = 2 * 60 * 1000;
+function getVoiceCall(id) {
+  const call = voiceCalls.get(String(id));
+  if (!call) return null;
+  if (Date.now() > call.expiresAt || ["ended", "declined", "expired"].includes(call.status)) {
+    voiceCalls.delete(String(id));
+    return null;
+  }
+  return call;
+}
+function voiceParticipant(req, call) {
+  const account = req.account;
+  return account?.role === "agent" && account.agentId === call.agentId
+    ? "agent"
+    : account?.role === "student" && account.username === call.studentUsername
+      ? "student" : null;
+}
+function voiceOrderIsActive(order) {
+  return order && !["Completed", "Cancelled"].includes(order.status)
+    && ["Confirmed", "Preparing", "Ready for pickup", "Out for delivery"].includes(order.status);
+}
+app.get("/api/voice/config", requireLogin, (req, res) => {
+  const turnUrl = String(process.env.VOICE_TURN_URL || "").trim();
+  const iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
+  if (turnUrl && process.env.VOICE_TURN_USERNAME && process.env.VOICE_TURN_CREDENTIAL) {
+    iceServers.push({ urls: turnUrl, username: process.env.VOICE_TURN_USERNAME, credential: process.env.VOICE_TURN_CREDENTIAL });
+  }
+  res.json({ enabled: true, iceServers, turnConfigured: iceServers.length > 1 });
+});
+app.post("/api/voice/calls", requireRole("agent"), (req, res) => {
+  const orderId = String(req.body.orderId || "").trim();
+  const order = readOrders().find(item => String(item.id) === orderId);
+  if (!order) return res.status(404).json({ error: "Order not found." });
+  if (order.assignedAgentId !== req.account.agentId) return res.status(403).json({ error: "Only the agent assigned to this order can call the student." });
+  if (!voiceOrderIsActive(order)) return res.status(409).json({ error: "Calls are available only while this delivery is active." });
+  const existing = [...voiceCalls.values()].find(call => call.orderId === orderId && !["ended", "declined", "expired"].includes(call.status) && Date.now() < call.expiresAt);
+  if (existing) return res.status(409).json({ error: "There is already an active call for this order.", callId: existing.id });
+  const id = crypto.randomUUID();
+  const call = {
+    id, orderId, agentId: req.account.agentId, agentName: req.account.name || "Your delivery agent",
+    studentUsername: order.customerPhone, studentName: order.customerName || "Student",
+    status: "ringing", createdAt: Date.now(), expiresAt: Date.now() + VOICE_CALL_TTL_MS,
+    events: [], nextSeq: 1
+  };
+  voiceCalls.set(id, call);
+  const pushReady = PUSH_VAPID_CONFIGURED && readPushSubscriptions().some(item => pushSubscriptionBelongsToTarget(item, { role: "student", username: call.studentUsername }));
+  sendPushToTarget({ role: "student", username: call.studentUsername }, {
+    title: "Incoming ChowOnCampus call",
+    body: (call.agentName || "Your assigned agent") + " is calling about order " + orderId + ". Tap to answer.",
+    url: "/student-dashboard.html?voiceCall=" + encodeURIComponent(id),
+    callId: id,
+    kind: "voice_call"
+  });
+  res.status(201).json({ callId: id, status: call.status, pushReady, expiresAt: call.expiresAt });
+});
+app.get("/api/voice/calls/incoming", requireRole("student"), (req, res) => {
+  const calls = [...voiceCalls.values()].filter(call => call.studentUsername === req.account.username && call.status === "ringing" && Date.now() < call.expiresAt);
+  res.json({ calls: calls.map(call => ({ callId: call.id, orderId: call.orderId, agentName: call.agentName, expiresAt: call.expiresAt })) });
+});
+app.post("/api/voice/calls/:id/answer", requireRole("student"), (req, res) => {
+  const call = getVoiceCall(req.params.id);
+  if (!call || call.studentUsername !== req.account.username) return res.status(404).json({ error: "This call is no longer available." });
+  const order = readOrders().find(item => String(item.id) === call.orderId);
+  if (!voiceOrderIsActive(order) || order.assignedAgentId !== call.agentId) {
+    call.status = "ended"; return res.status(409).json({ error: "This delivery is no longer active." });
+  }
+  if (call.status !== "ringing") return res.status(409).json({ error: "This call has already been answered or ended." });
+  call.status = "accepted"; call.answeredAt = Date.now();
+  res.json({ ok: true, callId: call.id, orderId: call.orderId, agentName: call.agentName });
+});
+app.post("/api/voice/calls/:id/decline", requireRole("student"), (req, res) => {
+  const call = getVoiceCall(req.params.id);
+  if (!call || call.studentUsername !== req.account.username) return res.status(404).json({ error: "This call is no longer available." });
+  if (call.status === "ringing") call.status = "declined";
+  res.json({ ok: true });
+});
+app.get("/api/voice/calls/:id", requireLogin, (req, res) => {
+  const call = getVoiceCall(req.params.id);
+  if (!call) return res.status(404).json({ error: "This call has ended or expired." });
+  const participant = voiceParticipant(req, call);
+  if (!participant) return res.status(403).json({ error: "You are not a participant in this call." });
+  const order = readOrders().find(item => String(item.id) === call.orderId);
+  if (!voiceOrderIsActive(order) || order.assignedAgentId !== call.agentId) call.status = "ended";
+  res.json({ callId: call.id, orderId: call.orderId, status: call.status, agentName: call.agentName, expiresAt: call.expiresAt });
+});
+app.get("/api/voice/calls/:id/events", requireLogin, (req, res) => {
+  const call = getVoiceCall(req.params.id);
+  if (!call) return res.status(404).json({ error: "This call has ended or expired." });
+  const participant = voiceParticipant(req, call);
+  if (!participant) return res.status(403).json({ error: "You are not a participant in this call." });
+  const after = Math.max(0, Number(req.query.after) || 0);
+  res.json({ status: call.status, events: call.events.filter(event => event.seq > after && event.from !== participant) });
+});
+app.post("/api/voice/calls/:id/events", requireLogin, (req, res) => {
+  const call = getVoiceCall(req.params.id);
+  if (!call) return res.status(404).json({ error: "This call has ended or expired." });
+  const participant = voiceParticipant(req, call);
+  if (!participant) return res.status(403).json({ error: "You are not a participant in this call." });
+  const type = String(req.body.type || "");
+  if (!["offer", "answer", "ice", "end"].includes(type)) return res.status(400).json({ error: "Invalid call event." });
+  if (type === "offer" && participant !== "agent") return res.status(403).json({ error: "Only the assigned agent can start the call." });
+  if (type === "answer" && participant !== "student") return res.status(403).json({ error: "Only the student can answer the call." });
+  if (type === "end") {
+    call.status = "ended";
+    call.events.push({ seq: call.nextSeq++, from: participant, type, payload: null, at: Date.now() });
+    return res.json({ ok: true });
+  }
+  if (call.status !== "accepted") return res.status(409).json({ error: "The student must answer before media can connect." });
+  const payload = req.body.payload;
+  if (!payload || JSON.stringify(payload).length > 12000) return res.status(400).json({ error: "Invalid signalling data." });
+  call.events.push({ seq: call.nextSeq++, from: participant, type, payload, at: Date.now() });
+  call.events = call.events.slice(-100);
+  res.json({ ok: true });
+});
+
 // Serve the website for browser routes, while leaving unknown API paths as 404.
 app.use((req, res, next) => {
   if (req.method === "GET" && !req.path.startsWith("/api/")) {

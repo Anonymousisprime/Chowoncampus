@@ -35,7 +35,8 @@ const storageFiles = {
   "operations-events.json": "operationsEvents",
   "operations-cases.json": "operationsCases",
   "restaurant-suspensions.json": "restaurantSuspensions",
-  "restaurant-settlements.json": "restaurantSettlements"
+  "restaurant-settlements.json": "restaurantSettlements",
+  "campus-ads.json": "campusAds"
 };
 
 function readLocalJson(filename, fallback) {
@@ -71,7 +72,8 @@ async function initializePersistentStorage() {
     ["operations-events.json", []],
     ["operations-cases.json", []],
     ["restaurant-suspensions.json", {}],
-    ["restaurant-settlements.json", []]
+    ["restaurant-settlements.json", []],
+    ["campus-ads.json", []]
   ];
   if (!storagePool) {
     for (const [filename, fallback] of definitions) {
@@ -4555,6 +4557,163 @@ app.post("/api/admin/agent-payments", requireRole("admin"), (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message || "Could not record the agent payment." });
   }
+});
+
+
+// -----------------------------------------------------------------------------
+// ChowOnCampus Ads — Ultimate Admin-managed campus advertising MVP.
+// Payments are recorded manually; this feature does not charge customers.
+// -----------------------------------------------------------------------------
+const CAMPUS_ADS_FILE = path.join(__dirname, "campus-ads.json");
+function readCampusAds() { return readStoredJson(CAMPUS_ADS_FILE, []); }
+function saveCampusAds(items) { saveStoredJson(CAMPUS_ADS_FILE, items.slice(0, 2000)); }
+const CAMPUS_AD_PACKAGES = Object.freeze({
+  starter: { days: 3, price: 2000 },
+  basic: { days: 7, price: 4000 },
+  growth: { days: 14, price: 7000 },
+  premium: { days: 30, price: 12000 }
+});
+function campusAdPublic(item) {
+  return {
+    id: item.id, title: item.title, advertiser: item.advertiser,
+    type: item.type, description: item.description, imageUrl: item.imageUrl,
+    targetUrl: item.targetUrl, destinationType: item.destinationType || "external", packageKey: item.packageKey,
+    startsAt: item.startsAt, endsAt: item.endsAt
+  };
+}
+function campusAdIsLive(item, now = Date.now()) {
+  return item.status === "active" && item.paymentReceived === true &&
+    Number.isFinite(new Date(item.startsAt).getTime()) &&
+    Number.isFinite(new Date(item.endsAt).getTime()) &&
+    now >= new Date(item.startsAt).getTime() && now < new Date(item.endsAt).getTime();
+}
+function safeHttpsUrl(value, required = false) {
+  const raw = String(value || "").trim();
+  if (!raw && !required) return "";
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === "https:" ? parsed.toString() : null;
+  } catch { return null; }
+}
+app.get("/api/ads/public", (req, res) => {
+  try {
+    const now = Date.now();
+    const live = readCampusAds().filter(item => campusAdIsLive(item, now));
+    res.setHeader("Cache-Control", "public, max-age=30");
+    res.json({ ads: live.map(campusAdPublic) });
+  } catch (error) {
+    res.status(500).json({ error: "Could not load campus promotions." });
+  }
+});
+const campusAdEventLimits = new Map();
+function allowCampusAdEvent(req, key) {
+  const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
+  const bucket = key + ":" + ip;
+  const now = Date.now();
+  const previous = campusAdEventLimits.get(bucket) || 0;
+  if (now - previous < 1000) return false;
+  campusAdEventLimits.set(bucket, now);
+  if (campusAdEventLimits.size > 5000) {
+    for (const [entry, timestamp] of campusAdEventLimits) if (now - timestamp > 10 * 60 * 1000) campusAdEventLimits.delete(entry);
+  }
+  return true;
+}
+app.post("/api/ads/:id/impression", (req, res) => {
+  if (!allowCampusAdEvent(req, "impression:" + req.params.id)) return res.status(429).json({ error: "Please wait before recording another view." });
+  const ads = readCampusAds();
+  const ad = ads.find(item => item.id === req.params.id);
+  if (!ad || !campusAdIsLive(ad)) return res.status(404).json({ error: "Promotion is not active." });
+  ad.impressions = Math.min(1000000000, (Number(ad.impressions) || 0) + 1);
+  saveCampusAds(ads);
+  res.status(202).json({ ok: true });
+});
+app.post("/api/ads/:id/click", (req, res) => {
+  if (!allowCampusAdEvent(req, "click:" + req.params.id)) return res.status(429).json({ error: "Please wait before recording another click." });
+  const ads = readCampusAds();
+  const ad = ads.find(item => item.id === req.params.id);
+  if (!ad || !campusAdIsLive(ad)) return res.status(404).json({ error: "Promotion is not active." });
+  ad.clicks = Math.min(1000000000, (Number(ad.clicks) || 0) + 1);
+  saveCampusAds(ads);
+  res.status(202).json({ ok: true, targetUrl: ad.targetUrl });
+});
+app.get("/api/superadmin/ads", requireSuperAdmin, (req, res) => {
+  const ads = readCampusAds().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  const totals = ads.reduce((sum, ad) => ({
+    campaigns: sum.campaigns + 1,
+    active: sum.active + (campusAdIsLive(ad) ? 1 : 0),
+    impressions: sum.impressions + (Number(ad.impressions) || 0),
+    clicks: sum.clicks + (Number(ad.clicks) || 0),
+    revenue: sum.revenue + (ad.paymentReceived ? Number(ad.price) || 0 : 0)
+  }), { campaigns: 0, active: 0, impressions: 0, clicks: 0, revenue: 0 });
+  res.setHeader("Cache-Control", "no-store, private");
+  res.json({ ads, totals, packages: CAMPUS_AD_PACKAGES });
+});
+app.post("/api/superadmin/ads", requireSuperAdmin, (req, res) => {
+  const title = String(req.body.title || "").trim();
+  const advertiser = String(req.body.advertiser || "").trim();
+  const type = String(req.body.type || "business").trim();
+  const description = String(req.body.description || "").trim();
+  const packageKey = String(req.body.packageKey || "");
+  const destinationType = String(req.body.destinationType || "external");
+  const imageUrl = safeHttpsUrl(req.body.imageUrl, true);
+  const rawTarget = String(req.body.targetUrl || "").trim();
+  const targetUrl = destinationType === "internal"
+    ? (/^\/(?!\/)[A-Za-z0-9/_?&=.%#-]*$/.test(rawTarget) ? rawTarget : null)
+    : safeHttpsUrl(rawTarget, true);
+  const pkg = CAMPUS_AD_PACKAGES[packageKey];
+  const price = pkg ? pkg.price * (destinationType === "external" ? 2 : 1) : 0;
+  if (title.length < 3 || title.length > 90) return res.status(400).json({ error: "Promotion title must be 3–90 characters." });
+  if (advertiser.length < 2 || advertiser.length > 100) return res.status(400).json({ error: "Enter an advertiser name (2–100 characters)." });
+  if (!["business", "restaurant", "product", "event"].includes(type)) return res.status(400).json({ error: "Choose a valid promotion type." });
+  if (description.length > 240) return res.status(400).json({ error: "Description must be 240 characters or fewer." });
+  if (!pkg) return res.status(400).json({ error: "Choose one of the available advertising packages." });
+  if (!["internal", "external"].includes(destinationType)) return res.status(400).json({ error: "Choose an internal ChowOnCampus page or an external website." });
+  if (!imageUrl || !targetUrl) return res.status(400).json({ error: destinationType === "internal" ? "Use a valid page path on ChowOnCampus, beginning with /." : "Use valid HTTPS links for the advert image and external destination." });
+  const now = new Date();
+  const startsAtInput = req.body.startsAt ? new Date(req.body.startsAt) : now;
+  if (!Number.isFinite(startsAtInput.getTime()) || startsAtInput.getTime() < now.getTime() - 5 * 60 * 1000) return res.status(400).json({ error: "Choose a valid start time that is not in the past." });
+  const ad = {
+    id: "AD-" + crypto.randomBytes(5).toString("hex").toUpperCase(),
+    title, advertiser, type, description, imageUrl, targetUrl, destinationType, packageKey,
+    days: pkg.days, price, startsAt: startsAtInput.toISOString(),
+    endsAt: new Date(startsAtInput.getTime() + pkg.days * 86400000).toISOString(),
+    status: "pending", paymentReceived: false, impressions: 0, clicks: 0,
+    createdAt: now.toISOString(), createdBy: req.account.username,
+    updatedAt: now.toISOString()
+  };
+  const ads = readCampusAds();
+  ads.unshift(ad);
+  saveCampusAds(ads);
+  res.status(201).json({ ad, message: "Promotion created as pending. Confirm payment before activating it." });
+});
+app.post("/api/superadmin/ads/:id/payment", requireSuperAdmin, (req, res) => {
+  const ads = readCampusAds();
+  const ad = ads.find(item => item.id === req.params.id);
+  if (!ad) return res.status(404).json({ error: "Promotion not found." });
+  if (req.body.received !== true && req.body.received !== false) return res.status(400).json({ error: "Choose whether payment has been received." });
+  ad.paymentReceived = req.body.received;
+  ad.paymentConfirmedAt = req.body.received ? new Date().toISOString() : null;
+  ad.paymentConfirmedBy = req.body.received ? req.account.username : null;
+  if (!ad.paymentReceived && ad.status === "active") ad.status = "paused";
+  ad.updatedAt = new Date().toISOString();
+  saveCampusAds(ads);
+  res.json({ ad, message: ad.paymentReceived ? "Payment marked as received." : "Payment status cleared; any live campaign has been paused." });
+});
+app.post("/api/superadmin/ads/:id/action", requireSuperAdmin, (req, res) => {
+  const action = String(req.body.action || "");
+  if (!["activate", "pause", "reject"].includes(action)) return res.status(400).json({ error: "Choose activate, pause or reject." });
+  const ads = readCampusAds();
+  const ad = ads.find(item => item.id === req.params.id);
+  if (!ad) return res.status(404).json({ error: "Promotion not found." });
+  if (action === "activate") {
+    if (!ad.paymentReceived) return res.status(409).json({ error: "Confirm payment before activating this promotion." });
+    if (new Date(ad.endsAt).getTime() <= Date.now()) return res.status(409).json({ error: "This campaign's scheduled period has ended. Create a new campaign." });
+    ad.status = "active";
+  } else ad.status = action === "pause" ? "paused" : "rejected";
+  ad.updatedAt = new Date().toISOString();
+  ad.updatedBy = req.account.username;
+  saveCampusAds(ads);
+  res.json({ ad, message: action === "activate" ? "Promotion activated." : action === "pause" ? "Promotion paused." : "Promotion rejected." });
 });
 
 // Serve the website for browser routes, while leaving unknown API paths as 404.

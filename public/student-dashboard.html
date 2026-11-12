@@ -33,7 +33,7 @@
     .student-dashboard-page .dashboard-header p{color:#e1f1e6;margin:6px 0 0}
     .student-dashboard-page #logoutButton{background:white;color:#176b45;border:0;font-weight:800}
     .student-dashboard-page #dashboardContent>.restaurant-welcome{border:1px solid #dce9df;border-radius:18px;background:white;padding:22px;margin-bottom:20px}
-    .student-dashboard-page .dashboard-order-section{background:white;border:1px solid #e0e9e2;border-radius:18px;padding:22px;margin:18px 0;box-shadow:0 8px 24px #173e2707}
+    .campus-ads-panel{background:#fff;border:1px solid #dfe9e1;border-radius:18px;padding:20px;margin:0 0 20px;box-shadow:0 8px 24px #173e2707}.campus-ads-heading{display:flex;justify-content:space-between;gap:12px;align-items:center}.campus-ads-heading h2{margin:4px 0;color:#173e2b}.campus-ads-heading p{margin:4px 0;color:#687c70;font-size:13px}.campus-ads-eyebrow{font-size:10px;letter-spacing:.12em;font-weight:900;color:#176b45}.campus-ads-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:14px}.campus-ad-card{display:block;overflow:hidden;border:1px solid #e0e9e2;border-radius:14px;color:inherit;text-decoration:none;background:#f8fbf8}.campus-ad-card img{display:block;width:100%;height:132px;object-fit:cover;background:#edf3ee}.campus-ad-copy{padding:12px}.campus-ad-tag{display:inline-block;background:#eaf3ed;color:#176b45;border-radius:99px;padding:4px 8px;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.06em}.campus-ad-copy h3{font-size:16px;margin:8px 0 4px}.campus-ad-copy p{font-size:13px;color:#687c70;margin:0;line-height:1.45}@media(max-width:600px){.campus-ads-panel{padding:15px}.campus-ads-grid{grid-template-columns:1fr 1fr;gap:8px}.campus-ad-card img{height:100px}.campus-ad-copy{padding:9px}.campus-ad-copy h3{font-size:14px}}    .student-dashboard-page .dashboard-order-section{background:white;border:1px solid #e0e9e2;border-radius:18px;padding:22px;margin:18px 0;box-shadow:0 8px 24px #173e2707}
     .student-dashboard-page .dashboard-order-section h2{margin-top:0}
     .student-dashboard-page .notification-panel{z-index:100}
     @media(max-width:600px){.student-dashboard-page .navbar{padding:10px 12px}.student-dashboard-page .brand-logo{max-width:150px}.student-dashboard-page .nav-actions{gap:6px}.student-dashboard-page .nav-actions>a[href="/restaurants.html"]{padding:9px 10px;font-size:13px}.student-dashboard-page #dashboardView{padding:18px 12px 42px}.student-dashboard-page .dashboard-header{padding:20px;border-radius:16px}.student-dashboard-page .dashboard-order-section{padding:15px}.student-dashboard-page #dashboardContent>.restaurant-welcome{padding:16px}}
@@ -185,7 +185,7 @@
         <button type="button" id="logoutButton" class="secondary-button">Log out</button>
       </div>
       <div id="earningsPanel"></div>
-      <div id="dashboardContent">
+      <section id="campusAds" class="campus-ads-panel" aria-label="Sponsored campus promotions" hidden><div class="campus-ads-heading"><div><span class="campus-ads-eyebrow">CAMPUS DISCOVERIES</span><h2>Promotions around campus</h2><p>Offers from campus businesses. Sponsored placements are labelled.</p></div></div><div id="campusAdsGrid" class="campus-ads-grid"></div></section>      <div id="dashboardContent">
         <p>Loading dashboard...</p>
       </div>
     </section>
@@ -216,6 +216,6 @@
   </section>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <aside id="notificationPanel" class="notification-panel hidden" aria-label="Notifications"><div class="notification-panel-heading"><strong>Notifications</strong><div class="notification-panel-actions"><button type="button" id="notificationClear" class="secondary-button" title="Clear your notifications">Clear</button><button type="button" id="notificationClose" aria-label="Close notifications">×</button></div></div><div class="notification-push-controls"><p id="pushSetupStatus" class="small-note" role="status">Set up background alerts so you can receive order updates when ChowOnCampus is closed.</p><button type="button" id="notificationEnablePush" class="secondary-button full-width">Enable background alerts</button><button type="button" id="notificationPushTest" class="secondary-button full-width">Send test alert</button></div><div id="notificationList"><p class="muted">Loading notifications…</p></div></aside>
-  <script src="/notifications.js?v=clear-notifications-1" defer></script>
+  <script src="/campus-ads.js?v=ads-mvp-1" defer></script>  <script src="/notifications.js?v=clear-notifications-1" defer></script>
 </body>
 </html>

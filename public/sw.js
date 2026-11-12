@@ -85,7 +85,8 @@ self.addEventListener("push", event => {
     badge: "/chowoncampus-icon.png?v=2",
     tag: data.orderId ? "chowoncampus-order-" + data.orderId : "chowoncampus-update",
     renotify: true,
-    actions: data.kind === "voice_call" ? [{ action: "answer", title: "Answer call" }, { action: "dismiss", title: "Dismiss" }] : [],\n    data: { url: data.url || "/", orderId: data.orderId || null, callId: data.callId || null, kind: data.kind || null }
+    actions: data.kind === "voice_call" ? [{ action: "answer", title: "Answer call" }, { action: "dismiss", title: "Dismiss" }] : [],
+    data: { url: data.url || "/", orderId: data.orderId || null, callId: data.callId || null, kind: data.kind || null }
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });

@@ -1277,6 +1277,16 @@ document.addEventListener("pointerdown", noteDashboardInteraction, true);
 document.addEventListener("keydown", noteDashboardInteraction, true);
 document.addEventListener("input", noteDashboardInteraction, true);
 
+async function loadRestaurantAdApplications() {
+ const form=document.getElementById("restaurantAdApplicationForm"),list=document.getElementById("restaurantAdApplicationsList"),status=document.getElementById("restaurantAdApplicationStatus");if(!form||!list)return;
+ const destinationType=form.elements.destinationType,targetInput=form.elements.targetUrl,priceRule=document.getElementById("restaurantAdPriceRule");
+ const updateHelp=()=>{const external=destinationType.value==="external";targetInput.type=external?"url":"text";targetInput.placeholder=external?"https://your-website.example":"/restaurants.html";if(priceRule)priceRule.textContent=external?"External website: double the normal package price.":"ChowOnCampus page: normal package price.";};
+ destinationType.addEventListener("change",updateHelp);updateHelp();
+ const render=ads=>{list.innerHTML=ads.length?ads.map(ad=>{const label=ad.status==="approved"?(ad.paymentReceived?"Approved · payment received":"Approved · awaiting payment"):ad.status==="active"?"Active":ad.status==="paused"?"Paused":ad.status==="rejected"?"Rejected":"Pending review";return '<article class="order-card" style="margin:10px 0"><div class="order-top"><div><strong>'+escapeHtml(ad.title)+'</strong><p class="muted">'+escapeHtml(ad.days)+' days · '+money(ad.price)+' · '+(ad.destinationType==="external"?"External website":"ChowOnCampus page")+'</p></div><span class="status">'+escapeHtml(label)+'</span></div><p class="muted">Submitted '+escapeHtml(ad.createdAt?new Date(ad.createdAt).toLocaleString():"recently")+'</p></article>';}).join(""):'<div class="empty-state compact-empty">You have not submitted an advertisement application yet.</div>';};
+ try{const data=await api("/api/restaurant/ads",{cache:"no-store"});render(data.ads||[]);}catch(error){list.innerHTML='<p class="error">'+escapeHtml(error.message)+'</p>';}
+ form.addEventListener("submit",async event=>{event.preventDefault();const button=form.querySelector('button[type="submit"]');button.disabled=true;if(status)status.textContent="Submitting your application…";try{const payload=Object.fromEntries(new FormData(form).entries());if(payload.startsAt)payload.startsAt=new Date(payload.startsAt).toISOString();else delete payload.startsAt;const result=await api("/api/restaurant/ads",{method:"POST",body:JSON.stringify(payload)});form.reset();updateHelp();if(status)status.textContent=result.message;const data=await api("/api/restaurant/ads",{cache:"no-store"});render(data.ads||[]);}catch(error){if(status)status.textContent=error.message;}finally{button.disabled=false;}});
+}
+
 async function loadDashboard(automatic = false) {
   if (!state.account) { location.href = "/student-login.html"; return; }
   if (automatic && Date.now() < dashboardInteractionUntil) return;
@@ -1432,6 +1442,7 @@ async function loadDashboard(automatic = false) {
         ${section("Ready for pickup & delivery", "Contact your assigned agent and coordinate handoff", pickup, "pickup")}
         ${section("Order history", "Completed and cancelled orders", completed, "completed")}<section class="dashboard-order-section restaurant-view-panel" id="restaurantRatingsPanel" hidden><div class="dashboard-section-heading"><div><h2>Customer ratings &amp; feedback</h2><p>Student ratings for your restaurant and delivery experience.</p></div><button class="secondary-button" id="refreshRestaurantRatings" type="button">Refresh ratings</button></div><div id="restaurantRatingsSummary" class="restaurant-metrics"><p class="muted">Loading customer ratings…</p></div><div id="restaurantRecentReviews" class="order-list"></div></section>`;
       loadRestaurantRatings();
+      loadRestaurantAdApplications();
       renderRestaurantMenuManager();
       document.querySelectorAll("[data-restaurant-chat-order]").forEach(form => loadRestaurantChat(form.dataset.restaurantChatOrder));
       document.querySelectorAll("[data-agent-chat-order]").forEach(form => loadAgentChat(form.dataset.agentChatOrder));

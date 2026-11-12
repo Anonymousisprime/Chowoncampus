@@ -4595,6 +4595,35 @@ function safeHttpsUrl(value, required = false) {
     return parsed.protocol === "https:" ? parsed.toString() : null;
   } catch { return null; }
 }
+
+app.get("/api/restaurant/ads", requireRole("restaurant"), (req, res) => {
+ const restaurant=restaurants.find(item=>item.id===req.account.restaurantId);
+ if(!restaurant)return res.status(404).json({error:"Restaurant account not found."});
+ const ads=readCampusAds().filter(item=>item.submittedByRestaurantId===restaurant.id).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt))).map(item=>({id:item.id,title:item.title,description:item.description,imageUrl:item.imageUrl,targetUrl:item.targetUrl,destinationType:item.destinationType,packageKey:item.packageKey,days:item.days,price:item.price,startsAt:item.startsAt,endsAt:item.endsAt,status:item.status,paymentReceived:item.paymentReceived===true,createdAt:item.createdAt,updatedAt:item.updatedAt}));
+ res.setHeader("Cache-Control","no-store, private");res.json({ads,packages:CAMPUS_AD_PACKAGES});
+});
+app.post("/api/restaurant/ads", requireRole("restaurant"), (req,res)=>{
+ const restaurant=restaurants.find(item=>item.id===req.account.restaurantId);
+ if(!restaurant)return res.status(404).json({error:"Restaurant account not found."});
+ if(!vendorIsApproved(restaurant.id))return res.status(403).json({error:"Complete restaurant verification and receive approval before advertising."});
+ const existing=readCampusAds().filter(item=>item.submittedByRestaurantId===restaurant.id);
+ if(existing.filter(item=>["pending","approved","active","paused"].includes(item.status)).length>=5)return res.status(409).json({error:"You already have five applications or campaigns awaiting completion."});
+ const title=String(req.body.title||"").trim(),description=String(req.body.description||"").trim(),packageKey=String(req.body.packageKey||""),destinationType=String(req.body.destinationType||"internal");
+ const imageUrl=safeHttpsUrl(req.body.imageUrl,true),rawTarget=String(req.body.targetUrl||"").trim();
+ const targetUrl=destinationType==="internal"?(/^\/(?!\/)[A-Za-z0-9/_?&=.%#-]*$/.test(rawTarget)?rawTarget:null):safeHttpsUrl(rawTarget,true);
+ const pkg=CAMPUS_AD_PACKAGES[packageKey],price=pkg?pkg.price*(destinationType==="external"?2:1):0;
+ if(title.length<3||title.length>90)return res.status(400).json({error:"Promotion title must be 3–90 characters."});
+ if(description.length>240)return res.status(400).json({error:"Description must be 240 characters or fewer."});
+ if(!pkg)return res.status(400).json({error:"Choose an available advertising package."});
+ if(!["internal","external"].includes(destinationType))return res.status(400).json({error:"Choose an internal or external destination."});
+ if(!imageUrl||!targetUrl)return res.status(400).json({error:destinationType==="internal"?"Use a valid ChowOnCampus page path beginning with /.":"Use valid HTTPS links for the advert image and external website."});
+ const now=new Date(),startsAtInput=req.body.startsAt?new Date(req.body.startsAt):now;
+ if(!Number.isFinite(startsAtInput.getTime())||startsAtInput.getTime()<now.getTime()-5*60*1000)return res.status(400).json({error:"Choose a valid campaign start time."});
+ const ad={id:"AD-"+crypto.randomBytes(5).toString("hex").toUpperCase(),title,advertiser:restaurant.name,type:"restaurant",description,imageUrl,targetUrl,destinationType,packageKey,days:pkg.days,price,startsAt:startsAtInput.toISOString(),endsAt:new Date(startsAtInput.getTime()+pkg.days*86400000).toISOString(),status:"pending",paymentReceived:false,impressions:0,clicks:0,submittedByRestaurantId:restaurant.id,submittedByRestaurantName:restaurant.name,createdAt:now.toISOString(),createdBy:req.account.username,updatedAt:now.toISOString()};
+ const ads=readCampusAds();ads.unshift(ad);saveCampusAds(ads);
+ res.status(201).json({ad:{id:ad.id,title:ad.title,price:ad.price,status:ad.status},message:"Advertisement application submitted. The Ultimate Admin will review it before payment and activation."});
+});
+
 app.get("/api/ads/public", (req, res) => {
   try {
     const now = Date.now();
@@ -4691,6 +4720,7 @@ app.post("/api/superadmin/ads/:id/payment", requireSuperAdmin, (req, res) => {
   const ad = ads.find(item => item.id === req.params.id);
   if (!ad) return res.status(404).json({ error: "Promotion not found." });
   if (req.body.received !== true && req.body.received !== false) return res.status(400).json({ error: "Choose whether payment has been received." });
+  if (req.body.received === true && ad.submittedByRestaurantId && ad.status !== "approved") return res.status(409).json({ error: "Approve this restaurant application before confirming its payment." });
   ad.paymentReceived = req.body.received;
   ad.paymentConfirmedAt = req.body.received ? new Date().toISOString() : null;
   ad.paymentConfirmedBy = req.body.received ? req.account.username : null;
@@ -4701,11 +4731,19 @@ app.post("/api/superadmin/ads/:id/payment", requireSuperAdmin, (req, res) => {
 });
 app.post("/api/superadmin/ads/:id/action", requireSuperAdmin, (req, res) => {
   const action = String(req.body.action || "");
-  if (!["activate", "pause", "reject"].includes(action)) return res.status(400).json({ error: "Choose activate, pause or reject." });
+  if (!["approve", "activate", "pause", "reject"].includes(action)) return res.status(400).json({ error: "Choose approve, activate, pause or reject." });
   const ads = readCampusAds();
   const ad = ads.find(item => item.id === req.params.id);
   if (!ad) return res.status(404).json({ error: "Promotion not found." });
-  if (action === "activate") {
+  if (action === "approve") {
+    if (!ad.submittedByRestaurantId) return res.status(400).json({ error: "Only restaurant-submitted applications need approval." });
+    if (ad.status !== "pending") return res.status(409).json({ error: "Only pending restaurant applications can be approved." });
+    ad.status = "approved";
+    ad.applicationReviewedAt = new Date().toISOString();
+    ad.applicationReviewedBy = req.account.username;
+  } else if (action === "activate") {
+    if (ad.submittedByRestaurantId && ad.status !== "approved") return res.status(409).json({ error: "Approve this restaurant application before activating it." });
+
     if (!ad.paymentReceived) return res.status(409).json({ error: "Confirm payment before activating this promotion." });
     if (new Date(ad.endsAt).getTime() <= Date.now()) return res.status(409).json({ error: "This campaign's scheduled period has ended. Create a new campaign." });
     ad.status = "active";
@@ -4713,7 +4751,7 @@ app.post("/api/superadmin/ads/:id/action", requireSuperAdmin, (req, res) => {
   ad.updatedAt = new Date().toISOString();
   ad.updatedBy = req.account.username;
   saveCampusAds(ads);
-  res.json({ ad, message: action === "activate" ? "Promotion activated." : action === "pause" ? "Promotion paused." : "Promotion rejected." });
+  res.json({ ad, message: action === "approve" ? "Restaurant advertisement application approved. Confirm payment before activation." : action === "activate" ? "Promotion activated." : action === "pause" ? "Promotion paused." : "Promotion rejected." });
 });
 
 // Serve the website for browser routes, while leaving unknown API paths as 404.

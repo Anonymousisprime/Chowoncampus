@@ -4864,7 +4864,7 @@ app.post("/api/voice/calls/:id/events", requireLogin, (req, res) => {
     call.events.push({ seq: call.nextSeq++, from: participant, type, payload: null, at: Date.now() });
     return res.json({ ok: true });
   }
-  if (call.status !== "accepted") return res.status(409).json({ error: "The student must answer before media can connect." });
+  if (type !== "offer" && call.status !== "accepted") return res.status(409).json({ error: "The student must answer before media can connect." });
   const payload = req.body.payload;
   if (!payload || JSON.stringify(payload).length > 12000) return res.status(400).json({ error: "Invalid signalling data." });
   call.events.push({ seq: call.nextSeq++, from: participant, type, payload, at: Date.now() });

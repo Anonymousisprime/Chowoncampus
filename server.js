@@ -4577,7 +4577,7 @@ function campusAdPublic(item) {
   return {
     id: item.id, title: item.title, advertiser: item.advertiser,
     type: item.type, description: item.description, imageUrl: item.imageUrl,
-    targetUrl: item.targetUrl, packageKey: item.packageKey,
+    targetUrl: item.targetUrl, destinationType: item.destinationType || "external", packageKey: item.packageKey,
     startsAt: item.startsAt, endsAt: item.endsAt
   };
 }
@@ -4654,22 +4654,28 @@ app.post("/api/superadmin/ads", requireSuperAdmin, (req, res) => {
   const type = String(req.body.type || "business").trim();
   const description = String(req.body.description || "").trim();
   const packageKey = String(req.body.packageKey || "");
+  const destinationType = String(req.body.destinationType || "external");
   const imageUrl = safeHttpsUrl(req.body.imageUrl, true);
-  const targetUrl = safeHttpsUrl(req.body.targetUrl, true);
+  const rawTarget = String(req.body.targetUrl || "").trim();
+  const targetUrl = destinationType === "internal"
+    ? (/^\/(?!\/)[A-Za-z0-9/_?&=.%#-]*$/.test(rawTarget) ? rawTarget : null)
+    : safeHttpsUrl(rawTarget, true);
   const pkg = CAMPUS_AD_PACKAGES[packageKey];
+  const price = pkg ? pkg.price * (destinationType === "external" ? 2 : 1) : 0;
   if (title.length < 3 || title.length > 90) return res.status(400).json({ error: "Promotion title must be 3–90 characters." });
   if (advertiser.length < 2 || advertiser.length > 100) return res.status(400).json({ error: "Enter an advertiser name (2–100 characters)." });
   if (!["business", "restaurant", "product", "event"].includes(type)) return res.status(400).json({ error: "Choose a valid promotion type." });
   if (description.length > 240) return res.status(400).json({ error: "Description must be 240 characters or fewer." });
   if (!pkg) return res.status(400).json({ error: "Choose one of the available advertising packages." });
-  if (!imageUrl || !targetUrl) return res.status(400).json({ error: "Use valid HTTPS links for the advert image and destination." });
+  if (!["internal", "external"].includes(destinationType)) return res.status(400).json({ error: "Choose an internal ChowOnCampus page or an external website." });
+  if (!imageUrl || !targetUrl) return res.status(400).json({ error: destinationType === "internal" ? "Use a valid page path on ChowOnCampus, beginning with /." : "Use valid HTTPS links for the advert image and external destination." });
   const now = new Date();
   const startsAtInput = req.body.startsAt ? new Date(req.body.startsAt) : now;
   if (!Number.isFinite(startsAtInput.getTime()) || startsAtInput.getTime() < now.getTime() - 5 * 60 * 1000) return res.status(400).json({ error: "Choose a valid start time that is not in the past." });
   const ad = {
     id: "AD-" + crypto.randomBytes(5).toString("hex").toUpperCase(),
-    title, advertiser, type, description, imageUrl, targetUrl, packageKey,
-    days: pkg.days, price: pkg.price, startsAt: startsAtInput.toISOString(),
+    title, advertiser, type, description, imageUrl, targetUrl, destinationType, packageKey,
+    days: pkg.days, price, startsAt: startsAtInput.toISOString(),
     endsAt: new Date(startsAtInput.getTime() + pkg.days * 86400000).toISOString(),
     status: "pending", paymentReceived: false, impressions: 0, clicks: 0,
     createdAt: now.toISOString(), createdBy: req.account.username,

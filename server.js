@@ -4778,7 +4778,36 @@ function voiceOrderIsActive(order) {
   return order && !["Completed", "Cancelled"].includes(order.status)
     && ["Confirmed", "Preparing", "Ready for pickup", "Out for delivery"].includes(order.status);
 }
-app.get("/api/voice/config", requireLogin, (req, res) => {
+// Metered TURN credentials are fetched server-side. The account-wide secret key
+// is never sent to browsers; only the credential-scoped ICE server response is.
+let meteredIceCache = { value: null, expiresAt: 0 };
+app.get("/api/voice/config", requireLogin, async (req, res) => {
+  const meteredDomain = String(process.env.METERED_DOMAIN || "").trim();
+  const meteredApiKey = String(process.env.METERED_TURN_API_KEY || "").trim();
+  if (meteredDomain && meteredApiKey) {
+    if (!/^[a-z0-9-]+\.metered\.live$/i.test(meteredDomain)) {
+      return res.status(503).json({ enabled: true, turnConfigured: false, error: "Metered domain configuration is invalid." });
+    }
+    try {
+      if (!meteredIceCache.value || Date.now() >= meteredIceCache.expiresAt) {
+        const endpoint = new URL("/api/v1/turn/credentials", "https://" + meteredDomain);
+        endpoint.searchParams.set("apiKey", meteredApiKey);
+        const response = await fetch(endpoint, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8000) });
+        if (!response.ok) throw new Error("Metered credential request failed with HTTP " + response.status);
+        const servers = await response.json();
+        if (!Array.isArray(servers) || !servers.some(server => server && typeof server.urls === "string" && server.urls.startsWith("turn"))) {
+          throw new Error("Metered returned an invalid ICE server configuration.");
+        }
+        meteredIceCache = { value: servers, expiresAt: Date.now() + 5 * 60 * 1000 };
+      }
+      return res.json({ enabled: true, iceServers: meteredIceCache.value, turnConfigured: true, provider: "metered" });
+    } catch (error) {
+      console.error("Metered TURN configuration unavailable:", error.message);
+      return res.status(503).json({ enabled: true, turnConfigured: false, error: "Secure call connectivity is temporarily unavailable. Please try again shortly." });
+    }
+  }
+
+  // Backward-compatible fallback for the previous coturn shared-secret setup.
   const turnUrl = String(process.env.VOICE_TURN_URL || "").trim();
   const iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
   if (turnUrl && process.env.VOICE_TURN_SHARED_SECRET) {

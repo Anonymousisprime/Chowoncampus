@@ -1,0 +1,26 @@
+name: Academy validation
+on:
+  pull_request:
+    paths:
+      - "server.js"
+      - "academy-data.json"
+      - "public/academy.html"
+      - "public/academy.js"
+      - "tests/**"
+      - ".github/workflows/academy-validation.yml"
+  push:
+    branches:
+      - feature/chowoncampus-academy-basic
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install
+      - run: node --check server.js
+      - run: node --check public/academy.js
+      - run: npm test

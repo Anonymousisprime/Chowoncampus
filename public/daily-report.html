@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#176b45"><title>Daily Operational Report | ChowOnCampus</title>
+<style>
+:root{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#173528;background:#f3f7f4}*{box-sizing:border-box}body{margin:0}.top{background:#fff;border-bottom:1px solid #dfe9e1;padding:14px clamp(14px,4vw,42px);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.brand{font-weight:900;color:#176b45;text-decoration:none;font-size:19px}.actions{display:flex;gap:8px;flex-wrap:wrap}.btn{border:0;border-radius:10px;padding:10px 14px;font:inherit;font-weight:750;cursor:pointer;text-decoration:none}.primary{background:#176b45;color:#fff}.light{background:#eaf3ed;color:#176b45}.wrap{max-width:1250px;margin:auto;padding:24px 14px 55px}.heading{display:flex;justify-content:space-between;align-items:end;gap:15px;flex-wrap:wrap}.eyebrow{color:#258257;font-size:12px;font-weight:850;letter-spacing:.12em}h1{margin:6px 0;font-size:clamp(25px,4vw,36px)}.muted{color:#687a6e;line-height:1.5}.filters{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.filters label{font-size:13px;font-weight:750}.filters input{display:block;margin-top:5px;padding:10px;border:1px solid #cfddd2;border-radius:9px;font:inherit}.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:20px 0}.metric,.panel{background:#fff;border:1px solid #e0e9e2;border-radius:15px}.metric{padding:17px}.metric small{color:#687a6e;font-weight:700}.metric strong{display:block;font-size:27px;margin-top:7px;overflow-wrap:anywhere}.panel{margin:15px 0;overflow:hidden}.panel h2{font-size:18px;margin:0}.panel-head{padding:16px 18px;border-bottom:1px solid #e8eee9}.panel-body{padding:16px 18px}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:650px}th,td{text-align:left;padding:11px 12px;border-bottom:1px solid #edf1ee;font-size:13px;vertical-align:top}th{background:#f8fbf8;color:#627568;text-transform:uppercase;font-size:11px;letter-spacing:.05em}.pill{display:inline-block;padding:4px 8px;border-radius:99px;background:#edf4ef;color:#286542;font-size:12px;font-weight:750}.empty{color:#687a6e;padding:15px 0}.note{font-size:12px;color:#6b786f;line-height:1.5;margin-top:10px}.error{color:#a12c2c}.grid-two{display:grid;grid-template-columns:1fr 1fr;gap:14px}.list{margin:0;padding-left:18px}.list li{margin:6px 0;font-size:13px}.status{margin:12px 0;color:#687a6e;font-size:13px}@media(max-width:760px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.grid-two{grid-template-columns:1fr}.metric{padding:13px}.metric strong{font-size:23px}}@media(max-width:420px){.cards{gap:8px}.metric strong{font-size:20px}.wrap{padding:16px 10px 35px}.panel-body,.panel-head{padding:13px}}@media print{body{background:#fff}.top,.filters,.no-print{display:none!important}.wrap{max-width:none;padding:0}.panel,.metric{break-inside:avoid;border-color:#ccc}.cards{grid-template-columns:repeat(4,1fr)}.panel{margin:8px 0}.panel-body{padding:10px}th,td{font-size:10px;padding:7px}}
+</style>
+</head>
+<body>
+<header class="top"><a class="brand" href="/admin-dashboard.html">ChowOnCampus · Ultimate Admin</a><div class="actions"><a class="btn light" href="/admin-dashboard.html">← Admin dashboard</a><button class="btn light" id="csvBtn">Export CSV</button><button class="btn primary" id="printBtn">Print / Save PDF</button></div></header>
+<main class="wrap">
+<section class="heading"><div><div class="eyebrow">ULTIMATE ADMIN · DAILY CONTROL CENTRE</div><h1>Daily Operational Report</h1><p class="muted">A consolidated view of orders, payments, restaurants, agents, students, FoodBack and platform activity.</p></div><div class="filters no-print"><label>Report date (Nigeria time)<input type="date" id="reportDate"></label><button class="btn primary" id="loadBtn">Load report</button></div></section>
+<div id="status" class="status">Checking your access…</div>
+<section class="cards" id="metrics"></section>
+<div id="reportContent"></div>
+<p class="note">All date boundaries use Africa/Lagos time. Bank credits are shown only when an Ultimate Admin has entered a settlement confirmation; they are not independently fetched from a bank. Agent payments are bookkeeping records, not proof of a bank transfer. Historical records depend on the data retained by ChowOnCampus.</p>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+let report=null;
+const money=n=>new Intl.NumberFormat("en-NG",{style:"currency",currency:"NGN",maximumFractionDigits:0}).format(Number(n)||0);
+const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const nigeriaDate=()=>new Intl.DateTimeFormat("en-CA",{timeZone:"Africa/Lagos",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+function table(headers,rows){return rows.length?'<div class="table-wrap"><table><thead><tr>'+headers.map(x=>'<th>'+esc(x)+'</th>').join("")+'</tr></thead><tbody>'+rows.map(row=>'<tr>'+row.map(x=>'<td>'+x+'</td>').join("")+'</tr>').join("")+'</tbody></table></div>':'<div class="empty">No records for this date.</div>'}
+function section(title,body){return '<section class="panel"><div class="panel-head"><h2>'+title+'</h2></div><div class="panel-body">'+body+'</div></section>'}
+function render(d){
+ const o=d.orders||{},p=d.payments||{},st=d.students||{},fb=d.foodback||{},sys=d.system||{},issues=d.customerIssues||{},agt=d.agentTotals||{};
+ $("#metrics").innerHTML=[
+  ["Total orders",o.total],["Successful orders",o.successful],["Food sales (completed)",money(o.successfulFoodSales)],["New student registrations",st.newRegistrations],
+  ["Paystack gross",money(p.paystackGross)],["FoodBack order value",money(p.foodbackValue)],["Pending payment amount",money(p.outstandingAmount)],["Active customers",st.activeCustomers]
+ ].map(x=>'<article class="metric"><small>'+esc(x[0])+'</small><strong>'+esc(x[1]??0)+'</strong></article>').join("");
+ const orderRows=[["Successful",o.successful],["Cancelled",o.cancelled],["Failed",o.failed],["Pending / still open",o.pending]].map(x=>[esc(x[0]),esc(x[1]||0)]);
+ let html=section("1. Orders",table(["Order outcome","Count"],orderRows));
+ html+=section("2. Payments",table(["Payment category","Transactions","Value"],[
+ ["Paystack verified",p.paystackCount||0,money(p.paystackGross)],["FoodBack approved",p.foodbackCount||0,money(p.foodbackValue)],["Outstanding payment orders",p.outstandingPaymentOrders||0,money(p.outstandingAmount)]
+ ]));
+ const rr=(d.restaurants||[]).map(x=>[esc(x.name),x.orders||0,x.completedOrders||0,x.cancelledOrders||0,money(x.foodSales),x.averageRating==null?"—":esc(x.averageRating)+"/5",x.ratingCount||0,money(x.actualBankAmountCredited),esc((x.unavailableFood||[]).join(", ")||"None")]);
+ html+=section("3. Restaurant performance",table(["Restaurant","Orders","Completed","Cancelled","Food sales","Rating","Ratings","Admin-confirmed bank credits","Unavailable food"],rr));
+ html+=section("4. Agent performance",table(["Agent","Completed deliveries","Earnings recorded","Payouts recorded today","Outstanding","Average rating"],(d.agents||[]).map(x=>[esc(x.name),x.completedDeliveries||0,money(x.earningsRecorded),money(x.paidToday),money(x.outstanding),x.averageRating==null?"—":esc(x.averageRating)+"/5"])));
+ html+=section("5. Agent totals",'<p><strong>Completed deliveries:</strong> '+(agt.completedDeliveries||0)+' &nbsp; <strong>Earned:</strong> '+money(agt.earned)+' &nbsp; <strong>Paid (recorded):</strong> '+money(agt.paid)+' &nbsp; <strong>Payout records:</strong> '+(agt.payoutsRecorded||0)+'</p>');
+ html+=section("6. Students",'<p><strong>New registrations:</strong> '+(st.newRegistrations||0)+' &nbsp; <strong>Active customers who placed orders:</strong> '+(st.activeCustomers||0)+'</p>');
+ html+=section("7. Complaints, refunds and disputes",'<p><strong>Cases opened:</strong> '+(issues.casesOpened||0)+' &nbsp; <strong>Complaints / disputes:</strong> '+(issues.complaintsAndDisputes||0)+' &nbsp; <strong>Refund-related cases:</strong> '+(issues.refundsMentionedInCases||0)+'</p>');
+ html+=section("8. FoodBack ledger",'<p><strong>Issued:</strong> '+money(fb.issued)+' &nbsp; <strong>Used:</strong> '+money(fb.used)+' &nbsp; <strong>Deducted:</strong> '+money(fb.deducted)+' &nbsp; <strong>Outstanding wallet balance:</strong> '+money(fb.outstandingWalletBalance)+'</p>'+table(["Student","Entry type","Kind","Amount","Order","Description"],(fb.transactions||[]).map(x=>[esc(x.student),esc(x.type),esc(x.kind),money(x.amount),esc(x.orderId||"—"),esc(x.description||"—")])));
+ html+=section("9. Ratings and student remarks",table(["Order","Student","Restaurant","Restaurant rating","Agent rating","Rated at"],(d.orderRatings||[]).map(x=>[esc(x.orderId),esc(x.student),esc(x.restaurant),x.restaurantRating??"—",x.agentRating??"—",esc(x.ratedAt?new Date(x.ratedAt).toLocaleTimeString("en-NG"):"—")])));
+ html+=table(["Feedback source","Student","Restaurant","Order","Remark","Time"],(d.studentRemarks||[]).map(x=>[esc(x.source),esc(x.student),esc(x.restaurant||"—"),esc(x.orderId||"—"),esc(x.remark),esc(x.at?new Date(x.at).toLocaleTimeString("en-NG"):"—")]));
+ const events=sys.events||0,errors=sys.errors||[],suspicious=sys.suspiciousActivity||[];
+ html+=section("10. System activity",'<p><strong>Recorded events:</strong> '+events+' &nbsp; <strong>Errors / failures:</strong> '+errors.length+' &nbsp; <strong>Suspicious / security events:</strong> '+suspicious.length+'</p>'+table(["Error / failure","Time","Details"],errors.map(x=>[esc(x.type||x.event||x.action||"Error"),esc(x.occurredAt||x.createdAt||x.at||"—"),esc(x.message||x.details||"—")]))+table(["Security event","Time","Details"],suspicious.map(x=>[esc(x.type||x.event||x.action||"Security event"),esc(x.occurredAt||x.createdAt||x.at||"—"),esc(x.message||x.details||"—")])));
+ html+=section("11. Restaurant ranking",table(["Rank","Restaurant","Orders","Average rating","Ratings"],(d.restaurantRanking||[]).map(x=>[x.rank,esc(x.restaurant),x.orders||0,x.averageRating==null?"—":esc(x.averageRating)+"/5",x.ratingCount||0])));
+ $("#reportContent").innerHTML=html;
+ $("#status").className="status";
+ $("#status").textContent="Report loaded for "+d.date+" · generated "+new Date(d.generatedAt).toLocaleString("en-NG",{timeZone:"Africa/Lagos"})+" (Africa/Lagos).";
+}
+async function load(){
+ const date=$("#reportDate").value;
+ if(!date){$("#status").textContent="Choose a report date.";return}
+ $("#status").className="status";$("#status").textContent="Loading report…";
+ try{
+  const response=await fetch("/api/superadmin/daily-report?date="+encodeURIComponent(date),{credentials:"same-origin",cache:"no-store"});
+  const data=await response.json().catch(()=>({}));
+  if(response.status===401){location.href="/admin-login.html";return}
+  if(response.status===403){$("#status").className="status error";$("#status").textContent="Ultimate Admin access is required to view daily operational reports.";return}
+  if(!response.ok)throw Error(data.error||"Could not load report.");
+  report=data;render(data);
+ }catch(e){$("#status").className="status error";$("#status").textContent=e.message||"Could not load report."}
+}
+function csvCell(v){return '"'+String(v??"").replace(/"/g,'""')+'"'}
+function exportCsv(){
+ if(!report)return;
+ const rows=[["ChowOnCampus Daily Operational Report",report.date],["Section","Metric","Value"]];
+ const add=(section,obj)=>Object.entries(obj||{}).forEach(([k,v])=>rows.push([section,k,Array.isArray(v)?JSON.stringify(v):v]));
+ add("Orders",report.orders);add("Payments",report.payments);add("Students",report.students);add("FoodBack",report.foodback);add("Customer issues",report.customerIssues);add("Agent totals",report.agentTotals);add("System", {events:report.system?.events,errors:report.system?.errors?.length,suspiciousActivity:report.system?.suspiciousActivity?.length});
+ (report.restaurants||[]).forEach(x=>rows.push(["Restaurant",x.name,JSON.stringify(x)]));
+ (report.agents||[]).forEach(x=>rows.push(["Agent",x.name,JSON.stringify(x)]));
+ (report.orderRatings||[]).forEach(x=>rows.push(["Rating",x.orderId,JSON.stringify(x)]));
+ (report.studentRemarks||[]).forEach(x=>rows.push(["Student remark",x.orderId||"",JSON.stringify(x)]));
+ (report.foodback?.transactions||[]).forEach(x=>rows.push(["FoodBack transaction",x.orderId||"",JSON.stringify(x)]));
+ const csv=rows.map(row=>row.map(csvCell).join(",")).join("\r\n");
+ const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"});
+ const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="ChowOnCampus-Daily-Report-"+report.date+".csv";a.click();URL.revokeObjectURL(url);
+}
+(async()=>{
+ $("#reportDate").value=nigeriaDate();
+ try{
+  const me=await fetch("/api/me",{credentials:"same-origin",cache:"no-store"});
+  if(me.status===401){location.href="/admin-login.html";return}
+  const user=await me.json();
+  if(!user.account?.isSuperAdmin){$("#status").className="status error";$("#status").textContent="This page is restricted to the Ultimate Admin account.";return}
+  await load();
+ }catch(e){$("#status").className="status error";$("#status").textContent="Could not verify Ultimate Admin access."}
+})();
+$("#loadBtn").addEventListener("click",load);$("#reportDate").addEventListener("change",load);$("#printBtn").addEventListener("click",()=>window.print());$("#csvBtn").addEventListener("click",exportCsv);
+</script>
+</body></html>

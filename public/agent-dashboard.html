@@ -79,8 +79,13 @@ input,select,textarea{min-width:0}
   .tools>*{flex-basis:100%}
 }
 
-</style></head>
-<body><header class="top"><a class="brand" href="/">Chowoncampus · Delivery</a><div class="row"><span id="agentName" class="muted">Loading agent…</span><a class="btn light" href="/academy.html">🎓 Academy</a><button class="btn light" id="openChangePassword" type="button">Change password</button><button class="btn light" id="logout">Log out</button></div></header>
+
+    .academy-float{position:fixed;top:12px;right:14px;z-index:1000;display:inline-flex;align-items:center;gap:6px;padding:8px 11px;border:1px solid #cfe2d4;border-radius:999px;background:#fff;color:#176b45;text-decoration:none;font:700 12px/1.2 Inter,system-ui,sans-serif;box-shadow:0 3px 14px #123c2a20;white-space:nowrap}
+    .academy-float:hover{background:#eaf5ed}
+    @media(max-width:600px){.academy-float{top:8px;right:9px;padding:7px 9px;font-size:11px}}
+  </style></head>
+<body>
+  <a class="academy-float" href="/academy.html" aria-label="Open ChowOnCampus Academy">🎓 Academy</a><header class="top"><a class="brand" href="/">Chowoncampus · Delivery</a><div class="row"><span id="agentName" class="muted">Loading agent…</span><button class="btn light" id="openChangePassword" type="button">Change password</button><button class="btn light" id="logout">Log out</button></div></header>
 <main class="wrap"><h1>Delivery dashboard</h1><p class="muted">Go online when you're ready to receive deliveries. Orders marked ready for pickup are assigned automatically.</p>
 <section class="panel"><div class="row"><div><strong>Your availability</strong><p id="availabilityHelp" class="muted">Loading availability…</p></div><div class="row"><span id="availabilityPill" class="pill off">Offline</span><button class="btn primary" id="toggleOnline">Go online</button></div></div><p id="pageMessage" class="status" role="status"></p></section>
 <section class="panel" id="agentNotificationsPanel"><div class="row"><div><h2>Notifications <span id="agentUnreadCount" class="pill off">0 unread</span></h2><p class="muted">Pickup requests, delivery updates, and payment records appear here.</p></div><div class="notification-actions"><button class="btn light" id="refreshAgentNotifications" type="button">Refresh notifications</button><button class="btn light" id="clearAgentNotifications" type="button">Clear notifications</button></div></div><p id="agentNotificationsStatus" class="status" role="status">Loading notifications…</p><div id="agentNotificationsList"><div class="empty">Loading notifications…</div></div></section>

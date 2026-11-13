@@ -36,7 +36,8 @@ const storageFiles = {
   "operations-cases.json": "operationsCases",
   "restaurant-suspensions.json": "restaurantSuspensions",
   "restaurant-settlements.json": "restaurantSettlements",
-  "campus-ads.json": "campusAds"
+  "campus-ads.json": "campusAds",
+  "academy-data.json": "academyData"
 };
 
 function readLocalJson(filename, fallback) {
@@ -73,7 +74,8 @@ async function initializePersistentStorage() {
     ["operations-cases.json", []],
     ["restaurant-suspensions.json", {}],
     ["restaurant-settlements.json", []],
-    ["campus-ads.json", []]
+    ["campus-ads.json", []],
+    ["academy-data.json", { version: 1, lessons: [], faqs: [], quizzes: {}, progress: [], quizResults: [] }]
   ];
   if (!storagePool) {
     for (const [filename, fallback] of definitions) {
@@ -1501,9 +1503,107 @@ app.put("/api/restaurant/menu", requireRole("restaurant"), (req, res) => {
 });
 
 // Current login
+
 app.get("/api/me", (req, res) => {
   const session = getSession(req);
   res.json({ account: session || null });
+});
+
+// ChowOnCampus Academy: role-scoped lessons, FAQs, quizzes and learner progress.
+function getAcademyData() {
+  return readStoredJson(path.join(__dirname, "academy-data.json"), {
+    version: 1, lessons: [], faqs: [], quizzes: {}, progress: [], quizResults: []
+  });
+}
+function academyUserKey(account) {
+  return String(account.role) + ":" + String(account.username || account.phone || account.name || "unknown");
+}
+function academyRoleAllowed(role) {
+  return ["student", "restaurant", "agent"].includes(role);
+}
+app.get("/api/academy", requireLogin, (req, res) => {
+  const data = getAcademyData();
+  const role = req.account.role;
+  const admin = role === "admin" && Boolean(req.account.isSuperAdmin);
+  const lessons = (data.lessons || []).filter(item => (admin || item.role === role) && (admin || item.published));
+  const faqs = (data.faqs || []).filter(item => (admin || item.role === role) && (admin || item.published));
+  const quizzes = admin ? {} : (data.quizzes?.[role] || []).map(({ id, question, choices }) => ({ id, question, choices }));
+  const progress = (data.progress || []).filter(item => item.userKey === academyUserKey(req.account));
+  const quizResults = (data.quizResults || []).filter(item => item.userKey === academyUserKey(req.account));
+  res.set("Cache-Control", "no-store");
+  res.json({ role, lessons, faqs, quizzes, progress, quizResults, canManage: admin });
+});
+app.post("/api/academy/progress", requireLogin, (req, res) => {
+  if (!academyRoleAllowed(req.account.role)) return res.status(403).json({ error: "Academy learning progress is available to student, restaurant and agent accounts." });
+  const lessonId = String(req.body.lessonId || "").trim();
+  const data = getAcademyData();
+  const lesson = (data.lessons || []).find(item => item.id === lessonId && item.role === req.account.role && item.published);
+  if (!lesson) return res.status(404).json({ error: "That lesson is not available for your account." });
+  data.progress = Array.isArray(data.progress) ? data.progress : [];
+  const userKey = academyUserKey(req.account);
+  const existing = data.progress.find(item => item.userKey === userKey && item.lessonId === lessonId);
+  if (existing) {
+    existing.completed = true;
+    existing.completedAt = new Date().toISOString();
+  } else {
+    data.progress.push({ userKey, role: req.account.role, lessonId, completed: true, completedAt: new Date().toISOString() });
+  }
+  saveStoredJson(path.join(__dirname, "academy-data.json"), data);
+  res.json({ ok: true, message: "Lesson marked complete.", progress: data.progress.filter(item => item.userKey === userKey) });
+});
+app.post("/api/academy/quiz", requireLogin, (req, res) => {
+  if (!academyRoleAllowed(req.account.role)) return res.status(403).json({ error: "Quizzes are available to student, restaurant and agent accounts." });
+  const data = getAcademyData();
+  const quiz = data.quizzes?.[req.account.role] || [];
+  const answers = req.body.answers && typeof req.body.answers === "object" ? req.body.answers : {};
+  if (!quiz.length) return res.status(404).json({ error: "No quiz is published for this role yet." });
+  let score = 0;
+  for (const question of quiz) if (Number(answers[question.id]) === question.answer) score++;
+  const userKey = academyUserKey(req.account);
+  data.quizResults = Array.isArray(data.quizResults) ? data.quizResults : [];
+  const result = { userKey, role: req.account.role, score, total: quiz.length, passed: score >= Math.ceil(quiz.length * 0.7), completedAt: new Date().toISOString() };
+  data.quizResults.push(result);
+  saveStoredJson(path.join(__dirname, "academy-data.json"), data);
+  res.json({ ok: true, score, total: quiz.length, passed: result.passed, message: result.passed ? "Good work — you passed the knowledge check." : "Keep learning and try the knowledge check again." });
+});
+app.post("/api/superadmin/academy/content", requireSuperAdmin, (req, res) => {
+  const kind = String(req.body.kind || "");
+  const role = String(req.body.role || "");
+  if (!["lesson", "faq"].includes(kind) || !["student", "restaurant", "agent"].includes(role)) return res.status(400).json({ error: "Choose a valid content type and user role." });
+  const data = getAcademyData();
+  const id = String(req.body.id || "").trim() || ("academy-" + crypto.randomBytes(6).toString("hex"));
+  const published = req.body.published === true || req.body.published === "true";
+  if (kind === "lesson") {
+    const title = String(req.body.title || "").trim().slice(0, 120);
+    const summary = String(req.body.summary || "").trim().slice(0, 300);
+    const steps = Array.isArray(req.body.steps) ? req.body.steps.map(value => String(value).trim().slice(0, 500)).filter(Boolean).slice(0, 12) : [];
+    if (!title || !summary || !steps.length) return res.status(400).json({ error: "A lesson needs a title, summary and at least one step." });
+    data.lessons = Array.isArray(data.lessons) ? data.lessons : [];
+    const item = { id, role, title, summary, steps, published, updatedAt: new Date().toISOString() };
+    const index = data.lessons.findIndex(existing => existing.id === id);
+    if (index >= 0) data.lessons[index] = item; else data.lessons.push(item);
+  } else {
+    const question = String(req.body.question || "").trim().slice(0, 240);
+    const answer = String(req.body.answer || "").trim().slice(0, 1200);
+    if (!question || !answer) return res.status(400).json({ error: "An FAQ needs both a question and an approved answer." });
+    data.faqs = Array.isArray(data.faqs) ? data.faqs : [];
+    const item = { id, role, question, answer, published, updatedAt: new Date().toISOString() };
+    const index = data.faqs.findIndex(existing => existing.id === id);
+    if (index >= 0) data.faqs[index] = item; else data.faqs.push(item);
+  }
+  saveStoredJson(path.join(__dirname, "academy-data.json"), data);
+  res.json({ ok: true, id, message: "Academy content saved." });
+});
+app.delete("/api/superadmin/academy/content/:kind/:id", requireSuperAdmin, (req, res) => {
+  const kind = String(req.params.kind || "");
+  const field = kind === "lesson" ? "lessons" : kind === "faq" ? "faqs" : null;
+  if (!field) return res.status(400).json({ error: "Unknown Academy content type." });
+  const data = getAcademyData();
+  const before = (data[field] || []).length;
+  data[field] = (data[field] || []).filter(item => item.id !== req.params.id);
+  if (data[field].length === before) return res.status(404).json({ error: "Academy content not found." });
+  saveStoredJson(path.join(__dirname, "academy-data.json"), data);
+  res.json({ ok: true, message: "Academy content removed." });
 });
 
 // Staff login endpoint is used by the separate admin login page and staff accounts.

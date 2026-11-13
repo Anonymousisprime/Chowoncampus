@@ -98,10 +98,15 @@ input,select,textarea,button{max-width:100%}
   .section-toggle{width:100%}
 }
 
-</style>
+
+    .academy-float{position:fixed;top:12px;right:14px;z-index:1000;display:inline-flex;align-items:center;gap:6px;padding:8px 11px;border:1px solid #cfe2d4;border-radius:999px;background:#fff;color:#176b45;text-decoration:none;font:700 12px/1.2 Inter,system-ui,sans-serif;box-shadow:0 3px 14px #123c2a20;white-space:nowrap}
+    .academy-float:hover{background:#eaf5ed}
+    @media(max-width:600px){.academy-float{top:8px;right:9px;padding:7px 9px;font-size:11px}}
+  </style>
 </head>
 <body>
-<header class="top"><a class="brand" href="/">Chow<span>oncampus</span> · Admin</a><div class="top-right"><a class="btn primary" href="/academy.html" style="text-decoration:none">🎓 Academy</a><a class="btn primary" id="ultimateAdminHubLink" href="/ultimate-admin-hub.html" style="display:none;text-decoration:none">✉ Feedback &amp; FoodBack Transfer</a><a class="btn primary" id="operationsRecordsLink" href="/operations-records.html" style="display:none;text-decoration:none">📁 Operations &amp; Records</a><a class="btn primary" id="dailyReportLink" href="/daily-report.html" style="display:none;text-decoration:none">📊 Daily Operational Report</a><a class="btn primary" id="vendorVerificationLink" href="/vendor-verification.html" style="display:none;text-decoration:none">✓ Vendor verification</a><button class="btn light" id="refresh">Refresh data</button><button class="btn primary" id="openRestaurantForm">＋ Add restaurant</button><button class="btn primary" id="openAgentForm">＋ Create agent</button><a class="btn light" href="#payrollPanel" style="text-decoration:none;white-space:nowrap">₦ Agent earnings &amp; payouts</a><button class="btn primary" id="logout">Log out</button></div></header>
+  <a class="academy-float" href="/academy.html" aria-label="Open ChowOnCampus Academy">🎓 Academy</a>
+<header class="top"><a class="brand" href="/">Chow<span>oncampus</span> · Admin</a><div class="top-right"><a class="btn primary" id="ultimateAdminHubLink" href="/ultimate-admin-hub.html" style="display:none;text-decoration:none">✉ Feedback &amp; FoodBack Transfer</a><a class="btn primary" id="operationsRecordsLink" href="/operations-records.html" style="display:none;text-decoration:none">📁 Operations &amp; Records</a><a class="btn primary" id="dailyReportLink" href="/daily-report.html" style="display:none;text-decoration:none">📊 Daily Operational Report</a><a class="btn primary" id="vendorVerificationLink" href="/vendor-verification.html" style="display:none;text-decoration:none">✓ Vendor verification</a><button class="btn light" id="refresh">Refresh data</button><button class="btn primary" id="openRestaurantForm">＋ Add restaurant</button><button class="btn primary" id="openAgentForm">＋ Create agent</button><a class="btn light" href="#payrollPanel" style="text-decoration:none;white-space:nowrap">₦ Agent earnings &amp; payouts</a><button class="btn primary" id="logout">Log out</button></div></header>
 <main class="wrap">
 <section class="heading"><div><div class="eyebrow">PLATFORM OVERVIEW</div><h1>Admin dashboard</h1><p class="muted">Monitor orders and find student accounts from one place.</p></div><p id="updated" class="muted">Loading platform data…</p></section>
 <div id="globalStatus" class="status" role="status"></div>

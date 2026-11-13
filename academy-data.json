@@ -467,5 +467,103 @@
     }
   ],
   "progress": [],
-  "quizResults": []
+  "quizResults": [],
+  "quizzes": {
+    "student": [
+      {
+        "id": "student-basics-1",
+        "question": "Where should you review the final order amount?",
+        "choices": [
+          "Only after delivery",
+          "At checkout before confirming",
+          "By asking another student"
+        ],
+        "answer": 1
+      },
+      {
+        "id": "student-basics-2",
+        "question": "What should you do if payment succeeds but the order does not update?",
+        "choices": [
+          "Pay repeatedly",
+          "Share your password",
+          "Keep the reference and contact support"
+        ],
+        "answer": 2
+      },
+      {
+        "id": "student-basics-3",
+        "question": "Who should you contact about a missing FoodBack reward?",
+        "choices": [
+          "ChowOnCampus support",
+          "An unrelated restaurant",
+          "Other students publicly"
+        ],
+        "answer": 0
+      }
+    ],
+    "restaurant": [
+      {
+        "id": "restaurant-basics-1",
+        "question": "When should you mark an order ready for pickup?",
+        "choices": [
+          "As soon as it arrives",
+          "Only when it is prepared and ready",
+          "Before checking the order"
+        ],
+        "answer": 1
+      },
+      {
+        "id": "restaurant-basics-2",
+        "question": "Does submitting an advertisement application activate it?",
+        "choices": [
+          "Yes, immediately",
+          "Only after approval and payment confirmation",
+          "No review is needed"
+        ],
+        "answer": 1
+      },
+      {
+        "id": "restaurant-basics-3",
+        "question": "What should you do when a meal cannot be prepared?",
+        "choices": [
+          "Leave it listed as available",
+          "Mark it unavailable",
+          "Accept more orders"
+        ],
+        "answer": 1
+      }
+    ],
+    "agent": [
+      {
+        "id": "agent-basics-1",
+        "question": "When should you confirm pickup?",
+        "choices": [
+          "Before reaching the restaurant",
+          "After the food is handed to you",
+          "When you accept the offer"
+        ],
+        "answer": 1
+      },
+      {
+        "id": "agent-basics-2",
+        "question": "When should you enter the handover code?",
+        "choices": [
+          "After the student receives the correct order",
+          "Before reaching the student",
+          "Before collecting the food"
+        ],
+        "answer": 0
+      },
+      {
+        "id": "agent-basics-3",
+        "question": "How should you treat student contact details?",
+        "choices": [
+          "Share them with friends",
+          "Post them in a group",
+          "Use them only for the assigned delivery"
+        ],
+        "answer": 2
+      }
+    ]
+  }
 }

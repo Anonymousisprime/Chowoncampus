@@ -26,10 +26,15 @@
     .restaurant-dashboard-page .dashboard-header { background: #fff; border: 1px solid #dfe9e1; border-radius: 16px; padding: 20px; margin-bottom: 20px; }
     .restaurant-dashboard-page #dashboardContent > * { max-width: 100%; }
     @media (max-width: 600px) { .restaurant-dashboard-page #dashboardView { padding: 18px 12px 40px; } .restaurant-dashboard-page .dashboard-header { padding: 16px; gap: 12px; } }
+  
+    .academy-float{position:fixed;top:12px;right:14px;z-index:1000;display:inline-flex;align-items:center;gap:6px;padding:8px 11px;border:1px solid #cfe2d4;border-radius:999px;background:#fff;color:#176b45;text-decoration:none;font:700 12px/1.2 Inter,system-ui,sans-serif;box-shadow:0 3px 14px #123c2a20;white-space:nowrap}
+    .academy-float:hover{background:#eaf5ed}
+    @media(max-width:600px){.academy-float{top:8px;right:9px;padding:7px 9px;font-size:11px}}
   </style>
   <script src="/app.js?v=restaurant-ad-applications-refresh-3" defer></script>
 </head>
 <body class="restaurant-dashboard-page">
+  <a class="academy-float" href="/academy.html" aria-label="Open ChowOnCampus Academy">🎓 Academy</a>
   <header class="site-header">
     <nav class="navbar">
       <a href="/" class="brand" aria-label="Chowoncampus home"><img class="brand-logo" src="/chowoncampus-logo.svg" alt="Chowoncampus Delivery Service"></a>
@@ -39,7 +44,7 @@
         <a class="nav-link" href="/student-signup.html">Create account</a>
         <a class="nav-link" href="/admin-login.html">Admin login</a>
         <a class="nav-link" href="/restaurant-login.html">Restaurant login</a>
-        <a class="nav-link" href="/academy.html">🎓 Academy</a>
+        
          <a class="nav-link" href="/agent-login.html">Delivery agent login</a>
         <button type="button" class="nav-link hidden" id="dashboardNav" data-view="dashboard">Dashboard</button>
         <button type="button" class="nav-link hidden" id="restaurantUnusedNotificationToggle" aria-expanded="false">🔔 Notifications <span class="notification-count hidden">0</span></button>

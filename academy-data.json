@@ -1,0 +1,569 @@
+{
+  "version": 1,
+  "lessons": [
+    {
+      "id": "student-account",
+      "role": "student",
+      "title": "Getting started",
+      "summary": "Learn how to sign in and reach your student workspace.",
+      "steps": [
+        "Open the Student Login page and enter the phone number and password registered to your account.",
+        "After signing in, check that your name and student dashboard are displayed.",
+        "Use the dashboard navigation to find orders, FoodBack and support features.",
+        "Log out when using a shared device."
+      ],
+      "published": true,
+      "updatedAt": "2026-11-13T00:00:00.000Z"
+    },
+    {
+      "id": "student-restaurants",
+      "role": "student",
+      "title": "Explore restaurants",
+      "summary": "Find a restaurant and browse its available meals.",
+      "steps": [
+        "Open Explore Restaurants from the student dashboard.",
+        "Choose a restaurant to view its menu.",
+        "Check item names, descriptions and prices before adding food to your cart.",
+        "If a meal is marked unavailable, choose another available item."
+      ],
+      "published": true,
+      "updatedAt": "2026-11-13T00:00:00.000Z"
+    },
+    {
+      "id": "student-order",
+      "role": "student",
+      "title": "Place an order",
+      "summary": "Understand the ordering process before confirming.",
+      "steps": [
+        "Select the meals and quantities you want.",
+        "Review the cart carefully, including the delivery fee and takeaway packaging charge shown at checkout.",
+        "Enter an accurate delivery location and any useful landmark details.",
+        "Review the final amount and follow the available checkout instructions."
+      ],
+      "published": true,
+      "updatedAt": "2026-11-13T00:00:00.000Z"
+    },
+    {
+      "id": "student-payment",
+      "role": "student",
+      "title": "Payments and receipts",
+      "summary": "Understand payment status and what to do if something looks wrong.",
+      "steps": [
+        "Use the payment option displayed at checkout.",
+        "Wait for the platform to show the payment or order status before trying again.",
+        "Do not share your password, one-time codes or payment credentials with anyone.",
+        "If payment appears successful but the order status is unclear, contact support with your order reference."
+      ],
+      "published": true,
+      "updatedAt": "2026-11-13T00:00:00.000Z"
+    },
+    {
+      "id": "student-foodback",
+      "role": "student",
+      "title": "Using FoodBack",
+      "summary": "Learn where FoodBack appears and how to check its status.",
+      "steps": [
+        "Open the FoodBack or wallet area in your student dashboard when available.",
+        "Review your balance and transaction history before using a reward.",
+        "If an order paid with FoodBack requires admin review, wait for the platform's decision.",
+        "For a missing or disputed reward, contact support with the relevant order reference."
+      ],
+      "published": true,
+      "updatedAt": "2026-11-13T00:00:00.000Z"
+    },
+    {
+      "id": "student-track",
+      "role": "student",
+      "title": "Track orders and get help",
+      "summary": "Follow an order and report a problem clearly.",
+      "steps": [
+        "Open your active or recent orders in the student dashboard.",
+        "Use the displayed status to understand whether the order is awaiting action, being prepared or out for delivery.",
+        "Keep your phone available and make sure your delivery location is accurate.",
+        "Use the support channel if the order is delayed, incorrect or marked complete unexpectedly."
+      ],
+      "published": true,
+      "updatedAt": "2026-11-13T00:00:00.000Z"
+    },
+    {
+      "id": "restaurant-login",
+      "role": "restaurant",
+      "title": "Open your restaurant dashboard",
+      "summary": "Sign in and understand the restaurant workspace.",
+      "steps": [
+        "Open the Restaurant Login page and enter your restaurant credentials.",
+        "Check that your restaurant name is shown in the dashboard.",
+        "Use the dashboard sections to manage your menu and incoming orders.",
+        "Never share your login details with staff who do not need account access."
+      ],
+      "published": true,
+      "updatedAt": "2026-11-13T00:00:00.000Z"
+    },
+    {
+      "id": "restaurant-menu",
+      "role": "restaurant",
+      "title": "Manage your food menu",
+      "summary": "Add and maintain accurate food listings.",
+      "steps": [
+        "Open the menu management section in your restaurant dashboard.",
+        "Add a clear food name, description, price and suitable photo.",
+        "Review the details before saving the menu.",
+        "Update or remove items promptly when prices or availability change."
+      ],
+      "published": true,
+      "updatedAt": "2026-11-13T00:00:00.000Z"
+    },
+    {
+      "id": "restaurant-availability",
+      "role": "restaurant",
+      "title": "Go online, offline and mark food unavailable",
+      "summary": "Keep your displayed availability accurate.",
+      "steps": [
+        "Use the restaurant availability control to go online when you can fulfil orders.",
+        "Go offline when the restaurant is closed or cannot accept orders.",
+        "Mark individual food items unavailable when they cannot be prepared.",
+        "Pause incoming orders if your kitchen needs time to catch up, where that control is available."
+      ],
+      "published": true,
+      "updatedAt": "2026-11-13T00:00:00.000Z"
+    },
+    {
+      "id": "restaurant-orders",
+      "role": "restaurant",
+      "title": "Receive and prepare orders",
+      "summary": "Follow the order from receipt to pickup.",
+      "steps": [
+        "Check incoming orders in the dashboard regularly while online.",
+        "Review each order's items and any student instructions.",
+        "Update the order status using the available dashboard controls as preparation progresses.",
+        "Mark the order ready for pickup only when it is prepared and ready for the assigned agent."
+      ],
+      "published": true,
+      "updatedAt": "2026-11-13T00:00:00.000Z"
+    },
+    {
+      "id": "restaurant-ads",
+      "role": "restaurant",
+      "title": "Apply for an advertisement",
+      "summary": "Submit an advertisement for admin review.",
+      "steps": [
+        "Open the advertisement application area in your restaurant dashboard, if available to your account.",
+        "Enter an accurate title, description, image URL and destination.",
+        "Choose the package and review the displayed price and duration.",
+        "Submit the application and check its status; an application is not active until approved and payment is confirmed by the admin."
+      ],
+      "published": true,
+      "updatedAt": "2026-11-13T00:00:00.000Z"
+    },
+    {
+      "id": "restaurant-settlement",
+      "role": "restaurant",
+      "title": "Understand settlements and support",
+      "summary": "Know where to check settlement information.",
+      "steps": [
+        "Use the settlement or payout information provided by ChowOnCampus and Paystack.",
+        "Remember that order sales and a confirmed bank credit are not the same thing.",
+        "Keep your order references and settlement records for reconciliation.",
+        "Contact support if a settlement is missing or the recorded amount does not match your bank statement."
+      ],
+      "published": true,
+      "updatedAt": "2026-11-13T00:00:00.000Z"
+    },
+    {
+      "id": "agent-login",
+      "role": "agent",
+      "title": "Open your agent dashboard",
+      "summary": "Sign in and review your delivery workspace.",
+      "steps": [
+        "Open the Delivery Agent Login page and enter your agent credentials.",
+        "Check your name and availability status at the top of the dashboard.",
+        "Review notifications and your assigned delivery area.",
+        "Keep your login details private and log out on shared devices."
+      ],
+      "published": true,
+      "updatedAt": "2026-11-13T00:00:00.000Z"
+    },
+    {
+      "id": "agent-online",
+      "role": "agent",
+      "title": "Manage your availability",
+      "summary": "Control when you can receive delivery assignments.",
+      "steps": [
+        "Go online only when you are ready to accept deliveries.",
+        "Go offline when you are unavailable or finishing your shift.",
+        "Keep your location permission enabled when the platform requests it for delivery coordination.",
+        "If your availability does not update, refresh the dashboard and contact support if the issue continues."
+      ],
+      "published": true,
+      "updatedAt": "2026-11-13T00:00:00.000Z"
+    },
+    {
+      "id": "agent-accept",
+      "role": "agent",
+      "title": "Accept and collect a delivery",
+      "summary": "Understand the pickup workflow.",
+      "steps": [
+        "Review the pickup restaurant and destination details shown for the offer.",
+        "Accept the delivery only if you can complete it safely and within the platform's service area.",
+        "Travel to the restaurant and confirm collection only after the order is handed to you.",
+        "Update the delivery status using the dashboard controls."
+      ],
+      "published": true,
+      "updatedAt": "2026-11-13T00:00:00.000Z"
+    },
+    {
+      "id": "agent-handover",
+      "role": "agent",
+      "title": "Complete the student handover",
+      "summary": "Use the delivery confirmation process correctly.",
+      "steps": [
+        "At the destination, ask the student to provide the order's four-character handover code.",
+        "Enter the code only after the student has received the correct order.",
+        "Submit the code through the delivery dashboard to complete the order.",
+        "If the code fails or the student cannot access it, do not guess; contact support for assistance."
+      ],
+      "published": true,
+      "updatedAt": "2026-11-13T00:00:00.000Z"
+    },
+    {
+      "id": "agent-earnings",
+      "role": "agent",
+      "title": "Check deliveries and earnings",
+      "summary": "Understand your performance and payment records.",
+      "steps": [
+        "Open the monthly earnings section of your dashboard.",
+        "Check successful deliveries and the earnings recorded for the selected month.",
+        "Compare recorded payments with your own bank or wallet records.",
+        "Ask support or an administrator to review any discrepancy; dashboard records alone are not proof of a transfer."
+      ],
+      "published": true,
+      "updatedAt": "2026-11-13T00:00:00.000Z"
+    },
+    {
+      "id": "agent-safety",
+      "role": "agent",
+      "title": "Professional delivery and privacy",
+      "summary": "Protect students, restaurants and yourself.",
+      "steps": [
+        "Use customer information only to complete the assigned delivery.",
+        "Do not share a student's address, phone number or order details with others.",
+        "Communicate politely and use only the contact options provided by the platform.",
+        "If a delivery feels unsafe or the order details are inconsistent, stop and contact support."
+      ],
+      "published": true,
+      "updatedAt": "2026-11-13T00:00:00.000Z"
+    }
+  ],
+  "faqs": [
+    {
+      "id": "student-faq-1",
+      "role": "student",
+      "question": "Where can I find restaurants?",
+      "answer": "Open Explore Restaurants from your student dashboard to browse restaurants and their menus.",
+      "published": true
+    },
+    {
+      "id": "student-faq-2",
+      "role": "student",
+      "question": "Why is a food item unavailable?",
+      "answer": "The restaurant may have marked the item unavailable. Choose another available item or check again later.",
+      "published": true
+    },
+    {
+      "id": "student-faq-3",
+      "role": "student",
+      "question": "What fees will I pay?",
+      "answer": "Review the checkout summary. It displays the delivery fee, takeaway packaging charge and any other applicable amount before you confirm.",
+      "published": true
+    },
+    {
+      "id": "student-faq-4",
+      "role": "student",
+      "question": "What if my payment succeeds but my order does not update?",
+      "answer": "Do not immediately pay again. Save your order reference and contact ChowOnCampus support at 09169398221 or chowoncampus@gmail.com.",
+      "published": true
+    },
+    {
+      "id": "student-faq-5",
+      "role": "student",
+      "question": "How do I track my order?",
+      "answer": "Open your student dashboard and check the active order status.",
+      "published": true
+    },
+    {
+      "id": "student-faq-6",
+      "role": "student",
+      "question": "How do I use FoodBack?",
+      "answer": "Check the FoodBack or wallet section in your dashboard for your balance and available actions.",
+      "published": true
+    },
+    {
+      "id": "student-faq-7",
+      "role": "student",
+      "question": "Why is my FoodBack order awaiting review?",
+      "answer": "Some FoodBack orders require an administrator to review them. Wait for the dashboard status or contact support.",
+      "published": true
+    },
+    {
+      "id": "student-faq-8",
+      "role": "student",
+      "question": "Can I change my delivery location after ordering?",
+      "answer": "Do not assume a location change has been accepted. Contact support with your order reference as soon as possible.",
+      "published": true
+    },
+    {
+      "id": "student-faq-9",
+      "role": "student",
+      "question": "My order is late. What should I do?",
+      "answer": "Check the latest order status, keep your phone available and contact support if you need help.",
+      "published": true
+    },
+    {
+      "id": "student-faq-10",
+      "role": "student",
+      "question": "How do I report a wrong or missing item?",
+      "answer": "Contact support with your order reference and a short description of the issue.",
+      "published": true
+    },
+    {
+      "id": "restaurant-faq-1",
+      "role": "restaurant",
+      "question": "How do I add a meal?",
+      "answer": "Open menu management, add the food name, description, price and photo, then save your menu.",
+      "published": true
+    },
+    {
+      "id": "restaurant-faq-2",
+      "role": "restaurant",
+      "question": "How do I stop receiving orders?",
+      "answer": "Use the availability control to go offline or the pause incoming orders control if it is available.",
+      "published": true
+    },
+    {
+      "id": "restaurant-faq-3",
+      "role": "restaurant",
+      "question": "How do I mark a meal unavailable?",
+      "answer": "Open your menu manager and change the item's availability using its available control.",
+      "published": true
+    },
+    {
+      "id": "restaurant-faq-4",
+      "role": "restaurant",
+      "question": "Why can't I receive orders?",
+      "answer": "Your account may be offline, suspended, awaiting verification or otherwise restricted. Check the dashboard message and contact support if unclear.",
+      "published": true
+    },
+    {
+      "id": "restaurant-faq-5",
+      "role": "restaurant",
+      "question": "How do I update a food price?",
+      "answer": "Edit the item in your menu manager and save the updated menu.",
+      "published": true
+    },
+    {
+      "id": "restaurant-faq-6",
+      "role": "restaurant",
+      "question": "Where do ad applications go?",
+      "answer": "Submitted applications are reviewed in the Ultimate Admin Advertising & Promotions Campaign Manager.",
+      "published": true
+    },
+    {
+      "id": "restaurant-faq-7",
+      "role": "restaurant",
+      "question": "When will my advertisement appear?",
+      "answer": "It appears only after the application is approved, payment is confirmed by the admin and the campaign becomes active.",
+      "published": true
+    },
+    {
+      "id": "restaurant-faq-8",
+      "role": "restaurant",
+      "question": "Does submitting an ad mean it is paid?",
+      "answer": "No. Submission creates an application for review. Payment confirmation is a separate administrative step.",
+      "published": true
+    },
+    {
+      "id": "restaurant-faq-9",
+      "role": "restaurant",
+      "question": "Where do I check settlement details?",
+      "answer": "Check the settlement information available in your dashboard and reconcile it against your bank statement.",
+      "published": true
+    },
+    {
+      "id": "restaurant-faq-10",
+      "role": "restaurant",
+      "question": "Who do I contact about an order issue?",
+      "answer": "Contact ChowOnCampus support at 09169398221 or chowoncampus@gmail.com and include the order reference.",
+      "published": true
+    },
+    {
+      "id": "agent-faq-1",
+      "role": "agent",
+      "question": "How do I receive deliveries?",
+      "answer": "Go online when you are available. Eligible delivery offers will appear in your agent dashboard.",
+      "published": true
+    },
+    {
+      "id": "agent-faq-2",
+      "role": "agent",
+      "question": "Can I accept a delivery if I am unavailable?",
+      "answer": "No. Only accept an offer when you can complete it safely and within the required service area.",
+      "published": true
+    },
+    {
+      "id": "agent-faq-3",
+      "role": "agent",
+      "question": "When should I confirm pickup?",
+      "answer": "Confirm collection only after the restaurant has handed the prepared order to you.",
+      "published": true
+    },
+    {
+      "id": "agent-faq-4",
+      "role": "agent",
+      "question": "How do I complete a delivery?",
+      "answer": "Ask the student for the four-character handover code after handing over the correct order, then enter it in the dashboard.",
+      "published": true
+    },
+    {
+      "id": "agent-faq-5",
+      "role": "agent",
+      "question": "What if the handover code does not work?",
+      "answer": "Do not guess repeatedly. Check the order and code with the student, then contact support if it still fails.",
+      "published": true
+    },
+    {
+      "id": "agent-faq-6",
+      "role": "agent",
+      "question": "How do I check my earnings?",
+      "answer": "Open the monthly earnings section and select the month you want to review.",
+      "published": true
+    },
+    {
+      "id": "agent-faq-7",
+      "role": "agent",
+      "question": "Does the dashboard payment record prove I was paid?",
+      "answer": "No. Compare it with your bank or wallet record and contact an administrator about any difference.",
+      "published": true
+    },
+    {
+      "id": "agent-faq-8",
+      "role": "agent",
+      "question": "Can I share student contact details?",
+      "answer": "No. Student information is private and must only be used to complete the assigned delivery.",
+      "published": true
+    },
+    {
+      "id": "agent-faq-9",
+      "role": "agent",
+      "question": "What if I need to go offline during a delivery?",
+      "answer": "Complete or safely hand over your current assignment according to platform instructions, then change your availability.",
+      "published": true
+    },
+    {
+      "id": "agent-faq-10",
+      "role": "agent",
+      "question": "Who do I contact if an assignment is incorrect?",
+      "answer": "Contact ChowOnCampus support at 09169398221 or chowoncampus@gmail.com with the order reference.",
+      "published": true
+    }
+  ],
+  "progress": [],
+  "quizResults": [],
+  "quizzes": {
+    "student": [
+      {
+        "id": "student-basics-1",
+        "question": "Where should you review the final order amount?",
+        "choices": [
+          "Only after delivery",
+          "At checkout before confirming",
+          "By asking another student"
+        ],
+        "answer": 1
+      },
+      {
+        "id": "student-basics-2",
+        "question": "What should you do if payment succeeds but the order does not update?",
+        "choices": [
+          "Pay repeatedly",
+          "Share your password",
+          "Keep the reference and contact support"
+        ],
+        "answer": 2
+      },
+      {
+        "id": "student-basics-3",
+        "question": "Who should you contact about a missing FoodBack reward?",
+        "choices": [
+          "ChowOnCampus support",
+          "An unrelated restaurant",
+          "Other students publicly"
+        ],
+        "answer": 0
+      }
+    ],
+    "restaurant": [
+      {
+        "id": "restaurant-basics-1",
+        "question": "When should you mark an order ready for pickup?",
+        "choices": [
+          "As soon as it arrives",
+          "Only when it is prepared and ready",
+          "Before checking the order"
+        ],
+        "answer": 1
+      },
+      {
+        "id": "restaurant-basics-2",
+        "question": "Does submitting an advertisement application activate it?",
+        "choices": [
+          "Yes, immediately",
+          "Only after approval and payment confirmation",
+          "No review is needed"
+        ],
+        "answer": 1
+      },
+      {
+        "id": "restaurant-basics-3",
+        "question": "What should you do when a meal cannot be prepared?",
+        "choices": [
+          "Leave it listed as available",
+          "Mark it unavailable",
+          "Accept more orders"
+        ],
+        "answer": 1
+      }
+    ],
+    "agent": [
+      {
+        "id": "agent-basics-1",
+        "question": "When should you confirm pickup?",
+        "choices": [
+          "Before reaching the restaurant",
+          "After the food is handed to you",
+          "When you accept the offer"
+        ],
+        "answer": 1
+      },
+      {
+        "id": "agent-basics-2",
+        "question": "When should you enter the handover code?",
+        "choices": [
+          "After the student receives the correct order",
+          "Before reaching the student",
+          "Before collecting the food"
+        ],
+        "answer": 0
+      },
+      {
+        "id": "agent-basics-3",
+        "question": "How should you treat student contact details?",
+        "choices": [
+          "Share them with friends",
+          "Post them in a group",
+          "Use them only for the assigned delivery"
+        ],
+        "answer": 2
+      }
+    ]
+  }
+}

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#176b45">
+<title>ChowOnCampus Academy</title>
+<style>
+:root{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#163426;background:#f3f7f4}*{box-sizing:border-box}body{margin:0}.top{background:#fff;border-bottom:1px solid #dfe9e1;padding:14px clamp(16px,4vw,40px);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.brand{font-weight:900;font-size:20px;color:#176b45;text-decoration:none}.top-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.btn{border:0;border-radius:10px;padding:11px 15px;font:inherit;font-weight:750;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}.primary{background:#176b45;color:white}.light{background:#eaf3ed;color:#176b45}.btn:disabled{opacity:.55;cursor:not-allowed}.wrap{width:min(1120px,100%);margin:auto;padding:28px 16px 64px}.hero{background:linear-gradient(135deg,#0d5438,#176b45);color:#fff;padding:28px;border-radius:20px}.eyebrow{font-size:12px;letter-spacing:.12em;font-weight:850;opacity:.8}.hero h1{font-size:clamp(28px,5vw,42px);margin:8px 0}.hero p{max-width:680px;line-height:1.6;margin:0;color:#e6f3e9}.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:18px 0}.stat,.panel,.lesson-card,.faq-card{background:#fff;border:1px solid #e0e9e2;border-radius:15px}.stat{padding:16px}.stat strong{display:block;font-size:25px;color:#176b45}.stat small{color:#687a6e}.layout{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(270px,.65fr);gap:18px;align-items:start}.panel{padding:20px;margin:16px 0}.panel h2{margin:0 0 6px}.muted{color:#687a6e;line-height:1.55}.lesson-list{display:grid;gap:10px;margin-top:14px}.lesson-card{padding:15px}.lesson-card h3{margin:0 0 5px}.lesson-card p{margin:0 0 12px}.lesson-card button{margin-right:6px;margin-top:4px}.pill{display:inline-block;padding:5px 9px;border-radius:999px;background:#edf4ef;color:#286542;font-size:12px;font-weight:750}.progress-track{height:9px;border-radius:20px;background:#e8eee9;overflow:hidden;margin:9px 0}.progress-fill{height:100%;background:#21945c;width:0}.search, input, textarea, select{font:inherit;padding:11px 12px;border:1px solid #cbd9cf;border-radius:9px;max-width:100%;width:100%;background:white}.field{display:grid;gap:6px;margin:12px 0}.field label{font-weight:700}.step{padding:12px 14px;margin:9px 0;background:#f7faf7;border:1px solid #e7eee8;border-radius:10px;line-height:1.55}.faq-card{padding:13px;margin:9px 0}.faq-card summary{cursor:pointer;font-weight:750}.faq-card p{line-height:1.55;margin-bottom:0}.quiz-option{display:block;padding:10px;margin:7px 0;border:1px solid #e0e9e2;border-radius:9px}.quiz-option input{width:auto;margin-right:8px}.status{min-height:22px;color:#52675a}.error{color:#a12c2c}.hidden{display:none!important}.admin-item{border-top:1px solid #e6eee8;padding:12px 0}.admin-item:first-child{border-top:0}.admin-item button{margin:4px 5px 0 0}.empty{padding:18px;text-align:center;color:#687a6e;background:#f8fbf8;border-radius:10px}@media(max-width:760px){.layout{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}.hero{padding:22px}.wrap{padding:18px 12px 44px}}@media(max-width:430px){.stats{grid-template-columns:1fr}.top-actions{width:100%}.top-actions .btn{flex:1}}
+</style>
+</head>
+<body>
+<header class="top"><a class="brand" href="/">ChowOnCampus Academy</a><div class="top-actions"><span id="accountLabel" class="muted">Checking account…</span><a class="btn light" href="/">Back to ChowOnCampus</a><button class="btn light" id="logoutButton" type="button">Log out</button></div></header>
+<main class="wrap">
+<section class="hero"><span class="eyebrow">LEARN. PRACTISE. GET CONFIDENT.</span><h1>Welcome to Academy</h1><p id="heroDescription">Simple step-by-step training to help you use ChowOnCampus confidently.</p></section>
+<section class="stats"><div class="stat"><strong id="lessonTotal">—</strong><small>Available lessons</small></div><div class="stat"><strong id="completedTotal">—</strong><small>Lessons completed</small></div><div class="stat"><strong id="faqTotal">—</strong><small>Helpful answers</small></div></section>
+<div class="layout">
+<div>
+<section class="panel"><h2 id="lessonHeading">Your lessons</h2><p class="muted">Choose a topic to see the steps. You can return to a lesson whenever you need it.</p><div class="progress-track"><div class="progress-fill" id="progressFill"></div></div><p class="muted" id="progressLabel">Loading your progress…</p><div id="lessonList" class="lesson-list"><div class="empty">Loading lessons…</div></div></section>
+<section class="panel" id="lessonViewer"><h2>Lesson guide</h2><p class="muted">Select a lesson to begin.</p><div id="lessonBody"></div></section>
+<section class="panel"><h2>Quick knowledge check</h2><p class="muted">Answer a few questions to check what you have learned.</p><form id="quizForm"><div id="quizQuestions"></div><button class="btn primary" type="submit">Submit answers</button></form><p id="quizStatus" class="status" role="status"></p></section>
+</div>
+<aside>
+<section class="panel"><h2>Ask a common question</h2><p class="muted">Search approved answers prepared by ChowOnCampus.</p><input id="faqSearch" class="search" type="search" placeholder="e.g. How do I track my order?"><div id="faqList"><div class="empty">Loading FAQs…</div></div></section>
+<section class="panel hidden" id="adminPanel"><h2>Academy Management</h2><p class="muted">Ultimate Admin only. Create, edit, publish or remove training content.</p>
+<form id="contentForm"><input type="hidden" name="id"><div class="field"><label for="contentKind">Content type</label><select id="contentKind" name="kind"><option value="lesson">Lesson</option><option value="faq">FAQ</option></select></div>
+<div class="field"><label for="contentRole">Audience</label><select id="contentRole" name="role"><option value="student">Students</option><option value="restaurant">Restaurants</option><option value="agent">Delivery agents</option></select></div>
+<div id="lessonFields"><div class="field"><label for="contentTitle">Lesson title</label><input id="contentTitle" name="title" maxlength="120"></div><div class="field"><label for="contentSummary">Short description</label><textarea id="contentSummary" name="summary" rows="2" maxlength="300"></textarea></div><div class="field"><label for="contentSteps">Lesson steps (one step per line)</label><textarea id="contentSteps" name="steps" rows="5"></textarea></div></div>
+<div id="faqFields" class="hidden"><div class="field"><label for="contentQuestion">Question</label><input id="contentQuestion" name="question" maxlength="240"></div><div class="field"><label for="contentAnswer">Approved answer</label><textarea id="contentAnswer" name="answer" rows="4" maxlength="1200"></textarea></div></div>
+<label class="field"><span><input style="width:auto" type="checkbox" name="published" checked> Publish this content</span></label>
+<button class="btn primary" type="submit">Save content</button><button class="btn light" id="resetContent" type="button">Clear form</button><p id="adminStatus" class="status" role="status"></p></form>
+<h3>Existing content</h3><div id="adminContentList"></div>
+</section>
+<section class="panel"><h2>Need more help?</h2><p class="muted">If the Academy cannot answer your question, contact ChowOnCampus support.</p><p><strong>09169398221</strong><br><a href="mailto:chowoncampus@gmail.com">chowoncampus@gmail.com</a></p></section>
+</aside>
+</div>
+</main>
+<script src="/academy.js?v=basic-1" defer></script>
+</body></html>

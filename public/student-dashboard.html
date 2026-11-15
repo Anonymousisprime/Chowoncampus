@@ -67,6 +67,19 @@
   </style>
   <style>.coc-premium-badge{display:inline-flex;margin-top:8px;padding:6px 11px;border-radius:99px;background:#f8e7b2;color:#65440a;font-size:12px;font-weight:900}.coc-premium-panel{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;margin:0 0 20px;padding:20px;background:#fffaf0;border:1px solid #ead8a5;border-radius:18px}.coc-premium-panel>div:first-child>span{font-size:10px;font-weight:900;color:#9a6b16}.coc-premium-panel h2{margin:6px 0;color:#3f3218}.coc-premium-panel p{margin:5px 0;color:#71664f}.coc-premium-actions{display:flex;flex-direction:column;gap:8px;min-width:180px}.coc-premium-actions small{color:#6b675e}@media(max-width:600px){.coc-premium-panel{padding:15px}.coc-premium-actions{width:100%}}</style>
   <script src="/app.js?v=foodback-premium-bonus-2" defer></script><script src="/premium.js?v=premium-foodback-2" defer></script>
+
+  <style>
+    .coc-premium-benefits{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin:0 0 20px}
+    .coc-premium-benefit{background:#fff;border:1px solid #e0e9e2;border-radius:14px;padding:15px}
+    .coc-premium-benefit strong{display:block;color:#244a35;margin-bottom:5px}
+    .coc-premium-benefit p{margin:0;color:#687c70;font-size:13px;line-height:1.5}
+    .coc-premium-extra{display:none;background:#fff;border:1px solid #ead8a5;border-radius:16px;padding:18px;margin:0 0 20px}
+    .coc-premium-extra h3{margin:0 0 6px;color:#3f3218}
+    .coc-premium-extra p{margin:4px 0 12px;color:#71664f}
+    .coc-premium-extra-actions{display:flex;gap:9px;flex-wrap:wrap}
+    .coc-premium-extra-actions a{display:inline-flex;align-items:center;justify-content:center;padding:10px 13px;border-radius:9px;background:#176b45;color:white;text-decoration:none;font-weight:800;font-size:13px}
+    .coc-premium-extra-actions a.secondary{background:#edf5ef;color:#176b45;border:1px solid #d4e5d9}
+  </style>
 </head>
 <body class="student-dashboard-page">
   <a class="academy-float" href="/academy.html" aria-label="Open ChowOnCampus Academy">🎓 Academy</a>
@@ -194,6 +207,21 @@
         <button type="button" id="logoutButton" class="secondary-button">Log out</button>
       </div>
       <section class="coc-premium-panel"><div><span>CHOWONCAMPUS PREMIUM</span><h2 id="premiumHeading">Enjoy an ad-free campus experience</h2><p id="premiumDescription">Get the Premium badge and remove dashboard and pop-up advertisements for 30 days.</p></div><div class="coc-premium-actions"><strong>₦3,000 / 30 days</strong><button id="premiumBuyButton" type="button" class="primary-button">Get Premium</button><small id="premiumStatus" role="status">One-time payment. No automatic renewal.</small></div></section>
+      <section class="coc-premium-benefits" aria-label="Premium membership benefits">
+        <article class="coc-premium-benefit"><strong>✦ Premium badge</strong><p>A visible badge on your student account.</p></article>
+        <article class="coc-premium-benefit"><strong>▣ Extra FoodBack</strong><p>Earn 1.5% FoodBack on eligible completed orders instead of the regular 1%.</p></article>
+        <article class="coc-premium-benefit"><strong>◈ Ad-free experience</strong><p>No dashboard or pop-up advertisements while your membership is active.</p></article>
+        <article class="coc-premium-benefit"><strong>⚡ Priority support</strong><p>Contact support using the Premium channel so your enquiry can be identified for priority handling.</p></article>
+        <article class="coc-premium-benefit"><strong>✧ Early access</strong><p>Get access to selected new ChowOnCampus features before their general release. Preview availability will be announced here.</p></article>
+      </section>
+      <section id="premiumMemberExtras" class="coc-premium-extra" aria-label="Premium member support and early access">
+        <h3>Premium member benefits</h3>
+        <p>Your membership is active. Use the Premium support channel for help, and check here for selected early-access announcements.</p>
+        <div class="coc-premium-extra-actions">
+          <a href="https://wa.me/2349169398221?text=PREMIUM%20SUPPORT%20%E2%80%94%20Please%20prioritise%20my%20ChowOnCampus%20enquiry." target="_blank" rel="noopener noreferrer">Contact Premium Support</a>
+          <a class="secondary" href="mailto:chowoncampus@gmail.com?subject=Premium%20Support&body=PREMIUM%20SUPPORT%20%E2%80%94%20Please%20prioritise%20my%20ChowOnCampus%20enquiry.">Email Premium Support</a>
+        </div>
+      </section>
       <div id="earningsPanel"></div>
       <section id="campusAds" class="campus-ads-panel" aria-label="Sponsored campus promotions"><div class="campus-ads-heading"><div><span class="campus-ads-eyebrow">CAMPUS DISCOVERIES</span><h2>Promotions around campus</h2><p>Offers from campus businesses. Sponsored placements are labelled.</p></div></div><div id="campusAdsGrid" class="campus-ads-grid"></div></section>      <div id="dashboardContent">
         <p>Loading dashboard...</p>

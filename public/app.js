@@ -1199,6 +1199,16 @@ function renderRestaurantMenuManager() {
   container.hidden = true;
   container.id = "restaurantMenuManager";
   container.innerHTML = `
+    <section class="order-card" style="margin-bottom:18px">
+      <div class="dashboard-section-heading"><div><span class="eyebrow">DIRECTPAY</span><h2>Bank account &amp; WhatsApp contact</h2><p>Students transfer directly to your approved account. Ultimate Admin must approve bank details before they appear at checkout.</p></div></div>
+      <form id="restaurantPaymentSettingsForm">
+        <label>Bank name<input name="bankName" maxlength="100" required></label>
+        <label>Account name<input name="accountName" maxlength="120" required></label>
+        <label>10-digit account number<input name="accountNumber" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" required></label>
+        <label>WhatsApp number<input name="whatsappNumber" placeholder="e.g. 08012345678 or +2348012345678"></label>
+        <div class="menu-editor-actions"><button type="submit" class="primary-button">Save payment details</button><span id="restaurantPaymentSettingsMessage" class="muted" role="status"></span></div>
+      </form>
+    </section>
     <section class="restaurant-location-manager">
       <div class="dashboard-section-heading"><div><span class="eyebrow">PICKUP POINT</span><h2>Restaurant location</h2><p>Save written pickup instructions and set the exact GPS pin so the nearest available agent can find your restaurant.</p></div></div>
       <form id="restaurantLocationForm">
@@ -1225,6 +1235,27 @@ function renderRestaurantMenuManager() {
       </form>
     </div>`;
   $("#dashboardContent").prepend(container);
+  const paymentForm = document.getElementById("restaurantPaymentSettingsForm");
+  const paymentMessage = document.getElementById("restaurantPaymentSettingsMessage");
+  api("/api/merchant/payment-settings").then(settings => {
+    paymentForm.elements.bankName.value = settings.bankName || "";
+    paymentForm.elements.accountName.value = settings.accountName || "";
+    paymentForm.elements.accountNumber.value = settings.accountNumber || "";
+    paymentForm.elements.whatsappNumber.value = settings.whatsappNumber || "";
+    paymentMessage.textContent = "Bank account status: " + settings.bankAccountStatus + (settings.rejectionReason ? " · " + settings.rejectionReason : "");
+  }).catch(error => { paymentMessage.textContent = error.message; });
+  paymentForm.addEventListener("submit", async event => {
+    event.preventDefault();
+    const button = paymentForm.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+      const settings = Object.fromEntries(new FormData(paymentForm));
+      const result = await api("/api/merchant/payment-settings", { method: "PUT", body: JSON.stringify(settings) });
+      paymentMessage.textContent = result.message + " Status: " + result.settings.bankAccountStatus;
+      showToast(result.message);
+    } catch (error) { paymentMessage.textContent = error.message; }
+    finally { button.disabled = false; }
+  });
 }
 
 let agentLocationWatchId = null;

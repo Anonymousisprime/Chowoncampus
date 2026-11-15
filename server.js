@@ -2591,14 +2591,20 @@ app.post("/api/orders/:id/bank-transfer/submit", requireRole("student"), (req, r
   if (!["image/jpeg", "image/png", "image/webp"].includes(mimeType) || !/^[A-Za-z0-9+/]+=*$/.test(data)) return res.status(400).json({ error: "Upload a JPG, PNG or WEBP transfer receipt." });
   const buffer = Buffer.from(data, "base64");
   if (!buffer.length || buffer.length > 2 * 1024 * 1024) return res.status(413).json({ error: "The transfer receipt must be 2 MB or smaller." });
-  const duplicate = orders.find(item => item.id !== order.id && String(item.transactionReference || "").toLowerCase() === transactionReference.toLowerCase());
-  if (duplicate) return res.status(409).json({ error: "That transaction reference has already been used for another order." });
-  if (order.transactionReference && order.transactionReference.toLowerCase() === transactionReference.toLowerCase() && order.paymentReceiptEncrypted) {
-    return res.status(409).json({ error: "This receipt has already been submitted for this order." });
-  }
+  const duplicateReference = orders.some(item => {
+    const used = [item.transactionReference, ...(Array.isArray(item.paymentReferenceHistory) ? item.paymentReferenceHistory.map(entry => entry.reference) : [])];
+    return used.some(value => String(value || "").toLowerCase() === transactionReference.toLowerCase());
+  });
+  if (duplicateReference) return res.status(409).json({ error: "That transaction reference has already been used. Each bank transaction can only be submitted once." });
   try {
     const encrypted = encryptVendorDocument(buffer);
     const now = new Date().toISOString();
+    order.paymentReferenceHistory = Array.isArray(order.paymentReferenceHistory) ? order.paymentReferenceHistory : [];
+    order.paymentReferenceHistory.push({ reference: transactionReference, submittedAt: now, submittedBy: req.account.username });
+    order.paymentReferenceHistory = order.paymentReferenceHistory.slice(-30);
+    order.paymentReceiptHistory = Array.isArray(order.paymentReceiptHistory) ? order.paymentReceiptHistory : [];
+    if (order.paymentReceiptEncrypted) order.paymentReceiptHistory.push({ transactionReference: order.transactionReference || "", mimeType: order.paymentReceiptMimeType || "", fileName: order.paymentReceiptFileName || "", uploadedAt: order.paymentReceiptUploadedAt || null, encrypted: order.paymentReceiptEncrypted });
+    order.paymentReceiptHistory = order.paymentReceiptHistory.slice(-10);
     order.paymentReceiptEncrypted = encrypted;
     order.paymentReceiptMimeType = mimeType;
     order.paymentReceiptFileName = String(req.body.fileName || "transfer-receipt").replace(/[\\/]/g, "_").slice(0, 120);
@@ -2610,7 +2616,9 @@ app.post("/api/orders/:id/bank-transfer/submit", requireRole("student"), (req, r
     order.updatedAt = now;
     saveOrders(orders);
     recordOperationsEvent({ type: "bank_transfer_receipt_submitted", entityType: "order", entityId: order.id, entityName: order.restaurantName, actorRole: "student", actorId: req.account.username, details: "Student submitted a bank-transfer receipt for merchant verification." });
-    notifyOrderParties(order, "Bank transfer receipt submitted", order.customerName + " submitted a transfer receipt for " + order.id + ". Verify actual bank credit before accepting the order.");
+    createNotification({ role: "student", username: order.customerPhone }, "Receipt submitted", "Your receipt for " + order.id + " was submitted for merchant verification.", order.id);
+    if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, "Bank transfer receipt submitted", order.id + ": " + order.customerName + " submitted a receipt. Check your bank account before confirming.", order.id);
+    else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Bank transfer receipt submitted", order.id + ": " + order.customerName + " submitted a receipt. Check your bank account before confirming.", order.id);
     createNotification({ role: "admin" }, "Bank transfer needs review", order.id + " has a receipt awaiting merchant verification.", order.id);
     res.setHeader("Cache-Control", "no-store, private");
     return res.json({ ok: true, order: studentPublicOrder(order, req.account.username), message: "Receipt submitted. The business must confirm that the money actually arrived in its bank account." });
@@ -2936,7 +2944,7 @@ app.get("/api/orders/:id", (req, res) => {
         (session.role === "business" && order.merchantType === "business" && session.businessId === order.businessId) ||
         (session.role === "agent" && session.agentId === order.assignedAgentId)
       )
-    ) return res.json({ order: publicOrder(order) });
+    ) return res.json({ order: publicOrder(order, session.role === "restaurant" || session.role === "business" || (session.role === "admin" && session.isSuperAdmin)) });
 
     res.json({
       order: {

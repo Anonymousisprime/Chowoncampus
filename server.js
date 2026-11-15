@@ -4959,6 +4959,15 @@ function safeHttpsUrl(value, required = false) {
     return parsed.protocol === "https:" ? parsed.toString() : null;
   } catch { return null; }
 }
+function safeCampusAdImage(value) {
+  const raw = String(value || "").trim();
+  if (/^https:\/\//i.test(raw)) return safeHttpsUrl(raw, true);
+  const match = raw.match(/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/i);
+  if (!match) return null;
+  const bytes = Buffer.from(match[2], "base64");
+  if (!bytes.length || bytes.length > 1024 * 1024 || bytes.toString("base64").replace(/=+$/, "") !== match[2].replace(/=+$/, "")) return null;
+  return raw;
+}
 
 app.get("/api/restaurant/ads", requireRole("restaurant"), (req, res) => {
  const restaurant=restaurants.find(item=>item.id===req.account.restaurantId);
@@ -4973,14 +4982,14 @@ app.post("/api/restaurant/ads", requireRole("restaurant"), (req,res)=>{
  const existing=readCampusAds().filter(item=>item.submittedByRestaurantId===restaurant.id);
  if(existing.filter(item=>["pending","approved","active","paused"].includes(item.status)).length>=5)return res.status(409).json({error:"You already have five applications or campaigns awaiting completion."});
  const title=String(req.body.title||"").trim(),description=String(req.body.description||"").trim(),packageKey=String(req.body.packageKey||""),destinationType=String(req.body.destinationType||"internal");
- const imageUrl=safeHttpsUrl(req.body.imageUrl,true),rawTarget=String(req.body.targetUrl||"").trim();
+ const imageUrl=safeCampusAdImage(req.body.imageUrl),rawTarget=String(req.body.targetUrl||"").trim();
  const targetUrl=destinationType==="internal"?(/^\/(?!\/)[A-Za-z0-9/_?&=.%#-]*$/.test(rawTarget)?rawTarget:null):safeHttpsUrl(rawTarget,true);
  const pkg=CAMPUS_AD_PACKAGES[packageKey],price=pkg?pkg.price*(destinationType==="external"?2:1):0;
  if(title.length<3||title.length>90)return res.status(400).json({error:"Promotion title must be 3–90 characters."});
  if(description.length>240)return res.status(400).json({error:"Description must be 240 characters or fewer."});
  if(!pkg)return res.status(400).json({error:"Choose an available advertising package."});
  if(!["internal","external"].includes(destinationType))return res.status(400).json({error:"Choose an internal or external destination."});
- if(!imageUrl||!targetUrl)return res.status(400).json({error:destinationType==="internal"?"Use a valid ChowOnCampus page path beginning with /.":"Use valid HTTPS links for the advert image and external website."});
+ if(!imageUrl||!targetUrl)return res.status(400).json({error:destinationType==="internal"?"Provide an HTTPS image link or upload a JPG, PNG or WEBP image (maximum 1 MB), and use a valid ChowOnCampus page path beginning with /.":"Provide an HTTPS image link or upload a JPG, PNG or WEBP image (maximum 1 MB), and use a valid HTTPS external website."});
  const now=new Date(),startsAtInput=req.body.startsAt?new Date(req.body.startsAt):now;
  if(!Number.isFinite(startsAtInput.getTime())||startsAtInput.getTime()<now.getTime()-5*60*1000)return res.status(400).json({error:"Choose a valid campaign start time."});
  const ad={id:"AD-"+crypto.randomBytes(5).toString("hex").toUpperCase(),title,advertiser:restaurant.name,type:"restaurant",description,imageUrl,targetUrl,destinationType,packageKey,days:pkg.days,price,startsAt:startsAtInput.toISOString(),endsAt:new Date(startsAtInput.getTime()+pkg.days*86400000).toISOString(),status:"pending",paymentReceived:false,impressions:0,clicks:0,submittedByRestaurantId:restaurant.id,submittedByRestaurantName:restaurant.name,createdAt:now.toISOString(),createdBy:req.account.username,updatedAt:now.toISOString()};
@@ -5048,7 +5057,7 @@ app.post("/api/superadmin/ads", requireSuperAdmin, (req, res) => {
   const description = String(req.body.description || "").trim();
   const packageKey = String(req.body.packageKey || "");
   const destinationType = String(req.body.destinationType || "external");
-  const imageUrl = safeHttpsUrl(req.body.imageUrl, true);
+  const imageUrl = safeCampusAdImage(req.body.imageUrl);
   const rawTarget = String(req.body.targetUrl || "").trim();
   const targetUrl = destinationType === "internal"
     ? (/^\/(?!\/)[A-Za-z0-9/_?&=.%#-]*$/.test(rawTarget) ? rawTarget : null)
@@ -5061,7 +5070,7 @@ app.post("/api/superadmin/ads", requireSuperAdmin, (req, res) => {
   if (description.length > 240) return res.status(400).json({ error: "Description must be 240 characters or fewer." });
   if (!pkg) return res.status(400).json({ error: "Choose one of the available advertising packages." });
   if (!["internal", "external"].includes(destinationType)) return res.status(400).json({ error: "Choose an internal ChowOnCampus page or an external website." });
-  if (!imageUrl || !targetUrl) return res.status(400).json({ error: destinationType === "internal" ? "Use a valid page path on ChowOnCampus, beginning with /." : "Use valid HTTPS links for the advert image and external destination." });
+  if (!imageUrl || !targetUrl) return res.status(400).json({ error: "Provide an HTTPS image link or upload a JPG, PNG or WEBP image (maximum 1 MB), and enter a valid campaign destination." });
   const now = new Date();
   const startsAtInput = req.body.startsAt ? new Date(req.body.startsAt) : now;
   if (!Number.isFinite(startsAtInput.getTime()) || startsAtInput.getTime() < now.getTime() - 5 * 60 * 1000) return res.status(400).json({ error: "Choose a valid start time that is not in the past." });

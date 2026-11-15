@@ -4,7 +4,7 @@ const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 const safeTarget=value=>/^\/(?!\/)[A-Za-z0-9/_?&=.%#-]*$/.test(String(value||""))||/^https:\/\//i.test(String(value||""));
 function showPopup(ad){
  if(!ad||!safeTarget(ad.targetUrl))return;
- const key="coc_popup_seen_"+ad.id;
+ const key="coc_popup_seen";
  try{const previous=Number(localStorage.getItem(key)||0);if(previous&&Date.now()-previous<24*60*60*1000)return;localStorage.setItem(key,String(Date.now()));}catch{}
  const overlay=document.createElement("div");
  overlay.className="coc-popup-overlay";overlay.setAttribute("role","dialog");overlay.setAttribute("aria-modal","true");overlay.setAttribute("aria-label","Sponsored promotion");
@@ -26,6 +26,7 @@ function showPopup(ad){
 }
 if(!root||!grid)return;
 fetch("/api/ads/public",{credentials:"same-origin"}).then(r=>r.ok?r.json():Promise.reject()).then(data=>{
+ if(data.hideAds){root.hidden=true;return;}
  const ads=Array.isArray(data.ads)?data.ads:[];
  root.hidden=false;
  if(!ads.length){grid.innerHTML='<div class="campus-ads-empty"><strong>No sponsored promotions yet.</strong><p>New campus offers will appear here when an advertisement is approved and activated.</p></div>';}

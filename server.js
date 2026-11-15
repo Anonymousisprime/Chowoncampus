@@ -1199,7 +1199,7 @@ app.post("/api/push/subscribe", requireLogin, (req, res) => {
     return res.status(400).json({ error: "The browser did not provide a valid push subscription." });
   }
   const account = req.account;
-  const record = { endpoint: subscription.endpoint, subscription, role: account.role, username: account.username || null, restaurantId: account.restaurantId || null, agentId: account.agentId || null, updatedAt: new Date().toISOString() };
+  const record = { endpoint: subscription.endpoint, subscription, role: account.role, username: account.username || null, restaurantId: account.restaurantId || null, businessId: account.businessId || null, agentId: account.agentId || null, updatedAt: new Date().toISOString() };
   const subscriptions = readPushSubscriptions().filter(item => item.endpoint !== record.endpoint);
   subscriptions.push(record);
   savePushSubscriptions(subscriptions);
@@ -1276,6 +1276,7 @@ function notificationBelongsToAccount(item, account) {
   if (account.role === "restaurant") {
     return Boolean(account.restaurantId && item.restaurantId && item.restaurantId === account.restaurantId);
   }
+  if (account.role === "business") return Boolean(account.businessId && item.businessId && item.businessId === account.businessId);
   if (account?.role === "agent") {
     return Boolean(account.agentId && item.agentId && item.agentId === account.agentId);
   }
@@ -1290,7 +1291,7 @@ app.get("/api/notifications", requireLogin, (req, res) => {
 });
 app.delete("/api/notifications", requireLogin, (req, res) => {
   const account = req.account;
-  if (!["student", "restaurant", "agent"].includes(account.role)) {
+  if (!["student", "restaurant", "business", "agent"].includes(account.role)) {
     return res.status(403).json({ error: "Clearing notifications is not available for this account." });
   }
   const items = readNotifications();
@@ -2597,6 +2598,7 @@ app.get("/api/orders/:id", (req, res) => {
       (
         session.role === "admin" ||
         (session.role === "restaurant" && session.restaurantId === order.restaurantId) ||
+        (session.role === "business" && order.merchantType === "business" && session.businessId === order.businessId) ||
         (session.role === "agent" && session.agentId === order.assignedAgentId)
       )
     ) return res.json({ order: publicOrder(order) });
@@ -4281,8 +4283,8 @@ function assignReadyOrders() {
     });
     if (!eligible.length) {
       if (hasTargetCoords) {
-        createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Waiting for nearby agent GPS",
-          `Order ${order.id} is ready, but no available agent has a fresh GPS location yet. Keep the pickup pin saved and ask online agents to enable location.`, order.id);
+        if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, "Waiting for nearby agent GPS", `Order ${order.id} is ready, but no available agent has a fresh GPS location yet. Keep the pickup pin saved and ask online agents to enable location.`, order.id);
+        else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Waiting for nearby agent GPS", `Order ${order.id} is ready, but no available agent has a fresh GPS location yet. Keep the pickup pin saved and ask online agents to enable location.`, order.id);
       }
       continue;
     }

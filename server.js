@@ -37,7 +37,8 @@ const storageFiles = {
   "restaurant-suspensions.json": "restaurantSuspensions",
   "restaurant-settlements.json": "restaurantSettlements",
   "campus-ads.json": "campusAds",
-  "academy-data.json": "academyData"
+  "academy-data.json": "academyData",
+  "other-businesses.json": "otherBusinesses"
 };
 
 function readLocalJson(filename, fallback) {
@@ -75,7 +76,8 @@ async function initializePersistentStorage() {
     ["restaurant-suspensions.json", {}],
     ["restaurant-settlements.json", []],
     ["campus-ads.json", []],
-    ["academy-data.json", { version: 1, lessons: [], faqs: [], quizzes: {}, progress: [], quizResults: [] }]
+    ["academy-data.json", { version: 1, lessons: [], faqs: [], quizzes: {}, progress: [], quizResults: [] }],
+    ["other-businesses.json", []]
   ];
   if (!storagePool) {
     for (const [filename, fallback] of definitions) {
@@ -693,7 +695,8 @@ function safeAccount(account) {
     name: account.name,
     restaurantId: account.restaurantId || null,
     agentId: account.agentId || null,
-    isSuperAdmin: Boolean(account.isSuperAdmin)
+    isSuperAdmin: Boolean(account.isSuperAdmin),
+    businessId: account.businessId || null
   };
 }
 
@@ -748,6 +751,10 @@ function requireRole(...roles) {
           appeal: "Contact ChowOnCampus support to request a review by the Ultimate Admin."
         });
       }
+    }
+    if (session.role === "business") {
+      const business = readOtherBusinesses().find(item => item.id === session.businessId);
+      if (!business || business.status !== "approved" || business.suspended) return res.status(403).json({ error: "This business account is not approved or is suspended. Contact ChowOnCampus support on 09169398221." });
     }
     if (session.role === "agent") {
       const agent = readAgentRecords().find(item => item.id === session.agentId);
@@ -1267,7 +1274,7 @@ function notificationBelongsToAccount(item, account) {
   if (account.role === "restaurant") {
     return Boolean(account.restaurantId && item.restaurantId && item.restaurantId === account.restaurantId);
   }
-  if (account.role === "agent") {
+  if (account?.role === "agent") {
     return Boolean(account.agentId && item.agentId && item.agentId === account.agentId);
   }
   return false;
@@ -1606,6 +1613,112 @@ app.delete("/api/superadmin/academy/content/:kind/:id", requireSuperAdmin, (req,
   res.json({ ok: true, message: "Academy content removed." });
 });
 
+// Other Businesses marketplace: independent non-food merchant records and accounts.
+const OTHER_BUSINESSES_FILE = path.join(__dirname, "other-businesses.json");
+function readOtherBusinesses() { return readStoredJson(OTHER_BUSINESSES_FILE, []); }
+function saveOtherBusinesses(items) { saveStoredJson(OTHER_BUSINESSES_FILE, items.slice(0, 2000)); }
+function publicOtherBusiness(item) {
+  return {
+    id: item.id, name: item.name, category: item.category, description: item.description || "",
+    location: item.location || "", latitude: item.latitude ?? null, longitude: item.longitude ?? null,
+    online: item.online === true, status: item.status, products: (item.products || []).filter(p => p.available !== false)
+      .map(p => ({ id: p.id, name: p.name, description: p.description || "", category: p.category || "", price: p.price, imageUrl: p.imageUrl || "", available: p.available !== false }))
+  };
+}
+app.get("/api/other-businesses", (req, res) => {
+  const businesses = readOtherBusinesses().filter(item => item.status === "approved" && !item.suspended && item.online === true);
+  res.set("Cache-Control", "no-store");
+  res.json({ businesses: businesses.map(publicOtherBusiness) });
+});
+app.post("/api/business/apply", (req, res) => {
+  const name = String(req.body.name || "").trim().slice(0, 100);
+  const category = String(req.body.category || "").trim().toLowerCase();
+  const description = String(req.body.description || "").trim().slice(0, 500);
+  const location = String(req.body.location || "").trim().slice(0, 180);
+  const ownerName = String(req.body.ownerName || "").trim().slice(0, 100);
+  const phone = normalizeNigerianPhone(req.body.phone);
+  const username = String(req.body.username || "").trim().toLowerCase();
+  const password = String(req.body.password || "");
+  const allowedCategories = ["supermarket", "boutique", "bookshop", "electronics", "general"];
+  if (name.length < 2 || !allowedCategories.includes(category) || location.length < 3 || ownerName.length < 2 || !phone || !/^[a-z0-9._-]{4,30}$/.test(username) || password.length < 10 || password.length > 128) {
+    return res.status(400).json({ error: "Complete all fields. Use a valid phone number, username (4–30 characters), and password (10–128 characters)." });
+  }
+  const businesses = readOtherBusinesses();
+  if (businesses.some(item => item.username === username || item.phone === phone)) return res.status(409).json({ error: "That username or phone number is already registered." });
+  if (accounts.some(item => item.username === username)) return res.status(409).json({ error: "That username is already in use." });
+  const credentials = hashPassword(password);
+  const business = {
+    id: "BIZ-" + crypto.randomBytes(5).toString("hex").toUpperCase(),
+    name, category, description, location, ownerName, phone, username,
+    passwordSalt: credentials.salt, passwordHash: credentials.hash,
+    status: "pending", suspended: false, online: false, products: [],
+    settlementConfigured: false, createdAt: new Date().toISOString()
+  };
+  businesses.unshift(business);
+  saveOtherBusinesses(businesses);
+  createNotification({ role: "admin" }, "New business application", name + " submitted an Other Businesses application for review.");
+  res.status(201).json({ ok: true, message: "Application submitted. You can log in after Ultimate Admin approval.", applicationId: business.id });
+});
+app.get("/api/business/me", requireRole("business"), (req, res) => {
+  const business = readOtherBusinesses().find(item => item.id === req.account.businessId);
+  if (!business) return res.status(404).json({ error: "Business account not found." });
+  res.set("Cache-Control", "no-store");
+  res.json({ business: { ...publicOtherBusiness(business), status: business.status, paused: business.paused === true, settlementConfigured: business.settlementConfigured === true } });
+});
+app.put("/api/business/products", requireRole("business"), (req, res) => {
+  const items = Array.isArray(req.body.products) ? req.body.products : null;
+  if (!items || items.length > 300) return res.status(400).json({ error: "Submit a product list of up to 300 items." });
+  const clean = [];
+  for (const item of items) {
+    const name = String(item.name || "").trim().slice(0, 100);
+    const price = Number(item.price);
+    if (name.length < 2 || !Number.isSafeInteger(price) || price < 1 || price > 100000000) return res.status(400).json({ error: "Each product needs a name and a valid whole-number price." });
+    clean.push({ id: String(item.id || crypto.randomUUID()).slice(0, 80), name, description: String(item.description || "").trim().slice(0, 300), category: String(item.category || "").trim().slice(0, 60), price, imageUrl: safeHttpsUrl(item.imageUrl || "") || "", available: item.available !== false });
+  }
+  const businesses = readOtherBusinesses();
+  const business = businesses.find(item => item.id === req.account.businessId);
+  if (!business || business.status !== "approved") return res.status(403).json({ error: "Your business is not approved." });
+  business.products = clean;
+  business.updatedAt = new Date().toISOString();
+  saveOtherBusinesses(businesses);
+  res.json({ products: clean, message: "Products saved." });
+});
+app.patch("/api/business/operations", requireRole("business"), (req, res) => {
+  if (typeof req.body.online !== "boolean" || typeof req.body.paused !== "boolean") return res.status(400).json({ error: "Choose online/offline and paused/unpaused states." });
+  const businesses = readOtherBusinesses();
+  const business = businesses.find(item => item.id === req.account.businessId);
+  if (!business || business.status !== "approved" || business.suspended) return res.status(403).json({ error: "Your business is not approved to receive orders." });
+  business.online = req.body.online;
+  business.paused = req.body.paused;
+  business.updatedAt = new Date().toISOString();
+  saveOtherBusinesses(businesses);
+  res.json({ online: business.online, paused: business.paused });
+});
+app.get("/api/admin/other-businesses", requireSuperAdmin, (req, res) => {
+  const businesses = readOtherBusinesses().map(item => ({
+    id: item.id, name: item.name, category: item.category, description: item.description, location: item.location,
+    ownerName: item.ownerName, phone: item.phone, username: item.username, status: item.status,
+    suspended: item.suspended === true, online: item.online === true, productCount: (item.products || []).length,
+    settlementConfigured: item.settlementConfigured === true, createdAt: item.createdAt
+  }));
+  res.set("Cache-Control", "no-store, private");
+  res.json({ businesses });
+});
+app.patch("/api/admin/other-businesses/:id", requireSuperAdmin, (req, res) => {
+  const action = String(req.body.action || "");
+  if (!["approve", "reject", "suspend", "restore"].includes(action)) return res.status(400).json({ error: "Choose approve, reject, suspend or restore." });
+  const businesses = readOtherBusinesses();
+  const business = businesses.find(item => item.id === req.params.id);
+  if (!business) return res.status(404).json({ error: "Business application not found." });
+  if (action === "approve") { business.status = "approved"; business.reviewedAt = new Date().toISOString(); business.reviewedBy = req.account.username; }
+  if (action === "reject") { business.status = "rejected"; business.rejectionReason = String(req.body.reason || "").trim().slice(0, 300); business.online = false; }
+  if (action === "suspend") { business.suspended = true; business.suspensionReason = String(req.body.reason || "").trim().slice(0, 300); business.online = false; }
+  if (action === "restore") { business.suspended = false; business.suspensionReason = ""; }
+  saveOtherBusinesses(businesses);
+  createNotification({ role: "admin" }, "Business application updated", business.name + " was " + action + "d.");
+  res.json({ ok: true, message: "Business " + action + "d." });
+});
+
 // Staff login endpoint is used by the separate admin login page and staff accounts.
 // Login
 app.post("/api/login", (req, res) => {
@@ -1626,6 +1739,10 @@ app.post("/api/login", (req, res) => {
       accounts.push({ ...record, role: "admin", isSuperAdmin: false });
     }
   }
+  const businessAccount = readOtherBusinesses().find(item =>
+    item.username === username && item.status === "approved" &&
+    item.passwordSalt && item.passwordHash && passwordMatches(password, item)
+  );
   const account = accounts.find(a => {
     if (a.role === "admin" && disabledAdmins.includes(a.username) && !a.isSuperAdmin) return false;
     if (a.username !== username) return false;
@@ -1634,12 +1751,13 @@ app.post("/api/login", (req, res) => {
     return a.passwordHash ? passwordMatches(password, a) : a.password === password;
   });
 
-  if (!account) {
+  if (!account && !businessAccount) {
     return res.status(401).json({
       error: "Incorrect username or password."
     });
   }
-  if (account.role === "restaurant") {
+  if (businessAccount && businessAccount.suspended) return res.status(403).json({ error: "This business account is suspended. Contact ChowOnCampus support." });
+  if (account?.role === "restaurant") {
     const partner = restaurants.find(item => item.id === account.restaurantId);
     if (partner?.suspended) {
       const reason = String(partner.suspensionReason || "").trim();
@@ -1664,15 +1782,16 @@ app.post("/api/login", (req, res) => {
     }
   }
 
+  const authenticatedAccount = businessAccount ? { username: businessAccount.username, role: "business", businessId: businessAccount.id, name: businessAccount.name } : account;
   const token = crypto.randomBytes(32).toString("hex");
-  sessions.set(token, safeAccount(account));
+  sessions.set(token, safeAccount(authenticatedAccount));
 
   res.setHeader(
     "Set-Cookie",
     `coc_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=28800${IS_PRODUCTION ? "; Secure" : ""}`
   );
 
-  res.json({ account: safeAccount(account) });
+  res.json({ account: safeAccount(authenticatedAccount) });
 });
 
 // All signed-in account types can change their own password after verifying the current one.

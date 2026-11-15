@@ -3642,7 +3642,7 @@ function merchantFeeRecordHash(record) {
     id: record.id, merchantType: record.merchantType, merchantId: record.merchantId,
     merchantName: record.merchantName, paymentDate: record.paymentDate, amount: record.amount,
     reference: record.reference, note: record.note, createdAt: record.createdAt,
-    recordedBy: record.recordedBy, previousHash: record.previousHash
+    recordedBy: record.recordedBy, status: record.status, previousHash: record.previousHash
   };
   return crypto.createHash("sha256").update(JSON.stringify(payload), "utf8").digest("hex");
 }

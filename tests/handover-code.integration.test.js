@@ -17,7 +17,7 @@ function hash(p) {
 function order(id, extra = {}) {
   return { id, customerName: "Student A", customerPhone: "+2348012345678", restaurantId: "CB",
     restaurantName: "Campus Bites", assignedAgentId: "AG1", status: "Out for delivery",
-    paymentStatus: "Paid — Paystack verified", deliveryCode: "A7K2", deliveryCodeAttempts: 0,
+    paymentStatus: "Paid — bank transfer verified", deliveryCode: "A7K2", deliveryCodeAttempts: 0,
     deliveryCodeLocked: false, createdAt: new Date().toISOString(), items: [], ...extra };
 }
 async function getPort() {

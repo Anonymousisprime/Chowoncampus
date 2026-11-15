@@ -3747,8 +3747,18 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
     res.json({
       date: range.day, timezone: "Africa/Lagos",
       generatedAt: new Date().toISOString(),
-      orders: { total: dayOrders.length, successful: completedOrders.length, cancelled: cancelledOrders.length, failed: failedOrders.length, pending: pendingOrders.length,
-        successfulFoodSales: sum(completedOrders, order => order.subtotal) },
+      orders: {
+        total: dayOrders.length,
+        successful: completedOrders.length,
+        paidAndDelivered: completedOrders.length,
+        cancelled: cancelledOrders.length,
+        paidButCancelled: dayOrders.filter(order => order.status === "Cancelled" && isPaid(order)).length,
+        failed: failedOrders.length,
+        pending: pendingOrders.length,
+        pendingPayment: dayOrders.filter(order => !isPaid(order) && !["Cancelled", "Failed"].includes(order.status)).length,
+        rejectedPayment: dayOrders.filter(order => /rejected|declined/i.test(String(order.paymentStatus || ""))).length,
+        successfulFoodSales: sum(completedOrders, order => order.subtotal)
+      },
       payments: {
         paystackCount: paystackOrders.length, paystackGross: sum(paystackOrders, order => order.total),
         foodbackCount: foodbackOrders.length, foodbackValue: sum(foodbackOrders, order => order.total),
@@ -3773,7 +3783,11 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
         paid: sum(agentPayouts, item => item.amount), payoutsRecorded: agentPayouts.length },
       students: { newRegistrations: newStudents.length, activeCustomers: activeStudentIds.size },
       customerIssues: { casesOpened: cases.length, complaintsAndDisputes: complaints.length,
-        refundsMentionedInCases: cases.filter(item => /refund/i.test(String(item.type || item.category || item.title || ""))).length },
+        refundsMentionedInCases: cases.filter(item => /refund/i.test(String(item.type || item.category || item.title || ""))).length,
+        refundsAndAdjustments: {
+          count: cases.filter(item => /refund|adjustment/i.test(String(item.type || item.category || item.title || ""))).length,
+          recordedAmount: sum(cases.filter(item => /refund|adjustment/i.test(String(item.type || item.category || item.title || ""))), item => item.amount || item.refundAmount || item.adjustmentAmount || 0)
+        } },
       foodback: { issued: sum(foodbackLedger.filter(item => Number(item.amount) > 0 && !/deduct/i.test(String(item.kind || item.type || ""))), item => item.amount),
         used: Math.abs(sum(foodbackLedger.filter(item => /redeem|order/i.test(String(item.kind || "")) && Number(item.amount) < 0), item => item.amount)),
         deducted: sum(foodbackLedger.filter(item => /deduct/i.test(String(item.kind || item.type || ""))), item => Math.abs(Number(item.amount) || 0)),
@@ -3813,6 +3827,18 @@ app.post("/api/superadmin/merchant-fee-payments", requireSuperAdmin, (req, res) 
   if (!merchant) return res.status(404).json({ error: "Merchant not found." });
   const records = readMerchantFeePayments();
   if (records.some(item => String(item.reference || "").toLowerCase() === reference.toLowerCase())) return res.status(409).json({ error: "That payment reference has already been recorded." });
+  const cutoff = nigeriaDayRange(paymentDate).end.getTime();
+  const orders = readOrders();
+  const merchantOrders = orders.filter(order => (merchantType === "restaurant"
+    ? order.merchantType !== "business" && String(order.restaurantId) === merchantId
+    : order.merchantType === "business" && String(order.businessId) === merchantId) &&
+    ["Paid — Paystack verified", "Paid — FoodBack approved", "Paid — bank transfer verified"].includes(order.paymentStatus) &&
+    Date.parse(order.paidAt || order.createdAt || "") < cutoff);
+  const feesDue = merchantOrders.reduce((total, order) => total + reportMoney(order.deliveryFee) + reportMoney(order.paymentFee), 0);
+  const feesAlreadyRecorded = records.filter(item => item.merchantType === merchantType && String(item.merchantId) === merchantId && String(item.paymentDate || "") <= paymentDate)
+    .reduce((total, item) => total + reportMoney(item.amount), 0);
+  const outstandingBeforePayment = Math.max(0, feesDue - feesAlreadyRecorded);
+  if (amount > outstandingBeforePayment) return res.status(409).json({ error: "This amount exceeds the merchant's recorded outstanding platform fees of ₦" + outstandingBeforePayment.toLocaleString("en-NG") + "." });
   const record = { id: "MFP-" + crypto.randomBytes(6).toString("hex").toUpperCase(), merchantType, merchantId, merchantName: merchant.name, paymentDate, amount, reference, note, createdAt: new Date().toISOString(), recordedBy: req.account.username, status: "recorded" };
   records.unshift(record);
   saveMerchantFeePayments(records);

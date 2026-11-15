@@ -1,0 +1,45 @@
+name: Other Businesses marketplace validation
+
+on:
+  pull_request:
+    paths:
+      - 'server.js'
+      - 'public/other-businesses.html'
+      - 'public/business-dashboard.html'
+      - 'public/superadmin-other-businesses.html'
+      - 'public/student-dashboard.html'
+      - 'public/admin-dashboard.html'
+      - 'tests/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/other-businesses-validation.yml'
+  workflow_dispatch:
+
+jobs:
+  marketplace-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Check server syntax
+        run: node --check server.js
+      - name: Check browser scripts
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          for (const page of ['other-businesses', 'business-dashboard', 'superadmin-other-businesses', 'student-dashboard', 'admin-dashboard']) {
+            const html = fs.readFileSync('public/' + page + '.html', 'utf8');
+            const scripts = [...html.matchAll(/<script(?:\\s[^>]*)?>([\\s\\S]*?)<\\/script>/gi)];
+            if (!scripts.length) continue;
+            scripts.forEach((match, index) => fs.writeFileSync('/tmp/' + page + '-' + index + '.js', match[1]));
+          }
+          NODE
+          for file in /tmp/other-businesses-*.js /tmp/business-dashboard-*.js /tmp/superadmin-other-businesses-*.js /tmp/student-dashboard-*.js /tmp/admin-dashboard-*.js; do
+            [ -f "$file" ] && node --check "$file"
+          done
+      - name: Run existing regression tests
+        run: npm test

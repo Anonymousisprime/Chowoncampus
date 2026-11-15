@@ -1828,7 +1828,7 @@ async function loadDashboard(automatic = false) {
           <div class="student-dashboard-actions"><a class="secondary-button" href="/restaurants.html" style="display:inline-flex;align-items:center;text-decoration:none">🍽️ Browse food</a><button class="secondary-button" type="button" data-show-password-form>🔐 Change password</button></div>
         </div>
         <section class="dashboard-order-section student-foodback-summary" aria-label="FoodBack rewards">
-          <div class="dashboard-section-heading"><div><span class="eyebrow">FOODBACK REWARDS</span><h2>Your FoodBack wallet</h2><p>Earn 1% on your own eligible orders and 2% referral rewards when friends order.</p></div><a class="secondary-button" href="/foodback.html" style="display:inline-flex;align-items:center;text-decoration:none">Open wallet →</a></div>
+          <div class="dashboard-section-heading"><div><span class="eyebrow">FOODBACK REWARDS</span><h2>Your FoodBack wallet</h2><p id="studentFoodBackEarnRate">Earn 1% on your own eligible orders and 2% referral rewards when friends order.</p></div><a class="secondary-button" href="/foodback.html" style="display:inline-flex;align-items:center;text-decoration:none">Open wallet →</a></div>
           <div class="student-foodback-metrics"><article><span>Available balance</span><strong id="studentFoodBackBalance">Loading…</strong></article><article><span>Friends referred</span><strong id="studentFoodBackReferrals">—</strong></article><article><span>Referral reward now</span><strong id="studentFoodBackRate">—</strong></article></div>
           <div class="student-dashboard-actions"><a class="primary-button" href="/foodback.html?view=refer" style="display:inline-flex;align-items:center;text-decoration:none">🎁 Refer &amp; Earn</a><a class="secondary-button" href="/foodback.html" style="display:inline-flex;align-items:center;text-decoration:none">View transactions</a></div>
         </section>
@@ -1843,7 +1843,7 @@ async function loadDashboard(automatic = false) {
         const rate = $("#studentFoodBackRate");
         if (balance) balance.textContent = money(foodback.availableBalance);
         if (referrals) referrals.textContent = (foodback.referredCount || 0) + " / " + (foodback.referralLimit || 10);
-        if (rate) rate.textContent = (foodback.launchRate || 5) + "%";
+        if (rate) rate.textContent = (foodback.launchRate || 5) + "%"; const earnRate = $("#studentFoodBackEarnRate"); if (earnRate) earnRate.textContent = "Earn " + (foodback.ownOrderRate || 1) + "% on your own eligible orders" + (foodback.premiumActive ? " while Premium is active" : "") + " and 2% referral rewards when friends order.";
       }).catch(() => { const balance = $("#studentFoodBackBalance"); if (balance) balance.textContent = "Unavailable"; });
     }
 

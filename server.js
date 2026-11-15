@@ -37,7 +37,8 @@ const storageFiles = {
   "restaurant-suspensions.json": "restaurantSuspensions",
   "restaurant-settlements.json": "restaurantSettlements",
   "campus-ads.json": "campusAds",
-  "academy-data.json": "academyData"
+  "academy-data.json": "academyData",
+  "other-businesses.json": "otherBusinesses"
 };
 
 function readLocalJson(filename, fallback) {
@@ -75,7 +76,8 @@ async function initializePersistentStorage() {
     ["restaurant-suspensions.json", {}],
     ["restaurant-settlements.json", []],
     ["campus-ads.json", []],
-    ["academy-data.json", { version: 1, lessons: [], faqs: [], quizzes: {}, progress: [], quizResults: [] }]
+    ["academy-data.json", { version: 1, lessons: [], faqs: [], quizzes: {}, progress: [], quizResults: [] }],
+    ["other-businesses.json", []]
   ];
   if (!storagePool) {
     for (const [filename, fallback] of definitions) {
@@ -485,6 +487,7 @@ function pushSubscriptionBelongsToTarget(subscription, target) {
   if (target.role === "admin") return true;
   if (target.role === "student") return Boolean(target.username && subscription.username === target.username);
   if (target.role === "restaurant") return Boolean(target.restaurantId && subscription.restaurantId === target.restaurantId);
+  if (target.role === "business") return Boolean(target.businessId && subscription.businessId === target.businessId);
   if (target.role === "agent") return Boolean(target.agentId && subscription.agentId === target.agentId);
   return false;
 }
@@ -507,7 +510,8 @@ function createNotification(target, title, message, orderId = null) {
 }
 function notifyOrderParties(order, title, message) {
   createNotification({ role: "student", username: order.customerPhone }, title, message, order.id);
-  createNotification({ role: "restaurant", restaurantId: order.restaurantId }, title, `${order.id}: ${message}`, order.id);
+  if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, title, `${order.id}: ${message}`, order.id);
+  else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, title, `${order.id}: ${message}`, order.id);
   createNotification({ role: "admin" }, title, `${order.id}: ${message}`, order.id);
 
   // Let every delivery agent know a paid order has arrived, even if they are not
@@ -534,8 +538,8 @@ function notifyOrderStatusChanged(order, previousStatus, newStatus) {
   }
 
   createNotification({ role: "student", username: order.customerPhone }, title, studentMessage, order.id);
-  createNotification({ role: "restaurant", restaurantId: order.restaurantId }, title,
-    `Order ${order.id}: status changed from ${previousStatus} to ${newStatus}.`, order.id);
+  if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, title, `Order ${order.id}: status changed from ${previousStatus} to ${newStatus}.`, order.id);
+  else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, title, `Order ${order.id}: status changed from ${previousStatus} to ${newStatus}.`, order.id);
   createNotification({ role: "admin" }, title,
     `Order ${order.id}: status changed from ${previousStatus} to ${newStatus}.`, order.id);
   if (order.assignedAgentId) createNotification({ role: "agent", agentId: order.assignedAgentId }, title,
@@ -693,7 +697,8 @@ function safeAccount(account) {
     name: account.name,
     restaurantId: account.restaurantId || null,
     agentId: account.agentId || null,
-    isSuperAdmin: Boolean(account.isSuperAdmin)
+    isSuperAdmin: Boolean(account.isSuperAdmin),
+    businessId: account.businessId || null
   };
 }
 
@@ -748,6 +753,10 @@ function requireRole(...roles) {
           appeal: "Contact ChowOnCampus support to request a review by the Ultimate Admin."
         });
       }
+    }
+    if (session.role === "business") {
+      const business = readOtherBusinesses().find(item => item.id === session.businessId);
+      if (!business || business.status !== "approved" || business.suspended) return res.status(403).json({ error: "This business account is not approved or is suspended. Contact ChowOnCampus support on 09169398221." });
     }
     if (session.role === "agent") {
       const agent = readAgentRecords().find(item => item.id === session.agentId);
@@ -1190,7 +1199,7 @@ app.post("/api/push/subscribe", requireLogin, (req, res) => {
     return res.status(400).json({ error: "The browser did not provide a valid push subscription." });
   }
   const account = req.account;
-  const record = { endpoint: subscription.endpoint, subscription, role: account.role, username: account.username || null, restaurantId: account.restaurantId || null, agentId: account.agentId || null, updatedAt: new Date().toISOString() };
+  const record = { endpoint: subscription.endpoint, subscription, role: account.role, username: account.username || null, restaurantId: account.restaurantId || null, businessId: account.businessId || null, agentId: account.agentId || null, updatedAt: new Date().toISOString() };
   const subscriptions = readPushSubscriptions().filter(item => item.endpoint !== record.endpoint);
   subscriptions.push(record);
   savePushSubscriptions(subscriptions);
@@ -1267,7 +1276,8 @@ function notificationBelongsToAccount(item, account) {
   if (account.role === "restaurant") {
     return Boolean(account.restaurantId && item.restaurantId && item.restaurantId === account.restaurantId);
   }
-  if (account.role === "agent") {
+  if (account.role === "business") return Boolean(account.businessId && item.businessId && item.businessId === account.businessId);
+  if (account?.role === "agent") {
     return Boolean(account.agentId && item.agentId && item.agentId === account.agentId);
   }
   return false;
@@ -1281,7 +1291,7 @@ app.get("/api/notifications", requireLogin, (req, res) => {
 });
 app.delete("/api/notifications", requireLogin, (req, res) => {
   const account = req.account;
-  if (!["student", "restaurant", "agent"].includes(account.role)) {
+  if (!["student", "restaurant", "business", "agent"].includes(account.role)) {
     return res.status(403).json({ error: "Clearing notifications is not available for this account." });
   }
   const items = readNotifications();
@@ -1606,6 +1616,188 @@ app.delete("/api/superadmin/academy/content/:kind/:id", requireSuperAdmin, (req,
   res.json({ ok: true, message: "Academy content removed." });
 });
 
+// Other Businesses marketplace: independent non-food merchant records and accounts.
+const OTHER_BUSINESSES_FILE = path.join(__dirname, "other-businesses.json");
+function readOtherBusinesses() { return readStoredJson(OTHER_BUSINESSES_FILE, []); }
+function saveOtherBusinesses(items) { saveStoredJson(OTHER_BUSINESSES_FILE, items.slice(0, 2000)); }
+function publicOtherBusiness(item) {
+  return {
+    id: item.id, name: item.name, category: item.category, description: item.description || "",
+    location: item.location || "", latitude: item.latitude ?? null, longitude: item.longitude ?? null,
+    online: item.online === true, status: item.status, products: (item.products || []).filter(p => p.available !== false)
+      .map(p => ({ id: p.id, name: p.name, description: p.description || "", category: p.category || "", price: p.price, imageUrl: p.imageUrl || "", available: p.available !== false }))
+  };
+}
+app.get("/api/other-businesses", (req, res) => {
+  const businesses = readOtherBusinesses().filter(item => item.status === "approved" && !item.suspended && item.online === true);
+  res.set("Cache-Control", "no-store");
+  res.json({ businesses: businesses.map(publicOtherBusiness) });
+});
+app.post("/api/business/apply", (req, res) => {
+  const name = String(req.body.name || "").trim().slice(0, 100);
+  const category = String(req.body.category || "").trim().toLowerCase();
+  const description = String(req.body.description || "").trim().slice(0, 500);
+  const location = String(req.body.location || "").trim().slice(0, 180);
+  const ownerName = String(req.body.ownerName || "").trim().slice(0, 100);
+  const phone = normalizeNigerianPhone(req.body.phone);
+  const username = String(req.body.username || "").trim().toLowerCase();
+  const password = String(req.body.password || "");
+  const allowedCategories = ["supermarket", "boutique", "bookshop", "electronics", "general"];
+  if (name.length < 2 || !allowedCategories.includes(category) || location.length < 3 || ownerName.length < 2 || !phone || !/^[a-z0-9._-]{4,30}$/.test(username) || password.length < 10 || password.length > 128) {
+    return res.status(400).json({ error: "Complete all fields. Use a valid phone number, username (4–30 characters), and password (10–128 characters)." });
+  }
+  const businesses = readOtherBusinesses();
+  if (businesses.some(item => item.username === username || item.phone === phone)) return res.status(409).json({ error: "That username or phone number is already registered." });
+  if (accounts.some(item => item.username === username)) return res.status(409).json({ error: "That username is already in use." });
+  const credentials = hashPassword(password);
+  const business = {
+    id: "BIZ-" + crypto.randomBytes(5).toString("hex").toUpperCase(),
+    name, category, description, location, ownerName, phone, username,
+    passwordSalt: credentials.salt, passwordHash: credentials.hash,
+    status: "pending", suspended: false, online: false, products: [],
+    settlementConfigured: false, createdAt: new Date().toISOString()
+  };
+  businesses.unshift(business);
+  saveOtherBusinesses(businesses);
+  createNotification({ role: "admin" }, "New business application", name + " submitted an Other Businesses application for review.");
+  res.status(201).json({ ok: true, message: "Application submitted. You can log in after Ultimate Admin approval.", applicationId: business.id });
+});
+app.get("/api/business/verification", requireLogin, (req, res) => {
+  if (req.account.role !== "business") return res.status(403).json({ error: "Business account required." });
+  const business = readOtherBusinesses().find(item => item.id === req.account.businessId);
+  if (!business) return res.status(404).json({ error: "Business account not found." });
+  res.set("Cache-Control", "no-store, private");
+  res.json({ status: business.status, documents: (business.documents || []).map(doc => ({ id: doc.id, type: doc.type, filename: doc.filename, mimeType: doc.mimeType, uploadedAt: doc.uploadedAt, reviewStatus: doc.reviewStatus || "pending", rejectionReason: doc.rejectionReason || "" })) });
+});
+app.post("/api/business/documents", requireLogin, (req, res) => {
+  if (req.account.role !== "business") return res.status(403).json({ error: "Business account required." });
+  const type = String(req.body.type || "");
+  const filename = String(req.body.filename || "").trim().slice(0, 160);
+  const mimeType = String(req.body.mimeType || "").toLowerCase();
+  const data = String(req.body.dataBase64 || "");
+  if (!["identity", "business-proof", "settlement-proof"].includes(type) || !filename || !["application/pdf", "image/jpeg", "image/png"].includes(mimeType) || !/^[A-Za-z0-9+/]+=*$/.test(data)) return res.status(400).json({ error: "Upload a PDF, JPEG or PNG and choose a valid document category." });
+  const buffer = Buffer.from(data, "base64");
+  if (!buffer.length || buffer.length > 4 * 1024 * 1024) return res.status(413).json({ error: "Each document must be 4 MB or smaller." });
+  try {
+    const businesses = readOtherBusinesses();
+    const business = businesses.find(item => item.id === req.account.businessId);
+    if (!business || !["pending", "rejected"].includes(business.status)) return res.status(409).json({ error: "Documents can only be uploaded while an application is pending or requires resubmission." });
+    const encrypted = encryptVendorDocument(buffer);
+    business.documents = Array.isArray(business.documents) ? business.documents : [];
+    const now = new Date().toISOString();
+    business.documents.filter(doc => doc.type === type && !doc.supersededAt).forEach(doc => { doc.supersededAt = now; });
+    business.documents.push({ id: crypto.randomUUID(), type, filename: filename.replace(/[\\/]/g, "_"), mimeType, size: buffer.length, ...encrypted, uploadedAt: now, reviewStatus: "pending" });
+    business.status = "pending";
+    business.identityVerified = false; business.businessVerified = false; business.settlementVerified = false;
+    business.online = false; business.updatedAt = now;
+    saveOtherBusinesses(businesses);
+    res.status(201).json({ ok: true, message: "Document uploaded securely and is awaiting Ultimate Admin review." });
+  } catch (error) {
+    res.status(503).json({ error: "Secure document storage is unavailable. Contact support before sending documents again." });
+  }
+});
+app.get("/api/admin/other-businesses/:id/documents/:docId", requireSuperAdmin, (req, res) => {
+  const business = readOtherBusinesses().find(item => item.id === req.params.id);
+  const doc = business?.documents?.find(item => item.id === req.params.docId && !item.supersededAt);
+  if (!doc) return res.status(404).json({ error: "Current verification document not found." });
+  try {
+    const buffer = decryptVendorDocument(doc);
+    res.set("Cache-Control", "no-store, private");
+    res.set("Content-Disposition", 'inline; filename="' + String(doc.filename).replace(/["\\\\]/g, "_") + '"');
+    res.type(doc.mimeType).send(buffer);
+  } catch (error) { res.status(503).json({ error: "Could not decrypt the verification document. Check the document encryption key." }); }
+});
+app.patch("/api/admin/other-businesses/:id/documents/:docId", requireSuperAdmin, (req, res) => {
+  const action = String(req.body.action || "");
+  if (!["approve", "reject"].includes(action)) return res.status(400).json({ error: "Choose approve or reject." });
+  const businesses = readOtherBusinesses();
+  const business = businesses.find(item => item.id === req.params.id);
+  const doc = business?.documents?.find(item => item.id === req.params.docId && !item.supersededAt);
+  if (!doc) return res.status(404).json({ error: "Current verification document not found." });
+  doc.reviewStatus = action === "approve" ? "approved" : "rejected";
+  doc.rejectionReason = action === "reject" ? String(req.body.reason || "").trim().slice(0, 300) : "";
+  doc.reviewedAt = new Date().toISOString(); doc.reviewedBy = req.account.username;
+  const current = (business.documents || []).filter(item => !item.supersededAt);
+  const allApproved = type => current.some(item => item.type === type && item.reviewStatus === "approved");
+  business.identityVerified = allApproved("identity");
+  business.businessVerified = allApproved("business-proof");
+  business.settlementVerified = allApproved("settlement-proof");
+  business.updatedAt = doc.reviewedAt;
+  if (action === "reject") business.status = "rejected";
+  saveOtherBusinesses(businesses);
+  res.json({ ok: true, message: "Document review saved.", verification: { identity: business.identityVerified, business: business.businessVerified, settlement: business.settlementVerified } });
+});
+app.get("/api/business/orders", requireRole("business"), (req, res) => {
+  const orders = readOrders().filter(order => order.merchantType === "business" && order.businessId === req.account.businessId && ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus))
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).map(publicOrder);
+  res.set("Cache-Control", "no-store, private");
+  res.json({ orders });
+});
+app.get("/api/business/me", requireLogin, (req, res) => {
+  if (req.account.role !== "business") return res.status(403).json({ error: "Business account required." });
+  const business = readOtherBusinesses().find(item => item.id === req.account.businessId);
+  if (!business) return res.status(404).json({ error: "Business account not found." });
+  res.set("Cache-Control", "no-store");
+  res.json({ business: { ...publicOtherBusiness(business), status: business.status, paused: business.paused === true, settlementConfigured: Boolean(getPaystackSubaccountCode(business.id)) } });
+});
+app.put("/api/business/products", requireRole("business"), (req, res) => {
+  const items = Array.isArray(req.body.products) ? req.body.products : null;
+  if (!items || items.length > 300) return res.status(400).json({ error: "Submit a product list of up to 300 items." });
+  const clean = [];
+  for (const item of items) {
+    const name = String(item.name || "").trim().slice(0, 100);
+    const price = Number(item.price);
+    if (name.length < 2 || !Number.isSafeInteger(price) || price < 1 || price > 100000000) return res.status(400).json({ error: "Each product needs a name and a valid whole-number price." });
+    clean.push({ id: String(item.id || crypto.randomUUID()).slice(0, 80), name, description: String(item.description || "").trim().slice(0, 300), category: String(item.category || "").trim().slice(0, 60), price, imageUrl: safeHttpsUrl(item.imageUrl || "") || "", available: item.available !== false });
+  }
+  const businesses = readOtherBusinesses();
+  const business = businesses.find(item => item.id === req.account.businessId);
+  if (!business || business.status !== "approved") return res.status(403).json({ error: "Your business is not approved." });
+  business.products = clean;
+  business.updatedAt = new Date().toISOString();
+  saveOtherBusinesses(businesses);
+  res.json({ products: clean, message: "Products saved." });
+});
+app.patch("/api/business/operations", requireRole("business"), (req, res) => {
+  if (typeof req.body.online !== "boolean" || typeof req.body.paused !== "boolean") return res.status(400).json({ error: "Choose online/offline and paused/unpaused states." });
+  const businesses = readOtherBusinesses();
+  const business = businesses.find(item => item.id === req.account.businessId);
+  if (!business || business.status !== "approved" || business.suspended) return res.status(403).json({ error: "Your business is not approved to receive orders." });
+  business.online = req.body.online;
+  business.paused = req.body.paused;
+  business.updatedAt = new Date().toISOString();
+  saveOtherBusinesses(businesses);
+  res.json({ online: business.online, paused: business.paused });
+});
+app.get("/api/admin/other-businesses", requireSuperAdmin, (req, res) => {
+  const businesses = readOtherBusinesses().map(item => ({
+    id: item.id, name: item.name, category: item.category, description: item.description, location: item.location,
+    ownerName: item.ownerName, phone: item.phone, username: item.username, status: item.status,
+    suspended: item.suspended === true, online: item.online === true, productCount: (item.products || []).length,
+    settlementConfigured: Boolean(getPaystackSubaccountCode(item.id)), paystackEnvKey: "PAYSTACK_SUBACCOUNT_" + String(item.id).replace(/[^a-zA-Z0-9]/g, "_").toUpperCase(), documents: (item.documents || []).filter(doc => !doc.supersededAt).map(doc => ({ id: doc.id, type: doc.type, filename: doc.filename, reviewStatus: doc.reviewStatus || "pending", rejectionReason: doc.rejectionReason || "" })), identityVerified: item.identityVerified === true, businessVerified: item.businessVerified === true, settlementVerified: item.settlementVerified === true, createdAt: item.createdAt
+  }));
+  res.set("Cache-Control", "no-store, private");
+  res.json({ businesses });
+});
+app.patch("/api/admin/other-businesses/:id", requireSuperAdmin, (req, res) => {
+  const action = String(req.body.action || "");
+  if (!["approve", "reject", "suspend", "restore"].includes(action)) return res.status(400).json({ error: "Choose approve, reject, suspend or restore." });
+  const businesses = readOtherBusinesses();
+  const business = businesses.find(item => item.id === req.params.id);
+  if (!business) return res.status(404).json({ error: "Business application not found." });
+  if (action === "approve") {
+    if (!business.identityVerified || !business.businessVerified || !business.settlementVerified) return res.status(409).json({ error: "Verify the owner identity, business proof and settlement document before approval." });
+    if (!getPaystackSubaccountCode(business.id)) return res.status(409).json({ error: "Configure this business own Paystack subaccount in Render before approval. Required environment variable: PAYSTACK_SUBACCOUNT_" + String(business.id).replace(/[^a-zA-Z0-9]/g, "_").toUpperCase() });
+    business.status = "approved"; business.reviewedAt = new Date().toISOString(); business.reviewedBy = req.account.username;
+  }
+  if (action === "reject") { business.status = "rejected"; business.rejectionReason = String(req.body.reason || "").trim().slice(0, 300); business.online = false; }
+  if (action === "suspend") { business.suspended = true; business.suspensionReason = String(req.body.reason || "").trim().slice(0, 300); business.online = false; }
+  if (action === "restore") { business.suspended = false; business.suspensionReason = ""; }
+  saveOtherBusinesses(businesses);
+  createNotification({ role: "admin" }, "Business application updated", business.name + " was " + action + "d.");
+  res.json({ ok: true, message: "Business " + action + "d." });
+});
+
 // Staff login endpoint is used by the separate admin login page and staff accounts.
 // Login
 app.post("/api/login", (req, res) => {
@@ -1626,6 +1818,10 @@ app.post("/api/login", (req, res) => {
       accounts.push({ ...record, role: "admin", isSuperAdmin: false });
     }
   }
+  const businessAccount = readOtherBusinesses().find(item =>
+    item.username === username && ["approved", "pending", "rejected"].includes(item.status) &&
+    item.passwordSalt && item.passwordHash && passwordMatches(password, item)
+  );
   const account = accounts.find(a => {
     if (a.role === "admin" && disabledAdmins.includes(a.username) && !a.isSuperAdmin) return false;
     if (a.username !== username) return false;
@@ -1634,12 +1830,13 @@ app.post("/api/login", (req, res) => {
     return a.passwordHash ? passwordMatches(password, a) : a.password === password;
   });
 
-  if (!account) {
+  if (!account && !businessAccount) {
     return res.status(401).json({
       error: "Incorrect username or password."
     });
   }
-  if (account.role === "restaurant") {
+  if (businessAccount && businessAccount.suspended) return res.status(403).json({ error: "This business account is suspended. Contact ChowOnCampus support." });
+  if (account?.role === "restaurant") {
     const partner = restaurants.find(item => item.id === account.restaurantId);
     if (partner?.suspended) {
       const reason = String(partner.suspensionReason || "").trim();
@@ -1664,15 +1861,16 @@ app.post("/api/login", (req, res) => {
     }
   }
 
+  const authenticatedAccount = businessAccount ? { username: businessAccount.username, role: "business", businessId: businessAccount.id, name: businessAccount.name } : account;
   const token = crypto.randomBytes(32).toString("hex");
-  sessions.set(token, safeAccount(account));
+  sessions.set(token, safeAccount(authenticatedAccount));
 
   res.setHeader(
     "Set-Cookie",
     `coc_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=28800${IS_PRODUCTION ? "; Secure" : ""}`
   );
 
-  res.json({ account: safeAccount(account) });
+  res.json({ account: safeAccount(authenticatedAccount) });
 });
 
 // All signed-in account types can change their own password after verifying the current one.
@@ -1743,9 +1941,11 @@ app.post("/api/logout", (req, res) => {
 
 // Create an order. All prices are calculated on the server.
 app.post("/api/orders", requireRole("student"), (req, res) => {
-  const { hostel, block, room, landmark, latitude, longitude, restaurantId, items, requestId } = req.body;
+  const { hostel, block, room, landmark, latitude, longitude, restaurantId, businessId, items, requestId } = req.body;
+  const requestedMerchantId = String(businessId || restaurantId || "").trim();
   const paymentMethod = String(req.body.paymentMethod || "paystack").trim().toLowerCase();
   if (!["paystack", "foodback"].includes(paymentMethod)) return res.status(400).json({ error: "Choose Paystack or FoodBack as your payment method." });
+  if (businessId && paymentMethod !== "paystack") return res.status(400).json({ error: "FoodBack is not enabled for Other Businesses yet. Use Paystack for this shop order." });
   let student;
   try {
     student = readStudents().find(item => item.phone === req.account.username);
@@ -1802,12 +2002,16 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
 
   const hasCoordinates = latitude !== undefined && longitude !== undefined && Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude)) && Math.abs(Number(latitude)) <= 90 && Math.abs(Number(longitude)) <= 180;
   const deliveryLocation = { hostel: hostel.trim(), block: typeof block === "string" ? block.trim().slice(0, 100) : "", room: typeof room === "string" ? room.trim().slice(0, 40) : "", landmark: typeof landmark === "string" ? landmark.trim().slice(0, 150) : "", latitude: hasCoordinates ? Number(latitude) : null, longitude: hasCoordinates ? Number(longitude) : null };
-  const restaurant = restaurants.find(r => r.id === restaurantId);
+  const restaurant = restaurants.find(r => r.id === requestedMerchantId);
+  const business = businessId ? readOtherBusinesses().find(item => item.id === requestedMerchantId) : null;
+  const merchant = restaurant || (business && business.status === "approved" && !business.suspended ? business : null);
   if (restaurant && !vendorIsApproved(restaurant.id)) return res.status(403).json({ error: "This restaurant is not yet approved to accept orders. Please choose an approved restaurant." });
   if (restaurant && !restaurantAcceptsOrders(restaurant)) return res.status(409).json({ error: "This restaurant is currently offline or has paused incoming orders. Please choose another restaurant or try again later." });
+  if (business && (!business.online || business.paused)) return res.status(409).json({ error: "This business is currently offline or has paused incoming orders. Please choose another shop or try again later." });
+  if (business && !getPaystackSubaccountCode(business.id)) return res.status(503).json({ error: "This shop is not yet enabled for checkout. Its own Paystack subaccount must be configured in Render and verified first." });
 
   if (
-    !restaurant ||
+    !merchant ||
     !Array.isArray(items) ||
     items.length === 0 ||
     items.length > 30
@@ -1821,7 +2025,8 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
   let subtotal = 0;
 
   for (const item of items) {
-    const menuItem = restaurant.items.find(i => i.id === item.id);
+    const merchantItems = business ? (business.products || []) : (merchant.items || []);
+    const menuItem = merchantItems.find(i => i.id === item.id);
     const qty = Number(item.qty);
 
     if (!menuItem || menuItem.available === false || !Number.isInteger(qty) || qty < 1 || qty > 20) {
@@ -1840,19 +2045,16 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     });
   }
 
-  // Mandatory one-time takeaway packaging fee is server-calculated and cannot be removed by the customer.
+  // Food orders include the mandatory takeaway fee; non-food shop orders do not.
   const foodSubtotal = subtotal;
-  const takeawayFee = 200;
-  subtotal += takeawayFee;
-  cleanItems.push({
-    id: "takeaway-packaging",
-    name: "Takeaway packaging (required)",
-    price: takeawayFee,
-    qty: 1
-  });
+  const takeawayFee = restaurant ? 200 : 0;
+  if (takeawayFee) {
+    subtotal += takeawayFee;
+    cleanItems.push({ id: "takeaway-packaging", name: "Takeaway packaging (required)", price: takeawayFee, qty: 1 });
+  }
 
   const deliveryQuote = calculateDeliveryQuote(
-    restaurant,
+    merchant,
     hasCoordinates ? Number(latitude) : null,
     hasCoordinates ? Number(longitude) : null
   );
@@ -1877,11 +2079,14 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     estimatedRoadDistanceKm: deliveryQuote.estimatedRoadDistanceKm,
     deliveryPricingDistanceBased: deliveryQuote.distanceBased,
     deliveryPricingMessage: deliveryQuote.message,
-    restaurantLocation: restaurant.location || "",
-    restaurantLatitude: Number.isFinite(Number(restaurant.latitude)) && restaurant.latitude !== null ? Number(restaurant.latitude) : null,
-    restaurantLongitude: Number.isFinite(Number(restaurant.longitude)) && restaurant.longitude !== null ? Number(restaurant.longitude) : null,
-    restaurantId: restaurant.id,
-    restaurantName: restaurant.name,
+    restaurantLocation: merchant.location || "",
+    restaurantLatitude: Number.isFinite(Number(merchant.latitude)) && merchant.latitude !== null ? Number(merchant.latitude) : null,
+    restaurantLongitude: Number.isFinite(Number(merchant.longitude)) && merchant.longitude !== null ? Number(merchant.longitude) : null,
+    restaurantId: merchant.id,
+    restaurantName: merchant.name,
+    merchantType: business ? "business" : "restaurant",
+    businessId: business ? business.id : null,
+    businessName: business ? business.name : null,
     items: cleanItems,
     takeawayFee,
     foodSubtotal,
@@ -1988,7 +2193,7 @@ app.post("/api/orders/:id/paystack/initialize", requireRole("student"), async (r
   const deliveryAreaCheck = getDeliveryAreaCheck(savedLocation.latitude, savedLocation.longitude);
   if (!deliveryAreaCheck.ok) return res.status(400).json({ error: deliveryAreaCheck.error });
   const subaccountCode = getPaystackSubaccountCode(order.restaurantId);
-  if (!subaccountCode) return res.status(503).json({ error: "This restaurant is not configured for secure split payments yet. Please contact ChowOnCampus support." });
+  if (!subaccountCode) return res.status(503).json({ error: order.merchantType === "business" ? "This shop does not yet have its own Paystack subaccount configured. Payment is disabled until the shop settlement account is verified." : "This restaurant is not configured for secure split payments yet. Please contact ChowOnCampus support." });
   if (["Paid — Paystack verified", "Paid — demo verified"].includes(order.paymentStatus)) {
     return res.status(409).json({ error: "This order has already been paid." });
   }
@@ -2036,6 +2241,8 @@ app.post("/api/orders/:id/paystack/initialize", requireRole("student"), async (r
         metadata: {
           order_id: order.id,
           customer_phone: order.customerPhone,
+          merchant_type: order.merchantType || "restaurant",
+          business_id: order.businessId || "",
           restaurant_id: order.restaurantId,
           restaurant_share_kobo: restaurantShareKobo,
           platform_share_kobo: platformShareKobo,
@@ -2085,6 +2292,8 @@ app.post("/api/payments/paystack/webhook", async (req, res) => {
       Number(payment.amount) === Math.round(Number(order.total) * 100) &&
       payment.currency === "NGN" &&
       String(payment.metadata?.restaurant_id || "") === String(order.restaurantId) &&
+      String(payment.metadata?.merchant_type || "restaurant") === String(order.merchantType || "restaurant") &&
+      String(payment.metadata?.business_id || "") === String(order.businessId || "") &&
       Number(payment.metadata?.restaurant_share_kobo) === Math.round(Number(order.subtotal) * 100) &&
       Number(payment.metadata?.platform_share_kobo) === Math.round((Number(order.deliveryFee) + Number(order.paymentFee || 0)) * 100) &&
       String(payment.customer?.email || "").toLowerCase() === String(order.paymentEmail || "").toLowerCase();
@@ -2133,6 +2342,8 @@ app.post("/api/payments/paystack/verify", requireRole("student"), async (req, re
         Number(payment.amount) !== expectedAmount || payment.currency !== "NGN" ||
         String(payment.metadata?.order_id || "") !== order.id ||
         String(payment.metadata?.restaurant_id || "") !== String(order.restaurantId) ||
+        String(payment.metadata?.merchant_type || "restaurant") !== String(order.merchantType || "restaurant") ||
+        String(payment.metadata?.business_id || "") !== String(order.businessId || "") ||
         Number(payment.metadata?.restaurant_share_kobo) !== Math.round(Number(order.subtotal) * 100) ||
         Number(payment.metadata?.platform_share_kobo) !== Math.round((Number(order.deliveryFee) + Number(order.paymentFee || 0)) * 100) ||
         String(payment.customer?.email || "").toLowerCase() !== String(order.paymentEmail || "").toLowerCase()) {
@@ -2161,7 +2372,9 @@ app.get("/api/orders", requireLogin, (req, res) => {
   try {
     let orders = readOrders();
 
-    if (req.account.role === "restaurant") {
+    if (req.account.role === "business") {
+      orders = orders.filter(order => order.merchantType === "business" && order.businessId === req.account.businessId && ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus));
+    } else if (req.account.role === "restaurant") {
       orders = vendorIsApproved(req.account.restaurantId) ? orders.filter(
         order => order.restaurantId === req.account.restaurantId &&
           ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)
@@ -2393,6 +2606,7 @@ app.get("/api/orders/:id", (req, res) => {
       (
         session.role === "admin" ||
         (session.role === "restaurant" && session.restaurantId === order.restaurantId) ||
+        (session.role === "business" && order.merchantType === "business" && session.businessId === order.businessId) ||
         (session.role === "agent" && session.agentId === order.assignedAgentId)
       )
     ) return res.json({ order: publicOrder(order) });
@@ -4077,8 +4291,8 @@ function assignReadyOrders() {
     });
     if (!eligible.length) {
       if (hasTargetCoords) {
-        createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Waiting for nearby agent GPS",
-          `Order ${order.id} is ready, but no available agent has a fresh GPS location yet. Keep the pickup pin saved and ask online agents to enable location.`, order.id);
+        if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, "Waiting for nearby agent GPS", `Order ${order.id} is ready, but no available agent has a fresh GPS location yet. Keep the pickup pin saved and ask online agents to enable location.`, order.id);
+        else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Waiting for nearby agent GPS", `Order ${order.id} is ready, but no available agent has a fresh GPS location yet. Keep the pickup pin saved and ask online agents to enable location.`, order.id);
       }
       continue;
     }
@@ -4122,8 +4336,8 @@ function assignReadyOrders() {
       `A pickup request for order ${order.id} has been sent to ${agent.name}.`, order.id);
     createNotification({ role: "admin" }, "Pickup request sent",
       `${agent.name} has 75 seconds to accept order ${order.id}.`, order.id);
-    createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Delivery agent notified",
-      `${agent.name} has 75 seconds to accept pickup for ${order.id}.`, order.id);
+    if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, "Delivery agent notified", `${agent.name} has 75 seconds to accept pickup for ${order.id}.`, order.id);
+    else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Delivery agent notified", `${agent.name} has 75 seconds to accept pickup for ${order.id}.`, order.id);
     changed = true;
   }
 
@@ -4252,8 +4466,8 @@ app.post("/api/agent/assignments/:id/accept", requireRole("agent"), (req, res) =
     order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
     order.statusHistory.push({ status: "Delivery assignment accepted", at: order.assignmentAcceptedAt, by: "agent" });
     saveOrders(orders);
-    createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Delivery agent accepted",
-      `The delivery agent accepted pickup for ${order.id} and is heading to collect it.`, order.id);
+    if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, "Delivery agent accepted", `The delivery agent accepted pickup for ${order.id} and is heading to collect it.`, order.id);
+    else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Delivery agent accepted", `The delivery agent accepted pickup for ${order.id} and is heading to collect it.`, order.id);
     createNotification({ role: "student", username: order.customerPhone }, "Delivery agent accepted",
       `Your delivery agent accepted order ${order.id} and is heading to the restaurant.`, order.id);
     res.json({ ok: true, message: "Pickup accepted. Head to the restaurant." });
@@ -4380,7 +4594,12 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
 
     const role = req.account.role;
 
-    if (role === "restaurant") {
+    if (role === "business") {
+      const business = readOtherBusinesses().find(item => item.id === req.account.businessId);
+      if (!business || business.status !== "approved" || business.suspended || !getPaystackSubaccountCode(business.id)) return res.status(403).json({ error: "Your business is not approved and settlement-ready to manage paid orders." });
+      if (order.merchantType !== "business" || order.businessId !== req.account.businessId) return res.status(403).json({ error: "This order belongs to another business." });
+      if (!["Confirmed", "Preparing", "Ready for pickup", "Cancelled"].includes(newStatus)) return res.status(403).json({ error: "Businesses cannot set that status." });
+    } else if (role === "restaurant") {
       if (!vendorIsApproved(req.account.restaurantId)) return res.status(403).json({ error: "Your restaurant must pass vendor verification before it can accept or manage orders." });
       if (order.restaurantId !== req.account.restaurantId) {
         return res.status(403).json({

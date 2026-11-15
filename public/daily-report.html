@@ -28,12 +28,12 @@ function render(d){
  const o=d.orders||{},p=d.payments||{},st=d.students||{},fb=d.foodback||{},sys=d.system||{},issues=d.customerIssues||{},agt=d.agentTotals||{};
  $("#metrics").innerHTML=[
   ["Total orders",o.total],["Successful orders",o.successful],["Food sales (completed)",money(o.successfulFoodSales)],["New student registrations",st.newRegistrations],
-  ["Paystack gross",money(p.paystackGross)],["FoodBack order value",money(p.foodbackValue)],["Pending payment amount",money(p.outstandingAmount)],["Active customers",st.activeCustomers]
+  ["Direct bank transfers",money(p.bankTransferValue)],["FoodBack order value",money(p.foodbackValue)],["Pending payment amount",money(p.outstandingAmount)],["Active customers",st.activeCustomers]
  ].map(x=>'<article class="metric"><small>'+esc(x[0])+'</small><strong>'+esc(x[1]??0)+'</strong></article>').join("");
  const orderRows=[["Successful",o.successful],["Cancelled",o.cancelled],["Failed",o.failed],["Pending / still open",o.pending]].map(x=>[esc(x[0]),esc(x[1]||0)]);
  let html=section("1. Orders",table(["Order outcome","Count"],orderRows));
  html+=section("2. Payments",table(["Payment category","Transactions","Value"],[
- ["Paystack verified",p.paystackCount||0,money(p.paystackGross)],["FoodBack approved",p.foodbackCount||0,money(p.foodbackValue)],["Outstanding payment orders",p.outstandingPaymentOrders||0,money(p.outstandingAmount)]
+ ["Bank transfers verified",p.bankTransferCount||0,money(p.bankTransferValue)],["FoodBack approved",p.foodbackCount||0,money(p.foodbackValue)],["Outstanding payment orders",p.outstandingPaymentOrders||0,money(p.outstandingAmount)]
  ]));
  const rr=(d.restaurants||[]).map(x=>[esc(x.name),x.orders||0,x.completedOrders||0,x.cancelledOrders||0,money(x.foodSales),x.averageRating==null?"—":esc(x.averageRating)+"/5",x.ratingCount||0,money(x.actualBankAmountCredited),esc((x.unavailableFood||[]).join(", ")||"None")]);
  html+=section("3. Restaurant performance",table(["Restaurant","Orders","Completed","Cancelled","Food sales","Rating","Ratings","Admin-confirmed bank credits","Unavailable food"],rr));

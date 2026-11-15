@@ -1769,6 +1769,37 @@ app.patch("/api/business/operations", requireRole("business"), (req, res) => {
   saveOtherBusinesses(businesses);
   res.json({ online: business.online, paused: business.paused });
 });
+app.post("/api/admin/other-businesses", requireSuperAdmin, (req, res) => {
+  const name = String(req.body.name || "").trim().slice(0, 100);
+  const category = String(req.body.category || "").trim().toLowerCase();
+  const description = String(req.body.description || "").trim().slice(0, 500);
+  const location = String(req.body.location || "").trim().slice(0, 180);
+  const ownerName = String(req.body.ownerName || "").trim().slice(0, 100);
+  const phone = normalizeNigerianPhone(req.body.phone);
+  const username = String(req.body.username || "").trim().toLowerCase();
+  const password = String(req.body.password || "");
+  const allowedCategories = ["supermarket", "boutique", "bookshop", "electronics", "general"];
+  if (name.length < 2 || !allowedCategories.includes(category) || location.length < 3 || ownerName.length < 2 || !phone || !/^[a-z0-9._-]{4,30}$/.test(username) || password.length < 10 || password.length > 128) {
+    return res.status(400).json({ error: "Complete all fields. Use a valid phone number, username (4–30 characters), and temporary password (10–128 characters)." });
+  }
+  const businesses = readOtherBusinesses();
+  if (businesses.some(item => item.username === username || item.phone === phone) || accounts.some(item => item.username === username)) {
+    return res.status(409).json({ error: "That username or phone number is already registered." });
+  }
+  const credentials = hashPassword(password);
+  const business = {
+    id: "BIZ-" + crypto.randomBytes(5).toString("hex").toUpperCase(),
+    name, category, description, location, ownerName, phone, username,
+    passwordSalt: credentials.salt, passwordHash: credentials.hash,
+    status: "pending", suspended: false, online: false, products: [],
+    documents: [], identityVerified: false, businessVerified: false, settlementVerified: false,
+    settlementConfigured: false, createdAt: new Date().toISOString(), createdBy: req.account.username
+  };
+  businesses.unshift(business);
+  saveOtherBusinesses(businesses);
+  createNotification({ role: "admin" }, "Other business account created", name + " was created by Ultimate Admin and is awaiting verification.");
+  res.status(201).json({ ok: true, message: "Business account created. It remains pending until all documents are verified and its own Paystack subaccount is configured.", business: { id: business.id, name: business.name, username: business.username, status: business.status } });
+});
 app.get("/api/admin/other-businesses", requireSuperAdmin, (req, res) => {
   const businesses = readOtherBusinesses().map(item => ({
     id: item.id, name: item.name, category: item.category, description: item.description, location: item.location,
@@ -1848,7 +1879,7 @@ app.post("/api/login", (req, res) => {
       });
     }
   }
-  if (account.role === "agent") {
+  if (account?.role === "agent") {
     const agent = readAgentRecords().find(item => item.id === account.agentId);
     if (agent?.suspended) {
       const reason = String(agent.suspensionReason || "").trim();

@@ -2181,7 +2181,7 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
 
   const hasCoordinates = latitude !== undefined && longitude !== undefined && Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude)) && Math.abs(Number(latitude)) <= 90 && Math.abs(Number(longitude)) <= 180;
   const deliveryLocation = { hostel: hostel.trim(), block: typeof block === "string" ? block.trim().slice(0, 100) : "", room: typeof room === "string" ? room.trim().slice(0, 40) : "", landmark: typeof landmark === "string" ? landmark.trim().slice(0, 150) : "", latitude: hasCoordinates ? Number(latitude) : null, longitude: hasCoordinates ? Number(longitude) : null };
-  const restaurant = restaurants.find(r => r.id === requestedMerchantId);
+  const restaurant = businessId ? null : restaurants.find(r => r.id === requestedMerchantId);
   const business = businessId ? readOtherBusinesses().find(item => item.id === requestedMerchantId) : null;
   const merchant = restaurant || (business && business.status === "approved" && !business.suspended ? business : null);
   if (restaurant && !vendorIsApproved(restaurant.id)) return res.status(403).json({ error: "This restaurant is not yet approved to accept orders. Please choose an approved restaurant." });
@@ -3635,7 +3635,7 @@ function saveRestaurantSettlements(records) {
 }
 const MERCHANT_FEE_PAYMENTS_FILE = path.join(__dirname, "merchant-fee-payments.json");
 function readMerchantFeePayments() { return readStoredJson(MERCHANT_FEE_PAYMENTS_FILE, []); }
-function saveMerchantFeePayments(records) { saveStoredJson(MERCHANT_FEE_PAYMENTS_FILE, records.slice(0, 20000)); }
+function saveMerchantFeePayments(records) { saveStoredJson(MERCHANT_FEE_PAYMENTS_FILE, records); }
 function nigeriaDayRange(value) {
   const day = String(value || "");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
@@ -3765,6 +3765,7 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
         pending: pendingOrders.length,
         pendingPayment: dayOrders.filter(order => !isPaid(order) && !["Cancelled", "Failed"].includes(order.status)).length,
         rejectedPayment: dayOrders.filter(order => /rejected|declined/i.test(String(order.paymentStatus || ""))).length,
+        bankTransferRejectedNoCredit: dayOrders.filter(order => order.paymentMethod === "bank_transfer" && /rejected.*no bank credit/i.test(String(order.paymentStatus || ""))).length,
         successfulFoodSales: sum(completedOrders, order => order.subtotal)
       },
       payments: {

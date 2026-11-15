@@ -1659,6 +1659,12 @@ app.post("/api/business/apply", (req, res) => {
   createNotification({ role: "admin" }, "New business application", name + " submitted an Other Businesses application for review.");
   res.status(201).json({ ok: true, message: "Application submitted. You can log in after Ultimate Admin approval.", applicationId: business.id });
 });
+app.get("/api/business/orders", requireRole("business"), (req, res) => {
+  const orders = readOrders().filter(order => order.merchantType === "business" && order.businessId === req.account.businessId)
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).map(publicOrder);
+  res.set("Cache-Control", "no-store, private");
+  res.json({ orders });
+});
 app.get("/api/business/me", requireRole("business"), (req, res) => {
   const business = readOtherBusinesses().find(item => item.id === req.account.businessId);
   if (!business) return res.status(404).json({ error: "Business account not found." });
@@ -1862,7 +1868,8 @@ app.post("/api/logout", (req, res) => {
 
 // Create an order. All prices are calculated on the server.
 app.post("/api/orders", requireRole("student"), (req, res) => {
-  const { hostel, block, room, landmark, latitude, longitude, restaurantId, items, requestId } = req.body;
+  const { hostel, block, room, landmark, latitude, longitude, restaurantId, businessId, items, requestId } = req.body;
+  const requestedMerchantId = String(businessId || restaurantId || "").trim();
   const paymentMethod = String(req.body.paymentMethod || "paystack").trim().toLowerCase();
   if (!["paystack", "foodback"].includes(paymentMethod)) return res.status(400).json({ error: "Choose Paystack or FoodBack as your payment method." });
   let student;
@@ -1921,12 +1928,16 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
 
   const hasCoordinates = latitude !== undefined && longitude !== undefined && Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude)) && Math.abs(Number(latitude)) <= 90 && Math.abs(Number(longitude)) <= 180;
   const deliveryLocation = { hostel: hostel.trim(), block: typeof block === "string" ? block.trim().slice(0, 100) : "", room: typeof room === "string" ? room.trim().slice(0, 40) : "", landmark: typeof landmark === "string" ? landmark.trim().slice(0, 150) : "", latitude: hasCoordinates ? Number(latitude) : null, longitude: hasCoordinates ? Number(longitude) : null };
-  const restaurant = restaurants.find(r => r.id === restaurantId);
+  const restaurant = restaurants.find(r => r.id === requestedMerchantId);
+  const business = businessId ? readOtherBusinesses().find(item => item.id === requestedMerchantId) : null;
+  const merchant = restaurant || (business && business.status === "approved" && !business.suspended ? business : null);
   if (restaurant && !vendorIsApproved(restaurant.id)) return res.status(403).json({ error: "This restaurant is not yet approved to accept orders. Please choose an approved restaurant." });
   if (restaurant && !restaurantAcceptsOrders(restaurant)) return res.status(409).json({ error: "This restaurant is currently offline or has paused incoming orders. Please choose another restaurant or try again later." });
+  if (business && (!business.online || business.paused)) return res.status(409).json({ error: "This business is currently offline or has paused incoming orders. Please choose another shop or try again later." });
+  if (business && business.settlementConfigured !== true) return res.status(503).json({ error: "This shop is not yet enabled for checkout. Its own Paystack settlement account must be verified first." });
 
   if (
-    !restaurant ||
+    !merchant ||
     !Array.isArray(items) ||
     items.length === 0 ||
     items.length > 30
@@ -1940,7 +1951,7 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
   let subtotal = 0;
 
   for (const item of items) {
-    const menuItem = restaurant.items.find(i => i.id === item.id);
+    const menuItem = merchant.items.find(i => i.id === item.id);
     const qty = Number(item.qty);
 
     if (!menuItem || menuItem.available === false || !Number.isInteger(qty) || qty < 1 || qty > 20) {
@@ -1959,19 +1970,16 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     });
   }
 
-  // Mandatory one-time takeaway packaging fee is server-calculated and cannot be removed by the customer.
+  // Food orders include the mandatory takeaway fee; non-food shop orders do not.
   const foodSubtotal = subtotal;
-  const takeawayFee = 200;
-  subtotal += takeawayFee;
-  cleanItems.push({
-    id: "takeaway-packaging",
-    name: "Takeaway packaging (required)",
-    price: takeawayFee,
-    qty: 1
-  });
+  const takeawayFee = restaurant ? 200 : 0;
+  if (takeawayFee) {
+    subtotal += takeawayFee;
+    cleanItems.push({ id: "takeaway-packaging", name: "Takeaway packaging (required)", price: takeawayFee, qty: 1 });
+  }
 
   const deliveryQuote = calculateDeliveryQuote(
-    restaurant,
+    merchant,
     hasCoordinates ? Number(latitude) : null,
     hasCoordinates ? Number(longitude) : null
   );
@@ -1996,11 +2004,14 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     estimatedRoadDistanceKm: deliveryQuote.estimatedRoadDistanceKm,
     deliveryPricingDistanceBased: deliveryQuote.distanceBased,
     deliveryPricingMessage: deliveryQuote.message,
-    restaurantLocation: restaurant.location || "",
-    restaurantLatitude: Number.isFinite(Number(restaurant.latitude)) && restaurant.latitude !== null ? Number(restaurant.latitude) : null,
-    restaurantLongitude: Number.isFinite(Number(restaurant.longitude)) && restaurant.longitude !== null ? Number(restaurant.longitude) : null,
-    restaurantId: restaurant.id,
-    restaurantName: restaurant.name,
+    restaurantLocation: merchant.location || "",
+    restaurantLatitude: Number.isFinite(Number(merchant.latitude)) && merchant.latitude !== null ? Number(merchant.latitude) : null,
+    restaurantLongitude: Number.isFinite(Number(merchant.longitude)) && merchant.longitude !== null ? Number(merchant.longitude) : null,
+    restaurantId: merchant.id,
+    restaurantName: merchant.name,
+    merchantType: business ? "business" : "restaurant",
+    businessId: business ? business.id : null,
+    businessName: business ? business.name : null,
     items: cleanItems,
     takeawayFee,
     foodSubtotal,
@@ -2107,7 +2118,7 @@ app.post("/api/orders/:id/paystack/initialize", requireRole("student"), async (r
   const deliveryAreaCheck = getDeliveryAreaCheck(savedLocation.latitude, savedLocation.longitude);
   if (!deliveryAreaCheck.ok) return res.status(400).json({ error: deliveryAreaCheck.error });
   const subaccountCode = getPaystackSubaccountCode(order.restaurantId);
-  if (!subaccountCode) return res.status(503).json({ error: "This restaurant is not configured for secure split payments yet. Please contact ChowOnCampus support." });
+  if (!subaccountCode) return res.status(503).json({ error: order.merchantType === "business" ? "This shop does not yet have its own Paystack subaccount configured. Payment is disabled until the shop settlement account is verified." : "This restaurant is not configured for secure split payments yet. Please contact ChowOnCampus support." });
   if (["Paid — Paystack verified", "Paid — demo verified"].includes(order.paymentStatus)) {
     return res.status(409).json({ error: "This order has already been paid." });
   }
@@ -4499,7 +4510,12 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
 
     const role = req.account.role;
 
-    if (role === "restaurant") {
+    if (role === "business") {
+      const business = readOtherBusinesses().find(item => item.id === req.account.businessId);
+      if (!business || business.status !== "approved" || business.suspended || business.settlementConfigured !== true) return res.status(403).json({ error: "Your business is not approved and settlement-ready to manage paid orders." });
+      if (order.merchantType !== "business" || order.businessId !== req.account.businessId) return res.status(403).json({ error: "This order belongs to another business." });
+      if (!["Confirmed", "Preparing", "Ready for pickup", "Cancelled"].includes(newStatus)) return res.status(403).json({ error: "Businesses cannot set that status." });
+    } else if (role === "restaurant") {
       if (!vendorIsApproved(req.account.restaurantId)) return res.status(403).json({ error: "Your restaurant must pass vendor verification before it can accept or manage orders." });
       if (order.restaurantId !== req.account.restaurantId) {
         return res.status(403).json({

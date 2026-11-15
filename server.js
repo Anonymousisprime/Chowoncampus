@@ -1728,7 +1728,7 @@ app.patch("/api/admin/other-businesses/:id/documents/:docId", requireSuperAdmin,
   res.json({ ok: true, message: "Document review saved.", verification: { identity: business.identityVerified, business: business.businessVerified, settlement: business.settlementVerified } });
 });
 app.get("/api/business/orders", requireRole("business"), (req, res) => {
-  const orders = readOrders().filter(order => order.merchantType === "business" && order.businessId === req.account.businessId)
+  const orders = readOrders().filter(order => order.merchantType === "business" && order.businessId === req.account.businessId && ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus))
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).map(publicOrder);
   res.set("Cache-Control", "no-store, private");
   res.json({ orders });
@@ -2025,7 +2025,8 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
   let subtotal = 0;
 
   for (const item of items) {
-    const menuItem = merchant.items.find(i => i.id === item.id);
+    const merchantItems = business ? (business.products || []) : (merchant.items || []);
+    const menuItem = merchantItems.find(i => i.id === item.id);
     const qty = Number(item.qty);
 
     if (!menuItem || menuItem.available === false || !Number.isInteger(qty) || qty < 1 || qty > 20) {

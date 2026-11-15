@@ -56,8 +56,8 @@ async function submitReceipt(orderId, reference, cookie = studentCookie) {
   return api(cookie, "/api/orders/" + encodeURIComponent(orderId) + "/bank-transfer/submit", {
     method: "POST",
     body: JSON.stringify({
-      transactionReference: reference, mimeType: "image/jpeg", fileName: "receipt.jpg",
-      receiptDataBase64: Buffer.from("test receipt image bytes").toString("base64")
+      transactionReference: reference, mimeType: "image/png", fileName: "receipt.png",
+      receiptDataBase64: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x00]).toString("base64")
     })
   });
 }
@@ -172,6 +172,13 @@ test("DirectPay merchant onboarding, receipts, verification and reconciliation",
   });
 
   await t.test("receipt submission is private and references cannot be reused", async () => {
+    const invalidImage = await api(studentCookie, "/api/orders/" + encodeURIComponent(restaurantOrder1.id) + "/bank-transfer/submit", {
+      method: "POST", body: JSON.stringify({
+        transactionReference: "BANK-REF-FAKE", mimeType: "image/png",
+        fileName: "not-an-image.png", receiptDataBase64: Buffer.from("not an image").toString("base64")
+      })
+    });
+    assert.equal(invalidImage.response.status, 400);
     const submitted = await submitReceipt(restaurantOrder1.id, "BANK-REF-0001");
     assert.equal(submitted.response.status, 200, JSON.stringify(submitted.data));
     assert.equal(submitted.data.order.paymentStatus, "Bank transfer — awaiting restaurant verification");

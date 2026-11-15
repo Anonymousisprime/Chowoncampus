@@ -3634,8 +3634,29 @@ function saveRestaurantSettlements(records) {
   saveStoredJson(RESTAURANT_SETTLEMENTS_FILE, records);
 }
 const MERCHANT_FEE_PAYMENTS_FILE = path.join(__dirname, "merchant-fee-payments.json");
+const MERCHANT_FEE_LEDGER_GENESIS = "0".repeat(64);
 function readMerchantFeePayments() { return readStoredJson(MERCHANT_FEE_PAYMENTS_FILE, []); }
 function saveMerchantFeePayments(records) { saveStoredJson(MERCHANT_FEE_PAYMENTS_FILE, records); }
+function merchantFeeRecordHash(record) {
+  const payload = {
+    id: record.id, merchantType: record.merchantType, merchantId: record.merchantId,
+    merchantName: record.merchantName, paymentDate: record.paymentDate, amount: record.amount,
+    reference: record.reference, note: record.note, createdAt: record.createdAt,
+    recordedBy: record.recordedBy, previousHash: record.previousHash
+  };
+  return crypto.createHash("sha256").update(JSON.stringify(payload), "utf8").digest("hex");
+}
+function verifyMerchantFeeLedger(records) {
+  let previousHash = MERCHANT_FEE_LEDGER_GENESIS;
+  for (let index = records.length - 1; index >= 0; index--) {
+    const record = records[index];
+    if (!record || record.previousHash !== previousHash || record.recordHash !== merchantFeeRecordHash(record)) {
+      return { valid: false, checkedRecords: records.length, failedRecordId: record?.id || null };
+    }
+    previousHash = record.recordHash;
+  }
+  return { valid: true, checkedRecords: records.length, failedRecordId: null };
+}
 function nigeriaDayRange(value) {
   const day = String(value || "");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
@@ -3818,8 +3839,9 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
 });
 app.get("/api/superadmin/merchant-fee-payments", requireSuperAdmin, (req, res) => {
   const payments = readMerchantFeePayments().map(item => ({ ...item }));
+  const integrity = verifyMerchantFeeLedger(payments);
   res.set("Cache-Control", "no-store, private");
-  res.json({ payments });
+  res.json({ payments, integrity });
 });
 app.post("/api/superadmin/merchant-fee-payments", requireSuperAdmin, (req, res) => {
   const merchantType = String(req.body.merchantType || "").trim();
@@ -3835,6 +3857,8 @@ app.post("/api/superadmin/merchant-fee-payments", requireSuperAdmin, (req, res) 
   const merchant = merchantType === "restaurant" ? restaurants.find(item => String(item.id) === merchantId) : readOtherBusinesses().find(item => String(item.id) === merchantId);
   if (!merchant) return res.status(404).json({ error: "Merchant not found." });
   const records = readMerchantFeePayments();
+  const integrity = verifyMerchantFeeLedger(records);
+  if (!integrity.valid) return res.status(409).json({ error: "The merchant fee ledger failed its integrity check. New entries are blocked until Ultimate Admin reviews the record history." });
   if (records.some(item => String(item.reference || "").toLowerCase() === reference.toLowerCase())) return res.status(409).json({ error: "That payment reference has already been recorded." });
   const cutoff = nigeriaDayRange(paymentDate).end.getTime();
   const orders = readOrders();
@@ -3848,7 +3872,13 @@ app.post("/api/superadmin/merchant-fee-payments", requireSuperAdmin, (req, res) 
     .reduce((total, item) => total + reportMoney(item.amount), 0);
   const outstandingBeforePayment = Math.max(0, feesDue - feesAlreadyRecorded);
   if (amount > outstandingBeforePayment) return res.status(409).json({ error: "This amount exceeds the merchant's recorded outstanding platform fees of ₦" + outstandingBeforePayment.toLocaleString("en-NG") + "." });
-  const record = { id: "MFP-" + crypto.randomBytes(6).toString("hex").toUpperCase(), merchantType, merchantId, merchantName: merchant.name, paymentDate, amount, reference, note, createdAt: new Date().toISOString(), recordedBy: req.account.username, status: "recorded" };
+  const record = {
+    id: "MFP-" + crypto.randomBytes(6).toString("hex").toUpperCase(),
+    merchantType, merchantId, merchantName: merchant.name, paymentDate, amount, reference, note,
+    createdAt: new Date().toISOString(), recordedBy: req.account.username, status: "recorded",
+    previousHash: records[0]?.recordHash || MERCHANT_FEE_LEDGER_GENESIS
+  };
+  record.recordHash = merchantFeeRecordHash(record);
   records.unshift(record);
   saveMerchantFeePayments(records);
   recordOperationsEvent({ type: "merchant_platform_fee_payment_recorded", entityType: merchantType, entityId: merchantId, entityName: merchant.name, actorRole: "ultimate_admin", actorId: req.account.username, details: "Recorded ₦" + amount.toLocaleString("en-NG") + " platform-fee remittance. Reference: " + reference });

@@ -1774,7 +1774,7 @@ app.patch("/api/admin/other-businesses/:id/documents/:docId", requireSuperAdmin,
 });
 app.get("/api/business/orders", requireRole("business"), (req, res) => {
   const orders = readOrders().filter(order => order.merchantType === "business" && order.businessId === req.account.businessId &&
-    (["Paid — Paystack verified", "Paid — FoodBack approved", "Paid — bank transfer verified"].includes(order.paymentStatus) ||
+    (isVerifiedOrderPayment(order) ||
      (order.paymentMethod === "bank_transfer" && Boolean(order.paymentReceiptEncrypted))))
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).map(order => publicOrder(order, true));
   res.set("Cache-Control", "no-store, private");
@@ -3501,8 +3501,7 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
     const failedOrders = dayOrders.filter(order => /failed|declined|rejected/i.test(String(order.paymentStatus || "")) || order.status === "Failed");
     const pendingOrders = dayOrders.filter(order => !["Completed", "Cancelled", "Failed"].includes(order.status));
     const paidOrders = orders.filter(order => isPaid(order) && inReportDay(order.paidAt || order.createdAt, range));
-    const paystackOrders = paidOrders.filter(order => order.paymentStatus === "Paid — Paystack verified");
-    const foodbackOrders = paidOrders.filter(order => order.paymentStatus === "Paid — FoodBack approved");
+        const foodbackOrders = paidOrders.filter(order => order.paymentStatus === "Paid — FoodBack approved");
     const sum = (items, selector) => items.reduce((total, item) => total + reportMoney(selector(item)), 0);
     const restaurantRows = restaurantsList.map(restaurant => {
       const own = dayOrders.filter(order => String(order.restaurantId) === String(restaurant.id));
@@ -3602,7 +3601,6 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
         successfulFoodSales: sum(completedOrders, order => order.subtotal)
       },
       payments: {
-        paystackCount: paystackOrders.length, paystackGross: sum(paystackOrders, order => order.total),
         foodbackCount: foodbackOrders.length, foodbackValue: sum(foodbackOrders, order => order.total),
         bankTransferCount: paidOrders.filter(order => order.paymentStatus === "Paid — bank transfer verified").length,
         bankTransferValue: sum(paidOrders.filter(order => order.paymentStatus === "Paid — bank transfer verified"), order => order.total),
@@ -3735,7 +3733,7 @@ app.post("/api/superadmin/restaurant-settlements", requireSuperAdmin, (req, res)
 });
 
 // Ultimate-admin operations archive. Refund decisions are logged here; approval does
-// not itself move money through Paystack or issue FoodBack credit.
+// not itself move money or issue FoodBack credit.
 app.get("/api/superadmin/operations-records", requireSuperAdmin, (req, res) => {
   try {
     const allOrders = readOrders().slice().sort((a,b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));

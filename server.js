@@ -1862,6 +1862,27 @@ app.put("/api/merchant/payment-settings", requireLogin, (req, res) => {
   res.set("Cache-Control", "no-store, private");
   res.json({ ok: true, settings: maskedMerchantPaymentSettings(merchant), message: hasBankFields ? "Bank details submitted for Ultimate Admin approval. They cannot receive transfers through checkout until approved." : "WhatsApp contact saved." });
 });
+app.get("/api/student/restaurant-bank-accounts", requireRole("student"), (req, res) => {
+  const accounts = [];
+  for (const merchant of restaurants) {
+    if (!merchant.paymentAccountEncrypted || merchant.paymentAccountStatus !== "approved") continue;
+    try {
+      const account = JSON.parse(decryptVendorDocument(merchant.paymentAccountEncrypted).toString("utf8"));
+      if (!account.bankName || !account.accountName || !/^\d{10}$/.test(String(account.accountNumber || ""))) continue;
+      accounts.push({
+        restaurantId: merchant.id,
+        restaurantName: merchant.name,
+        bankName: account.bankName,
+        accountName: account.accountName,
+        accountNumber: account.accountNumber
+      });
+    } catch (error) {
+      console.error("Could not decrypt approved restaurant bank account:", merchant.id, error.message);
+    }
+  }
+  res.set("Cache-Control", "no-store, private");
+  res.json({ accounts });
+});
 app.get("/api/superadmin/merchant-payment-accounts", requireSuperAdmin, (req, res) => {
   const rows = [];
   for (const merchant of restaurants) rows.push({ type: "restaurant", id: merchant.id, name: merchant.name, ...maskedMerchantPaymentSettings(merchant) });

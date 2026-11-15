@@ -2292,6 +2292,8 @@ app.post("/api/payments/paystack/webhook", async (req, res) => {
       Number(payment.amount) === Math.round(Number(order.total) * 100) &&
       payment.currency === "NGN" &&
       String(payment.metadata?.restaurant_id || "") === String(order.restaurantId) &&
+      String(payment.metadata?.merchant_type || "restaurant") === String(order.merchantType || "restaurant") &&
+      String(payment.metadata?.business_id || "") === String(order.businessId || "") &&
       Number(payment.metadata?.restaurant_share_kobo) === Math.round(Number(order.subtotal) * 100) &&
       Number(payment.metadata?.platform_share_kobo) === Math.round((Number(order.deliveryFee) + Number(order.paymentFee || 0)) * 100) &&
       String(payment.customer?.email || "").toLowerCase() === String(order.paymentEmail || "").toLowerCase();
@@ -2340,6 +2342,8 @@ app.post("/api/payments/paystack/verify", requireRole("student"), async (req, re
         Number(payment.amount) !== expectedAmount || payment.currency !== "NGN" ||
         String(payment.metadata?.order_id || "") !== order.id ||
         String(payment.metadata?.restaurant_id || "") !== String(order.restaurantId) ||
+        String(payment.metadata?.merchant_type || "restaurant") !== String(order.merchantType || "restaurant") ||
+        String(payment.metadata?.business_id || "") !== String(order.businessId || "") ||
         Number(payment.metadata?.restaurant_share_kobo) !== Math.round(Number(order.subtotal) * 100) ||
         Number(payment.metadata?.platform_share_kobo) !== Math.round((Number(order.deliveryFee) + Number(order.paymentFee || 0)) * 100) ||
         String(payment.customer?.email || "").toLowerCase() !== String(order.paymentEmail || "").toLowerCase()) {

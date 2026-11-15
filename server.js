@@ -1773,7 +1773,7 @@ app.get("/api/admin/other-businesses", requireSuperAdmin, (req, res) => {
     id: item.id, name: item.name, category: item.category, description: item.description, location: item.location,
     ownerName: item.ownerName, phone: item.phone, username: item.username, status: item.status,
     suspended: item.suspended === true, online: item.online === true, productCount: (item.products || []).length,
-    settlementConfigured: Boolean(getPaystackSubaccountCode(item.id)), paystackEnvKey: "PAYSTACK_SUBACCOUNT_" + String(item.id).replace(/[^a-zA-Z0-9]/g, "_").toUpperCase(), createdAt: item.createdAt
+    settlementConfigured: Boolean(getPaystackSubaccountCode(item.id)), paystackEnvKey: "PAYSTACK_SUBACCOUNT_" + String(item.id).replace(/[^a-zA-Z0-9]/g, "_").toUpperCase(), documents: (item.documents || []).filter(doc => !doc.supersededAt).map(doc => ({ id: doc.id, type: doc.type, filename: doc.filename, reviewStatus: doc.reviewStatus || "pending", rejectionReason: doc.rejectionReason || "" })), identityVerified: item.identityVerified === true, businessVerified: item.businessVerified === true, settlementVerified: item.settlementVerified === true, createdAt: item.createdAt
   }));
   res.set("Cache-Control", "no-store, private");
   res.json({ businesses });
@@ -1818,7 +1818,7 @@ app.post("/api/login", (req, res) => {
     }
   }
   const businessAccount = readOtherBusinesses().find(item =>
-    item.username === username && ["approved", "pending"].includes(item.status) &&
+    item.username === username && ["approved", "pending", "rejected"].includes(item.status) &&
     item.passwordSalt && item.passwordHash && passwordMatches(password, item)
   );
   const account = accounts.find(a => {

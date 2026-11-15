@@ -1879,7 +1879,7 @@ app.post("/api/login", (req, res) => {
       });
     }
   }
-  if (account.role === "agent") {
+  if (account?.role === "agent") {
     const agent = readAgentRecords().find(item => item.id === account.agentId);
     if (agent?.suspended) {
       const reason = String(agent.suspensionReason || "").trim();

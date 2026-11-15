@@ -2614,6 +2614,12 @@ app.post("/api/orders/:id/bank-transfer/submit", requireRole("student"), (req, r
   if (!["image/jpeg", "image/png", "image/webp"].includes(mimeType) || !/^[A-Za-z0-9+/]+=*$/.test(data)) return res.status(400).json({ error: "Upload a JPG, PNG or WEBP transfer receipt." });
   const buffer = Buffer.from(data, "base64");
   if (!buffer.length || buffer.length > 2 * 1024 * 1024) return res.status(413).json({ error: "The transfer receipt must be 2 MB or smaller." });
+  const isJpeg = buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  const isPng = buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const isWebp = buffer.length >= 12 && buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WEBP";
+  if ((mimeType === "image/jpeg" && !isJpeg) || (mimeType === "image/png" && !isPng) || (mimeType === "image/webp" && !isWebp)) {
+    return res.status(400).json({ error: "The uploaded file content does not match its selected image type." });
+  }
   const duplicateReference = orders.some(item => {
     const used = [item.transactionReference, ...(Array.isArray(item.paymentReferenceHistory) ? item.paymentReferenceHistory.map(entry => entry.reference) : [])];
     return used.some(value => String(value || "").toLowerCase() === transactionReference.toLowerCase());

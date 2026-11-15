@@ -788,7 +788,7 @@ function requireRole(...roles) {
 function isVerifiedOrderPayment(order) { return String(order?.paymentStatus || "").startsWith("Paid —") || order?.paymentStatus === "Paid — demo verified"; }
 
 function publicOrder(order, includeReceipt = false) {
-  const { chatMessages, paymentEmail, paystackAuthorizationUrl, paystackSubaccountCode, deliveryCode, deliveryCodeAttempts, deliveryCodeLocked, paymentReceiptEncrypted, paymentReceiptHistory, paymentReferenceHistory, paymentReceiptMimeType, paymentReceiptFileName, paymentReceiptUploadedAt, transactionReference, paymentVerification, paymentBankAccountEncrypted, ...safeOrder } = order;
+  const { chatMessages, paymentEmail, deliveryCode, deliveryCodeAttempts, deliveryCodeLocked, paymentReceiptEncrypted, paymentReceiptHistory, paymentReferenceHistory, paymentReceiptMimeType, paymentReceiptFileName, paymentReceiptUploadedAt, transactionReference, paymentVerification, paymentBankAccountEncrypted, ...safeOrder } = order;
   if (includeReceipt && paymentReceiptEncrypted) {
     try {
       safeOrder.paymentReceiptDataUrl = "data:" + String(order.paymentReceiptMimeType || "image/jpeg") + ";base64," + decryptVendorDocument(paymentReceiptEncrypted).toString("base64");

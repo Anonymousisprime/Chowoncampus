@@ -152,6 +152,10 @@ test("DirectPay merchant onboarding, receipts, verification and reconciliation",
       method: "POST", body: JSON.stringify({ decision: "approved" })
     });
     assert.equal(approved.response.status, 200);
+    const reviewedAccounts = await api(adminCookie, "/api/superadmin/merchant-payment-accounts");
+    const reviewed = reviewedAccounts.data.accounts.find(item => item.id === "CB");
+    assert.deepEqual(reviewed.reviewHistory.map(item => item.action), ["submitted", "approved"]);
+    assert.ok(reviewed.reviewHistory.every(item => item.at && item.by));
   });
 
   await t.test("student receives approved account details and the exact fee breakdown", async () => {

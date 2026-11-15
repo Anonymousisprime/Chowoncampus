@@ -53,7 +53,7 @@ before(async () => {
     customerName: "Test Student",
     customerPhone: "+2348012345678",
     status: "Confirmed",
-    paymentStatus: "Paid — Paystack verified",
+    paymentStatus: "Paid — bank transfer verified",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     items: []

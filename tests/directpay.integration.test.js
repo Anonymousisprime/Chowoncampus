@@ -45,7 +45,7 @@ async function createOrder(cookie, merchant, requestId) {
     method: "POST",
     body: JSON.stringify({
       hostel: "Hall 2, Redeemer's University",
-      latitude: 7.5, longitude: 4.5,
+      latitude: 7.67998, longitude: 4.45982,
       ...(merchant.type === "business" ? { businessId: merchant.id } : { restaurantId: merchant.id }),
       items: [{ id: merchant.itemId, qty: 1 }],
       requestId, paymentMethod: "bank_transfer"

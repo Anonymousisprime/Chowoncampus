@@ -1,0 +1,73 @@
+name: DirectPay validation
+
+on:
+  push:
+    branches:
+      - feature/directpay-bank-transfer
+    paths:
+      - 'server.js'
+      - 'public/app.js'
+      - 'public/student-dashboard.html'
+      - 'public/checkout.html'
+      - 'public/business-dashboard.html'
+      - 'public/other-businesses.html'
+      - 'public/directpay-admin.html'
+      - 'tests/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/directpay-validation.yml'
+  pull_request:
+    paths:
+      - 'server.js'
+      - 'public/app.js'
+      - 'public/student-dashboard.html'
+      - 'public/checkout.html'
+      - 'public/business-dashboard.html'
+      - 'public/other-businesses.html'
+      - 'public/directpay-admin.html'
+      - 'tests/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/directpay-validation.yml'
+  workflow_dispatch:
+
+jobs:
+  directpay-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check server and shared browser JavaScript
+        run: |
+          node --check server.js
+          node --check public/app.js
+      - name: Extract and check inline page scripts
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const pages = [
+            'student-dashboard.html',
+            'checkout.html',
+            'business-dashboard.html',
+            'other-businesses.html',
+            'directpay-admin.html'
+          ];
+          for (const page of pages) {
+            const html = fs.readFileSync('public/' + page, 'utf8');
+            const re = /<script\\b[^>]*>([\\s\\S]*?)<\\/script>/gi;
+            let match, count = 0;
+            while ((match = re.exec(html))) {
+              const output = '/tmp/' + page.replace(/\\W/g, '-') + '-' + count++ + '.js';
+              fs.writeFileSync(output, match[1]);
+            }
+            if (!count) throw new Error('No inline JavaScript found in ' + page);
+          }
+          NODE
+          for file in /tmp/*.html-*.js; do node --check "$file"; done
+      - name: Run full regression and DirectPay integration suite
+        run: npm test

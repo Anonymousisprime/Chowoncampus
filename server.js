@@ -5023,7 +5023,7 @@ app.get("/api/ads/public", (req, res) => {
       ? live.filter(item => item.placement === "popup").map(campusAdPublic)
       : [];
     res.setHeader("Cache-Control", "no-store, private");
-    res.json({ ads, popupAds });
+    res.json({ ads, popupAds, hideAds: premiumStudent });
   } catch (error) {
     res.status(500).json({ error: "Could not load campus promotions." });
   }

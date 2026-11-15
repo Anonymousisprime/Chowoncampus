@@ -149,9 +149,11 @@ function updateNavigation() {
 
 const TAKEAWAY_FEE = 200;
 
+function cartItemsSubtotal() {
+  return state.cart.reduce((sum, item) => sum + item.price * item.qty, 0);
+}
 function cartSubtotal() {
-  const foodSubtotal = state.cart.reduce((sum, item) => sum + item.price * item.qty, 0);
-  return foodSubtotal + (state.cart.length ? TAKEAWAY_FEE : 0);
+  return cartItemsSubtotal() + (state.cart.length ? TAKEAWAY_FEE : 0);
 }
 
 function renderRestaurants() {
@@ -307,7 +309,7 @@ function renderCart() {
   const quoteMatchesCart = state.deliveryQuote &&
     state.cart.length && state.deliveryQuote.restaurantId === state.cart[0].restaurantId;
   const delivery = state.cart.length ? 300 : 0;
-  const paymentFee = state.cart.length ? Math.round((subtotal + delivery) * 0.01) : 0;
+  const paymentFee = state.cart.length ? Math.round(cartItemsSubtotal() * 0.01) : 0;
 
   const cartCountElement = $("#cartCount");
   if (cartCountElement) cartCountElement.textContent = count;
@@ -370,7 +372,7 @@ function updateDeliveryQuoteDisplay(quote) {
   }
   const fee = 300;
   const subtotal = cartSubtotal();
-  const paymentFee = Math.round((subtotal + fee) * 0.01);
+  const paymentFee = Math.round(cartItemsSubtotal() * 0.01);
   if (feeElement) feeElement.textContent = money(fee);
   if ($("#paymentFee")) $("#paymentFee").textContent = money(paymentFee);
   if (totalElement) totalElement.textContent = money(subtotal + fee + paymentFee);
@@ -557,6 +559,21 @@ async function placeOrder(event) {
       if (checkoutForm) checkoutForm.reset();
       showMessage("#checkoutMessage", "Order " + order.id + " was sent to the ultimate admin for FoodBack approval. Your credits are reserved while it is reviewed.", true);
       showToast("FoodBack order submitted for admin approval.");
+      await trackOrder(order.id);
+      $("#trackingSection")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    if (paymentMethod === "bank_transfer") {
+      state.pendingOrderRequestId = null;
+      state.lastOrderId = order.id;
+      try { localStorage.setItem("coc_last_order_id", order.id); } catch {}
+      state.cart = [];
+      renderCart();
+      const checkoutForm = $("#checkoutForm");
+      if (checkoutForm) checkoutForm.reset();
+      if ($("#trackId")) $("#trackId").value = order.id;
+      showMessage("#checkoutMessage", "Order " + order.id + " created. Transfer the exact amount to the merchant's approved bank account, then upload your receipt and press Verify Payment in the order card. The merchant must confirm actual bank credit before preparing your order.", true);
+      showToast("Order created. Awaiting your bank transfer receipt.");
       await trackOrder(order.id);
       $("#trackingSection")?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
@@ -797,6 +814,9 @@ function renderOrderCard(order) {
       <p class="order-items">${order.items.map(item => `${item.qty} × ${escapeHtml(item.name)}`).join(", ")}</p>
       ${state.account.role === "student" && order.deliveryCode && !["Completed", "Cancelled"].includes(order.status) ? `<section class="tracking-alert" style="background:#eaf5ee;border:1px solid #b9dec5;border-radius:12px;padding:14px;margin:14px 0"><strong>🔐 Your delivery handover code</strong><div style="font-size:28px;font-weight:900;letter-spacing:7px;margin:8px 0;color:#176b45">${escapeHtml(order.deliveryCode)}</div><p class="tiny muted">Keep this code private. Share it only when the agent has your food. The agent needs it to confirm delivery.</p></section>` : ""}
       <p>Total: <strong>${money(order.total)}</strong> · Payment: ${escapeHtml(order.paymentStatus)}</p>
+      ${state.account.role === "student" && order.paymentMethod === "bank_transfer" && order.paymentBankAccount && !["Paid — bank transfer verified", "Paid — Paystack verified"].includes(order.paymentStatus) ? '<section class="tracking-alert" style="background:#f3f8f4;border:1px solid #c9dfd0;border-radius:12px;padding:14px;margin:14px 0"><strong>Direct bank transfer to ' + escapeHtml(order.restaurantName) + '</strong><p>Bank: <strong>' + escapeHtml(order.paymentBankAccount.bankName) + '</strong></p><p>Account name: <strong>' + escapeHtml(order.paymentBankAccount.accountName) + '</strong></p><p>Account number: <strong>' + escapeHtml(order.paymentBankAccount.accountNumber) + '</strong></p><p>Transfer exactly: <strong>' + money(order.total) + '</strong></p><label>Bank transaction reference<input type="text" maxlength="120" data-bank-reference="' + escapeHtml(order.id) + '" placeholder="Enter transaction reference"></label><label>Upload transfer receipt<input type="file" accept="image/jpeg,image/png,image/webp" data-bank-receipt="' + escapeHtml(order.id) + '"></label><button type="button" class="primary-button" data-bank-verify="' + escapeHtml(order.id) + '">Verify Payment</button>' + (order.merchantWhatsAppNumber ? '<a class="secondary-button" target="_blank" rel="noopener noreferrer" href="https://wa.me/' + encodeURIComponent(order.merchantWhatsAppNumber) + '?text=' + encodeURIComponent("Hello " + order.restaurantName + ", I have submitted the bank transfer receipt for order " + order.id + ". Please check your bank account and confirm receipt.") + '">Send receipt notice on WhatsApp</a>' : '') + '<p class="tiny muted">Upload the receipt here first. WhatsApp opens a chat with the business; attach the same receipt there if requested. A screenshot alone does not confirm payment.</p></section>' : ""}
+      ${state.account.role === "restaurant" && order.paymentMethod === "bank_transfer" && order.paymentReceiptDataUrl ? '<section class="tracking-alert" style="background:#f8faf8;border:1px solid #c9dfd0;border-radius:12px;padding:14px;margin:14px 0"><strong>Student transfer receipt</strong><p>Transaction reference: <strong>' + escapeHtml(order.transactionReference || "Not supplied") + '</strong></p><p>Uploaded: ' + escapeHtml(order.paymentReceiptUploadedAt ? new Date(order.paymentReceiptUploadedAt).toLocaleString() : "—") + '</p><img src="' + escapeHtml(order.paymentReceiptDataUrl) + '" alt="Student bank transfer receipt" style="display:block;max-width:100%;max-height:420px;object-fit:contain;border-radius:8px;margin:10px 0"><div class="order-actions"><button type="button" class="primary-button" data-bank-decision="received" data-bank-order="' + escapeHtml(order.id) + '">Confirm money received</button><button type="button" class="danger-button" data-bank-decision="not_received" data-bank-order="' + escapeHtml(order.id) + '">Reject — not received</button><button type="button" class="secondary-button" data-bank-decision="investigate" data-bank-order="' + escapeHtml(order.id) + '">Flag for investigation</button></div></section>' : ""}
+      ${state.account.role === "admin" && state.account.isSuperAdmin && order.paymentMethod === "bank_transfer" && order.paymentReceiptDataUrl ? '<section class="tracking-alert" style="background:#f8faf8;border:1px solid #c9dfd0;border-radius:12px;padding:14px;margin:14px 0"><strong>Bank transfer receipt · Ultimate Admin review</strong><p>Reference: ' + escapeHtml(order.transactionReference || "—") + '</p><img src="' + escapeHtml(order.paymentReceiptDataUrl) + '" alt="Bank transfer receipt" style="display:block;max-width:100%;max-height:360px;object-fit:contain;border-radius:8px;margin:10px 0"><div class="order-actions"><button type="button" class="primary-button" data-bank-override="received" data-bank-order="' + escapeHtml(order.id) + '">Admin confirm payment</button><button type="button" class="danger-button" data-bank-override="not_received" data-bank-order="' + escapeHtml(order.id) + '">Admin reject payment</button></div></section>' : ""}
       ${order.paymentMethod === "foodback" ? `<p><strong>FoodBack redemption</strong> · ${canReviewFoodBack ? "Needs ultimate admin review" : escapeHtml(order.approvedAt ? "Approved by ultimate admin" : order.refundedAt ? "Credits refunded" : "Under review")}</p>` : "" }
       ${canReviewFoodBack ? `<div class="order-actions"><button type="button" class="primary-button" data-foodback-review="approve" data-foodback-order="${escapeHtml(order.id)}">Approve FoodBack order</button><button type="button" class="danger-button" data-foodback-review="reject" data-foodback-order="${escapeHtml(order.id)}">Reject &amp; refund credits</button></div>` : ""}
       ${order.status === "Completed" ? `<p class="muted">Delivered: ${escapeHtml(order.deliveredAt || order.completedAt ? new Date(order.deliveredAt || order.completedAt).toLocaleString() : "Time not recorded")}</p>` : ""}
@@ -903,6 +923,48 @@ async function loadRestaurantRatings() {
     reviews.innerHTML = recent.length ? recent.map(review => '<article class="order-card"><strong>' + escapeHtml(review.restaurantName || 'Restaurant') + ' · ' + (review.restaurantRating ? '★ ' + review.restaurantRating + '/5' : 'No restaurant score') + '</strong><p class="muted">Student: ' + escapeHtml(review.studentName || 'Student') + ' · Order ' + escapeHtml(review.orderId || '—') + '</p>' + (review.agentRating ? '<p>Delivery agent rating: ★ ' + escapeHtml(review.agentRating) + '/5</p>' : '') + ((review.foodRatings || []).length ? '<p>Food: ' + review.foodRatings.map(food => escapeHtml(food.itemName) + ' ★ ' + escapeHtml(food.rating) + '/5').join(' · ') + '</p>' : '') + (review.restaurantComment ? '<p><strong>Restaurant/food feedback:</strong> ' + escapeHtml(review.restaurantComment) + '</p>' : '') + '<small class="muted">Delivered: ' + escapeHtml(review.deliveredAt ? new Date(review.deliveredAt).toLocaleString() : 'Time not recorded') + ' · Rated: ' + escapeHtml(review.ratedAt ? new Date(review.ratedAt).toLocaleString() : '—') + '</small></article>').join('') : '<div class="empty-state compact-empty">No student ratings yet. Ratings appear here after students review completed orders.</div>';
   } catch (error) { summary.innerHTML = '<p class="muted">' + escapeHtml(error.message || 'Could not load ratings.') + '</p>'; }
 }
+document.addEventListener("click", async event => {
+  const verifyButton = event.target instanceof Element ? event.target.closest("[data-bank-verify]") : null;
+  if (verifyButton) {
+    const orderId = verifyButton.dataset.bankVerify;
+    const card = verifyButton.closest(".order-card");
+    const reference = card?.querySelector("[data-bank-reference]")?.value?.trim() || "";
+    const file = card?.querySelector("[data-bank-receipt]")?.files?.[0];
+    if (!reference || !file) { showToast("Enter the transaction reference and choose the receipt image first."); return; }
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 2 * 1024 * 1024) { showToast("Use a JPG, PNG or WEBP receipt up to 2 MB."); return; }
+    verifyButton.disabled = true; verifyButton.textContent = "Uploading receipt…";
+    try {
+      const dataUrl = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(new Error("Could not read the receipt image.")); reader.readAsDataURL(file); });
+      const result = await api("/api/orders/" + encodeURIComponent(orderId) + "/bank-transfer/submit", { method: "POST", body: JSON.stringify({ transactionReference: reference, mimeType: file.type, fileName: file.name, receiptDataBase64: dataUrl.split(",")[1] || "" }) });
+      showToast(result.message || "Receipt submitted for verification."); await trackOrder(orderId);
+    } catch (error) { showToast(error.message || "Could not submit the receipt."); verifyButton.disabled = false; verifyButton.textContent = "Verify Payment"; }
+    return;
+  }
+  const merchantDecision = event.target instanceof Element ? event.target.closest("[data-bank-decision]") : null;
+  if (merchantDecision) {
+    const decision = merchantDecision.dataset.bankDecision;
+    const orderId = merchantDecision.dataset.bankOrder;
+    const reason = decision === "not_received" ? (prompt("Why was this transfer not received?") || "") : "";
+    if (decision === "not_received" && reason.trim().length < 5) return showToast("Enter a reason of at least 5 characters.");
+    if (!confirm(decision === "received" ? "Have you checked your bank account and confirmed the actual credit?" : decision === "not_received" ? "Reject this transfer because no credit arrived?" : "Flag this transfer for Ultimate Admin investigation?")) return;
+    merchantDecision.disabled = true;
+    try { const result = await api("/api/orders/" + encodeURIComponent(orderId) + "/bank-transfer/verify", { method: "POST", body: JSON.stringify({ decision, reason }) }); showToast(result.message); await loadDashboard(); }
+    catch (error) { showToast(error.message); merchantDecision.disabled = false; }
+    return;
+  }
+  const adminOverride = event.target instanceof Element ? event.target.closest("[data-bank-override]") : null;
+  if (adminOverride) {
+    const decision = adminOverride.dataset.bankOverride;
+    const orderId = adminOverride.dataset.bankOrder;
+    const reason = prompt("Enter the reason for this Ultimate Admin override (at least 10 characters):") || "";
+    if (reason.trim().length < 10) return showToast("A reason of at least 10 characters is required.");
+    if (!confirm("Record this admin payment override?")) return;
+    adminOverride.disabled = true;
+    try { const result = await api("/api/superadmin/orders/" + encodeURIComponent(orderId) + "/bank-transfer/override", { method: "POST", body: JSON.stringify({ decision, reason }) }); showToast(result.message); await loadDashboard(); }
+    catch (error) { showToast(error.message); adminOverride.disabled = false; }
+    return;
+  }
+});
 document.addEventListener("click", event => {
   const menuToggle = event.target.closest("#mobileMenuToggle");
   if (menuToggle) {

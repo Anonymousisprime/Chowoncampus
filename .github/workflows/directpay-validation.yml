@@ -59,15 +59,14 @@ jobs:
           ];
           for (const page of pages) {
             const html = fs.readFileSync('public/' + page, 'utf8');
-            const re = /<script\\b[^>]*>([\\s\\S]*?)<\\/script>/gi;
-            let match, count = 0;
-            while ((match = re.exec(html))) {
-              const output = '/tmp/' + page.replace(/\\W/g, '-') + '-' + count++ + '.js';
-              fs.writeFileSync(output, match[1]);
-            }
-            if (!count) throw new Error('No inline JavaScript found in ' + page);
+            const chunks = html.split(/<script[^>]*>/i).slice(1);
+            chunks.forEach((chunk, index) => {
+              const output = '/tmp/directpay-check-' + page.replaceAll('.html', '') + '-' + index + '.js';
+              fs.writeFileSync(output, chunk.split('</script>')[0]);
+            });
+            if (!chunks.length) throw new Error('No inline JavaScript found in ' + page);
           }
           NODE
-          for file in /tmp/*.html-*.js; do node --check "$file"; done
+          for file in /tmp/directpay-check-*.js; do node --check "$file"; done
       - name: Run full regression and DirectPay integration suite
         run: npm test

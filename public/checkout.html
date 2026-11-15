@@ -111,9 +111,11 @@
           <p class="small-note">You must be signed in with a student account to place an order. Your account details will be used automatically.</p>
           <label for="paymentMethod">Payment method</label>
           <select id="paymentMethod" name="paymentMethod" required>
+            <option value="bank_transfer">Direct bank transfer to restaurant</option>
             <option value="paystack">Pay online with Paystack</option>
             <option value="foodback">Pay with FoodBack credits</option>
           </select>
+          <p class="small-note">For bank transfers, upload your receipt and press Verify Payment after transferring. The restaurant must confirm actual bank credit before preparing your order. The 1% student service fee is calculated on your items subtotal; delivery is a fixed ₦300.</p>
           <p class="small-note">FoodBack can cover the full order total only. FoodBack orders go to the ultimate admin for review; the restaurant is notified after approval. <a href="/foodback.html">Check your FoodBack balance</a>.</p>
           <label for="hostel">Hostel / residence <span class="muted">(required)</span></label>
           <input id="hostel" name="hostel" type="text" placeholder="e.g. Hall 2, campus" maxlength="150" required>
@@ -133,7 +135,7 @@
 
           <p id="checkoutMessage" class="form-message" aria-live="polite"></p>
           <button type="submit" id="placeOrderButton" class="primary-button full-width">Continue to secure payment →</button>
-          <p class="small-note">Payments are confirmed by the server before your order is sent to the restaurant. Never pay outside the secure checkout.</p>
+          <p class="small-note">Bank transfers are sent directly to the merchant's approved account. Never share a receipt with anyone other than the merchant or authorized ChowOnCampus admin.</p>
         </form>
         </details>
       </section>

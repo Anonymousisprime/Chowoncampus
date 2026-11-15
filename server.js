@@ -2605,7 +2605,6 @@ app.post("/api/orders/:id/bank-transfer/submit", requireRole("student"), (req, r
     const now = new Date().toISOString();
     order.paymentReferenceHistory = Array.isArray(order.paymentReferenceHistory) ? order.paymentReferenceHistory : [];
     order.paymentReferenceHistory.push({ reference: transactionReference, submittedAt: now, submittedBy: req.account.username });
-    order.paymentReferenceHistory = order.paymentReferenceHistory.slice(-30);
     order.paymentReceiptHistory = Array.isArray(order.paymentReceiptHistory) ? order.paymentReceiptHistory : [];
     if (order.paymentReceiptEncrypted) order.paymentReceiptHistory.push({ transactionReference: order.transactionReference || "", mimeType: order.paymentReceiptMimeType || "", fileName: order.paymentReceiptFileName || "", uploadedAt: order.paymentReceiptUploadedAt || null, encrypted: order.paymentReceiptEncrypted });
     order.paymentReceiptHistory = order.paymentReceiptHistory.slice(-10);
@@ -5074,7 +5073,7 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
 
     if (role === "business") {
       const business = readOtherBusinesses().find(item => item.id === req.account.businessId);
-      if (!business || business.status !== "approved" || business.suspended || !getPaystackSubaccountCode(business.id)) return res.status(403).json({ error: "Your business is not approved and settlement-ready to manage paid orders." });
+      if (!business || business.status !== "approved" || business.suspended || (order.paymentMethod === "paystack" && !getPaystackSubaccountCode(business.id))) return res.status(403).json({ error: "Your business is not approved or is not configured for the selected payment method." });
       if (order.merchantType !== "business" || order.businessId !== req.account.businessId) return res.status(403).json({ error: "This order belongs to another business." });
       if (!["Confirmed", "Preparing", "Ready for pickup", "Cancelled"].includes(newStatus)) return res.status(403).json({ error: "Businesses cannot set that status." });
     } else if (role === "restaurant") {

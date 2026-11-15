@@ -523,7 +523,7 @@ async function placeOrder(event) {
   if (pinLat === "" || pinLon === "") return showMessage("#checkoutMessage", "Before payment, choose your exact delivery point using GPS or the map. We deliver only inside the approved campus delivery area.");
   const pinCheck = deliveryPinAllowed(Number(pinLat), Number(pinLon));
   if (!pinCheck.ok) return showMessage("#checkoutMessage", pinCheck.message);
-  const paymentMethod = $("#paymentMethod")?.value || "paystack";
+  const paymentMethod = $("#paymentMethod")?.value || "bank_transfer";
   if (!state.pendingOrderRequestId) {
     state.pendingOrderRequestId = window.crypto?.randomUUID
       ? window.crypto.randomUUID()
@@ -531,7 +531,7 @@ async function placeOrder(event) {
   }
   const button = $("#placeOrderButton");
   button.disabled = true;
-  button.textContent = isLocalDemo ? "Creating demo order…" : "Preparing secure checkout…";
+  button.textContent = "Creating order…";
   try {
     const result = await api("/api/orders", {
       method: "POST",
@@ -578,19 +578,6 @@ async function placeOrder(event) {
       $("#trackingSection")?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
-    if (!isLocalDemo) {
-      const payment = await api("/api/orders/" + encodeURIComponent(order.id) + "/paystack/initialize", {
-        method: "POST",
-        body: JSON.stringify({})
-      });
-      state.pendingOrderRequestId = null;
-      state.lastOrderId = order.id;
-      try { localStorage.setItem("coc_last_order_id", order.id); } catch {}
-      showMessage("#checkoutMessage", "Order " + order.id + " is ready. Redirecting you to Paystack to pay " + money(order.total) + ".", true);
-      location.href = payment.authorizationUrl;
-      return;
-    }
-
     state.pendingOrderRequestId = null;
     state.lastOrderId = order.id;
     try { localStorage.setItem("coc_last_order_id", order.id); } catch {}
@@ -643,7 +630,7 @@ function renderTrackedOrder(order, resultSelector = "#trackResult") {
       <p>Food and packaging: <strong>${money(order.subtotal)}</strong></p><p>Delivery fee: <strong>${money(order.deliveryFee)}</strong></p><p>Payment fee (1%): <strong>${money(order.paymentFee || 0)}</strong></p><p>Total paid/payable: <strong>${money(order.total)}</strong></p>
       <p>Payment: <strong>${escapeHtml(order.paymentStatus || "Check with the restaurant")}</strong></p>
       <p class="tiny muted">Last updated: ${escapeHtml(new Date(order.updatedAt || order.createdAt).toLocaleString())}</p>
-      ${state.account?.role === "student" && !isLocalDemo && !["Paid — Paystack verified", "Paid — demo verified"].includes(order.paymentStatus) && order.status !== "Cancelled" ? `<button class="primary-button" data-pay-order="${escapeHtml(order.id)}">Continue secure payment</button>` : ""}
+      
       <p class="tiny muted">Tracking refreshes automatically every 15 seconds while this page is open.</p>
       ${state.account?.role === "student" && (["Ready for pickup", "Out for delivery"].includes(order.status) || (order.status === "Completed" && Date.now() - new Date(order.deliveredAt || order.completedAt || 0).getTime() < 120000)) ? '<section class="temporary-chat-preview"><div><h4>Temporary delivery chat</h4><p class="tiny muted">Chat with your assigned delivery agent. The chat closes two minutes after delivery.</p></div><button type="button" class="primary-button" data-open-temp-chat="${escapeHtml(order.id)}" data-chat-title="Delivery agent">Open full-page chat ↗</button></section>' : ""}
     </article>`;
@@ -797,7 +784,7 @@ function renderOrderCard(order) {
   const canAssign = state.account.role === "admin" && order.status !== "Completed" && !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval");
   const canReviewFoodBack = state.account.role === "admin" && state.account.isSuperAdmin && order.paymentMethod === "foodback" && order.status === "Awaiting admin approval";
   const canShowAvailableAgents = state.account.role === "restaurant" && order.status === "Ready for pickup" && !order.assignedAgentId;
-  const paymentIsVerified = ["Paid — Paystack verified", "Paid — FoodBack approved", "Paid — bank transfer verified", "Paid — demo verified"].includes(order.paymentStatus);
+  const paymentIsVerified = String(order.paymentStatus || "").startsWith("Paid —") || order.paymentStatus === "Paid — demo verified";
   const canChangeStatus = statuses.length > 0 && paymentIsVerified && !(order.status === "Completed") && !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval") && !(state.account.role === "agent" && order.status === "Out for delivery");
   const canContactAgent = state.account.role === "restaurant" && order.assignedAgentId && ["Ready for pickup", "Out for delivery"].includes(order.status);
   const canDeliveryChat = ["Ready for pickup", "Out for delivery"].includes(order.status) && ((state.account.role === "restaurant" && order.assignedAgentId) || (state.account.role === "agent" && state.account.agentId === order.assignedAgentId));
@@ -815,7 +802,7 @@ function renderOrderCard(order) {
       <p class="order-items">${order.items.map(item => `${item.qty} × ${escapeHtml(item.name)}`).join(", ")}</p>
       ${state.account.role === "student" && order.deliveryCode && !["Completed", "Cancelled"].includes(order.status) ? `<section class="tracking-alert" style="background:#eaf5ee;border:1px solid #b9dec5;border-radius:12px;padding:14px;margin:14px 0"><strong>🔐 Your delivery handover code</strong><div style="font-size:28px;font-weight:900;letter-spacing:7px;margin:8px 0;color:#176b45">${escapeHtml(order.deliveryCode)}</div><p class="tiny muted">Keep this code private. Share it only when the agent has your food. The agent needs it to confirm delivery.</p></section>` : ""}
       <p>Total: <strong>${money(order.total)}</strong> · Payment: ${escapeHtml(order.paymentStatus)}</p>
-      ${state.account.role === "student" && order.paymentMethod === "bank_transfer" && order.paymentBankAccount && !["Paid — bank transfer verified", "Paid — Paystack verified"].includes(order.paymentStatus) ? '<section class="tracking-alert" style="background:#f3f8f4;border:1px solid #c9dfd0;border-radius:12px;padding:14px;margin:14px 0"><strong>Direct bank transfer to ' + escapeHtml(order.restaurantName) + '</strong><p>Bank: <strong>' + escapeHtml(order.paymentBankAccount.bankName) + '</strong></p><p>Account name: <strong>' + escapeHtml(order.paymentBankAccount.accountName) + '</strong></p><p>Account number: <strong>' + escapeHtml(order.paymentBankAccount.accountNumber) + '</strong></p><p>Transfer exactly: <strong>' + money(order.total) + '</strong></p><label>Bank transaction reference<input type="text" maxlength="120" data-bank-reference="' + escapeHtml(order.id) + '" placeholder="Enter transaction reference"></label><label>Upload transfer receipt<input type="file" accept="image/jpeg,image/png,image/webp" data-bank-receipt="' + escapeHtml(order.id) + '"></label><button type="button" class="primary-button" data-bank-verify="' + escapeHtml(order.id) + '">Verify Payment</button>' + (order.merchantWhatsAppNumber ? '<a class="secondary-button" target="_blank" rel="noopener noreferrer" href="https://wa.me/' + encodeURIComponent(String(order.merchantWhatsAppNumber).replace(/\D/g, "")) + '?text=' + encodeURIComponent("Hello " + order.restaurantName + ", I have submitted the bank transfer receipt for order " + order.id + ". Please check your bank account and confirm receipt.") + '">Send receipt notice on WhatsApp</a>' : '') + '<p class="tiny muted">Upload the receipt here first. WhatsApp opens a chat with the business; attach the same receipt there if requested. A screenshot alone does not confirm payment.</p></section>' : ""}
+      ${state.account.role === "student" && order.paymentMethod === "bank_transfer" && order.paymentBankAccount && !String(order.paymentStatus || "").startsWith("Paid — bank transfer") ? '<section class="tracking-alert" style="background:#f3f8f4;border:1px solid #c9dfd0;border-radius:12px;padding:14px;margin:14px 0"><strong>Direct bank transfer to ' + escapeHtml(order.restaurantName) + '</strong><p>Bank: <strong>' + escapeHtml(order.paymentBankAccount.bankName) + '</strong></p><p>Account name: <strong>' + escapeHtml(order.paymentBankAccount.accountName) + '</strong></p><p>Account number: <strong>' + escapeHtml(order.paymentBankAccount.accountNumber) + '</strong></p><p>Transfer exactly: <strong>' + money(order.total) + '</strong></p><label>Bank transaction reference<input type="text" maxlength="120" data-bank-reference="' + escapeHtml(order.id) + '" placeholder="Enter transaction reference"></label><label>Upload transfer receipt<input type="file" accept="image/jpeg,image/png,image/webp" data-bank-receipt="' + escapeHtml(order.id) + '"></label><button type="button" class="primary-button" data-bank-verify="' + escapeHtml(order.id) + '">Verify Payment</button>' + (order.merchantWhatsAppNumber ? '<a class="secondary-button" target="_blank" rel="noopener noreferrer" href="https://wa.me/' + encodeURIComponent(String(order.merchantWhatsAppNumber).replace(/\D/g, "")) + '?text=' + encodeURIComponent("Hello " + order.restaurantName + ", I have submitted the bank transfer receipt for order " + order.id + ". Please check your bank account and confirm receipt.") + '">Send receipt notice on WhatsApp</a>' : '') + '<p class="tiny muted">Upload the receipt here first. WhatsApp opens a chat with the business; attach the same receipt there if requested. A screenshot alone does not confirm payment.</p></section>' : ""}
       ${state.account.role === "restaurant" && order.paymentMethod === "bank_transfer" && order.paymentReceiptDataUrl ? '<section class="tracking-alert" style="background:#f8faf8;border:1px solid #c9dfd0;border-radius:12px;padding:14px;margin:14px 0"><strong>Student transfer receipt</strong><p>Transaction reference: <strong>' + escapeHtml(order.transactionReference || "Not supplied") + '</strong></p><p>Uploaded: ' + escapeHtml(order.paymentReceiptUploadedAt ? new Date(order.paymentReceiptUploadedAt).toLocaleString() : "—") + '</p><img src="' + escapeHtml(order.paymentReceiptDataUrl) + '" alt="Student bank transfer receipt" style="display:block;max-width:100%;max-height:420px;object-fit:contain;border-radius:8px;margin:10px 0"><div class="order-actions"><button type="button" class="primary-button" data-bank-decision="received" data-bank-order="' + escapeHtml(order.id) + '">Confirm money received</button><button type="button" class="danger-button" data-bank-decision="not_received" data-bank-order="' + escapeHtml(order.id) + '">Reject — not received</button><button type="button" class="secondary-button" data-bank-decision="investigate" data-bank-order="' + escapeHtml(order.id) + '">Flag for investigation</button></div></section>' : ""}
       ${state.account.role === "admin" && state.account.isSuperAdmin && order.paymentMethod === "bank_transfer" && order.paymentReceiptDataUrl ? '<section class="tracking-alert" style="background:#f8faf8;border:1px solid #c9dfd0;border-radius:12px;padding:14px;margin:14px 0"><strong>Bank transfer receipt · Ultimate Admin review</strong><p>Reference: ' + escapeHtml(order.transactionReference || "—") + '</p><img src="' + escapeHtml(order.paymentReceiptDataUrl) + '" alt="Bank transfer receipt" style="display:block;max-width:100%;max-height:360px;object-fit:contain;border-radius:8px;margin:10px 0"><div class="order-actions"><button type="button" class="primary-button" data-bank-override="received" data-bank-order="' + escapeHtml(order.id) + '">Admin confirm payment</button><button type="button" class="danger-button" data-bank-override="not_received" data-bank-order="' + escapeHtml(order.id) + '">Admin reject payment</button></div></section>' : ""}
       ${order.paymentMethod === "foodback" ? `<p><strong>FoodBack redemption</strong> · ${canReviewFoodBack ? "Needs ultimate admin review" : escapeHtml(order.approvedAt ? "Approved by ultimate admin" : order.refundedAt ? "Credits refunded" : "Under review")}</p>` : "" }
@@ -1579,25 +1566,6 @@ async function loadDashboard(automatic = false) {
           </div>
         </section>
         ${account.isSuperAdmin ? `
-        <section class="dashboard-order-section" id="adminPayoutSecurityPanel">
-          <div class="dashboard-section-heading"><div><span class="eyebrow">HIGH-SECURITY CONTROL</span><h2>Restaurant payout account protection</h2><p>Only the Ultimate Admin can change a restaurant's Paystack payout destination. Every change requires a fresh password, a separate Render approval code, account-name verification and an audit record.</p></div><button type="button" class="secondary-button" id="refreshPayoutAccounts">↻ Refresh accounts</button></div>
-          <div id="payoutAccountsList" class="muted">Loading protected payout account details…</div>
-          <form id="adminPayoutChangeForm" class="order-card">
-            <h3>Change a restaurant payout account</h3>
-            <label>Restaurant<select id="payoutRestaurantId" name="restaurantId" required><option value="">Loading restaurants…</option></select></label>
-            <label>Bank<select id="payoutBankCode" name="bankCode" required><option value="">Loading supported banks…</option></select></label>
-            <label>New 10-digit account number<input id="payoutAccountNumber" name="accountNumber" inputmode="numeric" pattern="[0-9]{10}" minlength="10" maxlength="10" required autocomplete="off"></label>
-            <button type="button" class="secondary-button" id="resolvePayoutAccount">Verify bank account name</button>
-            <p id="payoutResolveMessage" class="muted" role="status" aria-live="polite">Verify the account before submitting a change.</p>
-            <label>Reason for the change<textarea name="reason" minlength="10" maxlength="300" required placeholder="Explain why this restaurant's payout account must change."></textarea></label>
-            <label>Current Ultimate Admin password<input name="currentPassword" type="password" required autocomplete="current-password"></label>
-            <label>Separate payout approval code<input name="approvalCode" type="password" required autocomplete="off"></label>
-            <button type="submit" class="danger-button">Confirm and update Paystack payout account</button>
-            <p id="payoutChangeMessage" class="muted" role="status" aria-live="polite"></p>
-          </form>
-          <p class="tiny muted">Before this control can be used, configure a unique secret named PAYOUT_CHANGE_APPROVAL_CODE in Render. Use a long, private code that is not the admin password. Never put it in website code or share it with restaurant staff.</p>
-        </section>` : ""}
-        ${account.isSuperAdmin ? `
         <section class="dashboard-order-section" id="adminDailyReportsPanel">
           <div class="dashboard-section-heading"><div><span class="eyebrow">BUSINESS INTELLIGENCE</span><h2>Daily operations & earnings reports</h2><p>Generate date-based reports in Nigeria time. Reports use recorded platform data and clearly separate sales from confirmed bank credits.</p></div></div>
           <form id="adminDailyReportForm" class="order-card">
@@ -1811,83 +1779,6 @@ async function loadDashboard(automatic = false) {
         } finally { button.disabled = false; }
       });
 
-      if (account.isSuperAdmin) {
-        let verifiedPayoutAccount = null;
-        const payoutStatus = $("#payoutChangeMessage");
-        const payoutResolveStatus = $("#payoutResolveMessage");
-        const refreshPayoutAccounts = async () => {
-          const list = $("#payoutAccountsList");
-          const restaurantSelect = $("#payoutRestaurantId");
-          const bankSelect = $("#payoutBankCode");
-          if (!list || !restaurantSelect || !bankSelect) return;
-          try {
-            const [accountsData, banksData] = await Promise.all([
-              api("/api/superadmin/payout-accounts"),
-              api("/api/superadmin/payout-banks")
-            ]);
-            list.innerHTML = (accountsData.accounts || []).map(item =>
-              '<article class="order-card"><strong>' + escapeHtml(item.restaurantName) + '</strong><p>' +
-              (item.configured ? item.lookupFailed ? 'Paystack subaccount lookup failed.' : escapeHtml(item.bankName) + ' · ' + escapeHtml(item.accountNumberMasked) + ' · ' + escapeHtml(item.accountName) : 'No Paystack subaccount configured') +
-              '</p></article>'
-            ).join("") || '<p class="muted">No restaurant accounts found.</p>';
-            restaurantSelect.innerHTML = '<option value="">Choose restaurant</option>' + (accountsData.accounts || []).map(item =>
-              '<option value="' + escapeHtml(item.restaurantId) + '"' + (item.configured ? '' : ' disabled') + '>' + escapeHtml(item.restaurantName) + (item.configured ? '' : ' — Paystack not configured') + '</option>'
-            ).join("");
-            bankSelect.innerHTML = '<option value="">Choose bank</option>' + (banksData.banks || []).map(bank =>
-              '<option value="' + escapeHtml(bank.code) + '">' + escapeHtml(bank.name) + '</option>'
-            ).join("");
-            if (!accountsData.secondaryVerificationConfigured && payoutStatus) {
-              payoutStatus.textContent = "Payout changes are locked until PAYOUT_CHANGE_APPROVAL_CODE is configured in Render.";
-            }
-          } catch (error) {
-            list.textContent = error.message;
-          }
-        };
-        $("#refreshPayoutAccounts")?.addEventListener("click", refreshPayoutAccounts);
-        $("#payoutRestaurantId")?.addEventListener("change", () => { verifiedPayoutAccount = null; if (payoutResolveStatus) payoutResolveStatus.textContent = "Verify the account before submitting a change."; });
-        $("#payoutBankCode")?.addEventListener("change", () => { verifiedPayoutAccount = null; if (payoutResolveStatus) payoutResolveStatus.textContent = "Verify the account before submitting a change."; });
-        $("#payoutAccountNumber")?.addEventListener("input", () => { verifiedPayoutAccount = null; if (payoutResolveStatus) payoutResolveStatus.textContent = "Account details changed. Verify the account again."; });
-        $("#resolvePayoutAccount")?.addEventListener("click", async event => {
-          const button = event.currentTarget;
-          const accountNumber = $("#payoutAccountNumber")?.value.trim() || "";
-          const bankCode = $("#payoutBankCode")?.value || "";
-          verifiedPayoutAccount = null;
-          button.disabled = true;
-          if (payoutResolveStatus) payoutResolveStatus.textContent = "Checking account details with Paystack…";
-          try {
-            const result = await api("/api/superadmin/payout-account/resolve", { method: "POST", body: JSON.stringify({ accountNumber, bankCode }) });
-            verifiedPayoutAccount = { accountNumber, bankCode, accountName: result.accountName };
-            if (payoutResolveStatus) payoutResolveStatus.textContent = "Verified account name: " + result.accountName + " · " + result.accountNumberMasked + ". Confirm this is the correct restaurant account.";
-          } catch (error) {
-            if (payoutResolveStatus) payoutResolveStatus.textContent = error.message;
-          } finally { button.disabled = false; }
-        });
-        $("#adminPayoutChangeForm")?.addEventListener("submit", async event => {
-          event.preventDefault();
-          const form = event.currentTarget;
-          const values = Object.fromEntries(new FormData(form).entries());
-          const button = form.querySelector('button[type="submit"]');
-          if (!verifiedPayoutAccount || verifiedPayoutAccount.accountNumber !== String(values.accountNumber).trim() || verifiedPayoutAccount.bankCode !== values.bankCode) {
-            if (payoutStatus) payoutStatus.textContent = "Verify the current bank and account number first.";
-            return;
-          }
-          if (!window.confirm("Update this restaurant's real Paystack payout destination to " + verifiedPayoutAccount.accountName + "? This affects future split-payment settlements.")) return;
-          values.expectedAccountName = verifiedPayoutAccount.accountName;
-          button.disabled = true;
-          if (payoutStatus) payoutStatus.textContent = "Submitting protected payout change to Paystack…";
-          try {
-            const result = await api("/api/superadmin/payout-account-change", { method: "POST", body: JSON.stringify(values) });
-            if (payoutStatus) payoutStatus.textContent = result.message + " New destination: " + result.bankName + " " + result.accountNumberMasked + " (" + result.accountName + ").";
-            form.reset();
-            verifiedPayoutAccount = null;
-            if (payoutResolveStatus) payoutResolveStatus.textContent = "Verify the account before submitting a change.";
-            await refreshPayoutAccounts();
-          } catch (error) {
-            if (payoutStatus) payoutStatus.textContent = error.message;
-          } finally { button.disabled = false; }
-        });
-        refreshPayoutAccounts();
-      }
       } else if (account.role === "agent") {
       const activeDeliveryOrders = orders.filter(order =>
         order.assignedAgentId === account.agentId && ["Ready for pickup", "Out for delivery"].includes(order.status)
@@ -2149,11 +2040,7 @@ async function assignAgent(orderId) {
 
 async function initialize() {
   const initialParams = new URLSearchParams(location.search);
-  if (location.pathname === "/" && initialParams.get("payment") === "paystack") {
-    location.replace("/checkout.html" + location.search);
-    return;
-  }
-  if ($("#year")) $("#year").textContent = new Date().getFullYear();
+    if ($("#year")) $("#year").textContent = new Date().getFullYear();
   try { const savedCart = JSON.parse(localStorage.getItem("coc_cart") || "[]"); if (Array.isArray(savedCart)) state.cart = savedCart.filter(item => item && item.id && item.restaurantId && Number(item.qty) > 0); } catch { state.cart = []; }
 
   try {
@@ -2487,24 +2374,6 @@ async function initialize() {
 
     const assignButton = event.target.closest("[data-save-agent]");
     if (assignButton) await assignAgent(assignButton.dataset.saveAgent);
-
-    const payOrderButton = event.target.closest("[data-pay-order]");
-    if (payOrderButton) {
-      payOrderButton.disabled = true;
-      payOrderButton.textContent = "Opening secure checkout…";
-      try {
-        const payment = await api("/api/orders/" + encodeURIComponent(payOrderButton.dataset.payOrder) + "/paystack/initialize", {
-          method: "POST",
-          body: JSON.stringify({})
-        });
-        location.href = payment.authorizationUrl;
-      } catch (error) {
-        showToast(error.message);
-        payOrderButton.disabled = false;
-        payOrderButton.textContent = "Continue secure payment";
-      }
-      return;
-    }
 
     if (event.target.closest("#brandHome")) {
       state.selectedRestaurantId = null;
@@ -2888,35 +2757,6 @@ async function initialize() {
     } catch (error) { $("#customerChatStatus").textContent = error.message; }
     finally { button.disabled = false; }
   });
-  const paymentParams = new URLSearchParams(location.search);
-  if (paymentParams.get("payment") === "paystack") {
-    const callbackOrderId = paymentParams.get("orderId") || "";
-    const paymentReference = paymentParams.get("reference") || paymentParams.get("trxref") || "";
-    history.replaceState({}, document.title, location.pathname + location.hash);
-    if (!callbackOrderId || !paymentReference) {
-      showMessage("#checkoutMessage", "Payment was not confirmed. If you were charged, contact support with your Paystack receipt.");
-    } else {
-      showMessage("#checkoutMessage", "Verifying your payment securely…");
-      try {
-        const verification = await api("/api/payments/paystack/verify", {
-          method: "POST",
-          body: JSON.stringify({ orderId: callbackOrderId, reference: paymentReference })
-        });
-        state.lastOrderId = callbackOrderId;
-        try { localStorage.setItem("coc_last_order_id", callbackOrderId); } catch {}
-        if ($("#trackId")) $("#trackId").value = callbackOrderId;
-        showMessage("#checkoutMessage", (verification.message || "Payment verified and order confirmed.") + " Your order ID is " + callbackOrderId + ". Save this ID for tracking and support.", true);
-        showToast("Payment verified. Your order is confirmed.");
-        await trackOrder(callbackOrderId);
-        $("#trackingSection").scrollIntoView({ behavior: "smooth", block: "start" });
-      } catch (error) {
-        showMessage("#checkoutMessage", error.message + " If you were charged, keep your payment reference and contact support.");
-        $("#trackId").value = callbackOrderId;
-        await trackOrder(callbackOrderId);
-        $("#trackingSection").scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    }
-  }
   try {
     const savedOrderId = localStorage.getItem("coc_last_order_id");
     if (savedOrderId && $("#trackId")) {

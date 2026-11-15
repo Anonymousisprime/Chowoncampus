@@ -3617,6 +3617,9 @@ function readRestaurantSettlements() {
 function saveRestaurantSettlements(records) {
   saveStoredJson(RESTAURANT_SETTLEMENTS_FILE, records);
 }
+const MERCHANT_FEE_PAYMENTS_FILE = path.join(__dirname, "merchant-fee-payments.json");
+function readMerchantFeePayments() { return readStoredJson(MERCHANT_FEE_PAYMENTS_FILE, []); }
+function saveMerchantFeePayments(records) { saveStoredJson(MERCHANT_FEE_PAYMENTS_FILE, records.slice(0, 20000)); }
 function nigeriaDayRange(value) {
   const day = String(value || "");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
@@ -3643,7 +3646,11 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
     const students = readStudents();
     const agentRecords = readAgentRecords();
     const restaurantsList = restaurants;
+    const businessesList = readOtherBusinesses().filter(item => item.status === "approved");
     const settlements = readRestaurantSettlements().filter(item => item.status === "confirmed" && item.settlementDate === range.day);
+    const merchantFeePayments = readMerchantFeePayments();
+    const isPaid = order => ["Paid — Paystack verified", "Paid — FoodBack approved", "Paid — bank transfer verified"].includes(order.paymentStatus);
+    const feesForOrder = order => reportMoney(order.deliveryFee) + reportMoney(order.paymentFee);
     const dayOrders = orders.filter(order => inReportDay(order.createdAt, range));
     const completedOrders = orders.filter(order => order.status === "Completed" && ["Paid — Paystack verified", "Paid — FoodBack approved", "Paid — bank transfer verified"].includes(order.paymentStatus) && inReportDay(order.completedAt || order.updatedAt, range));
     const cancelledOrders = dayOrders.filter(order => order.status === "Cancelled");
@@ -3659,16 +3666,34 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
       const reviews = orders.filter(order => String(order.restaurantId) === String(restaurant.id) && order.rating && inReportDay(order.rating.ratedAt, range));
       const scores = reviews.map(order => Number(order.rating.restaurantRating)).filter(score => Number.isFinite(score) && score >= 1 && score <= 5);
       const bankCredits = settlements.filter(item => String(item.restaurantId) === String(restaurant.id));
+      const paidToday = paidOrders.filter(order => order.merchantType !== "business" && String(order.restaurantId) === String(restaurant.id));
+      const paidThroughDate = orders.filter(order => order.merchantType !== "business" && String(order.restaurantId) === String(restaurant.id) && isPaid(order) && Date.parse(order.paidAt || order.createdAt || "") < range.end.getTime());
+      const feePaymentsToday = merchantFeePayments.filter(item => item.merchantType === "restaurant" && String(item.merchantId) === String(restaurant.id) && item.paymentDate === range.day);
+      const feePaymentsThroughDate = merchantFeePayments.filter(item => item.merchantType === "restaurant" && String(item.merchantId) === String(restaurant.id) && String(item.paymentDate || "") <= range.day);
       return {
         id: restaurant.id, name: restaurant.name, orders: own.length, completedOrders: successful.length,
         cancelledOrders: own.filter(order => order.status === "Cancelled").length,
         foodSales: sum(successful, order => order.subtotal),
+        platformFeesDueToday: sum(paidToday, feesForOrder),
+        platformFeesCollectedToday: sum(feePaymentsToday, item => item.amount),
+        platformFeesOutstanding: Math.max(0, sum(paidThroughDate, feesForOrder) - sum(feePaymentsThroughDate, item => item.amount)),
         averageRating: scores.length ? Math.round(scores.reduce((a,b) => a+b, 0) / scores.length * 10) / 10 : null,
         ratingCount: scores.length,
         unavailableFood: (restaurant.items || []).filter(item => item.available === false || item.isAvailable === false || item.soldOut === true).map(item => item.name),
         bankSettlements: bankCredits.map(item => ({ amount: item.amount, reference: item.bankReference, creditedAt: item.creditedAt, enteredAt: item.createdAt })),
         actualBankAmountCredited: sum(bankCredits, item => item.amount)
       };
+    }).sort((a,b) => b.orders - a.orders);
+    const businessRows = businessesList.map(business => {
+      const own = dayOrders.filter(order => order.merchantType === "business" && String(order.businessId) === String(business.id));
+      const paidToday = paidOrders.filter(order => order.merchantType === "business" && String(order.businessId) === String(business.id));
+      const paidThroughDate = orders.filter(order => order.merchantType === "business" && String(order.businessId) === String(business.id) && isPaid(order) && Date.parse(order.paidAt || order.createdAt || "") < range.end.getTime());
+      const feePaymentsToday = merchantFeePayments.filter(item => item.merchantType === "business" && String(item.merchantId) === String(business.id) && item.paymentDate === range.day);
+      const feePaymentsThroughDate = merchantFeePayments.filter(item => item.merchantType === "business" && String(item.merchantId) === String(business.id) && String(item.paymentDate || "") <= range.day);
+      return { id: business.id, name: business.name, orders: own.length,
+        platformFeesDueToday: sum(paidToday, feesForOrder),
+        platformFeesCollectedToday: sum(feePaymentsToday, item => item.amount),
+        platformFeesOutstanding: Math.max(0, sum(paidThroughDate, feesForOrder) - sum(feePaymentsThroughDate, item => item.amount)) };
     }).sort((a,b) => b.orders - a.orders);
     const agentPayouts = readAgentPayments().filter(payment => inReportDay(payment.paidAt, range));
     const agentRows = agentRecords.map(agent => {
@@ -3728,6 +3753,12 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
         outstandingAmount: sum(dayOrders.filter(order => !["Paid — Paystack verified", "Paid — FoodBack approved", "Paid — bank transfer verified"].includes(order.paymentStatus) && !["Cancelled", "Failed"].includes(order.status)), order => order.total)
       },
       restaurants: restaurantRows,
+      businesses: businessRows,
+      merchantFeeCollection: {
+        dueToday: sum([...restaurantRows, ...businessRows], item => item.platformFeesDueToday),
+        collectedToday: sum([...restaurantRows, ...businessRows], item => item.platformFeesCollectedToday),
+        outstanding: sum([...restaurantRows, ...businessRows], item => item.platformFeesOutstanding)
+      },
       restaurantRanking: restaurantRows.map((item,index) => ({ rank: index + 1, restaurant: item.name, orders: item.orders, averageRating: item.averageRating, ratingCount: item.ratingCount })),
       agents: agentRows,
       agentTotals: { completedDeliveries: sum(agentRows, item => item.completedDeliveries), earned: sum(agentRows, item => item.earningsRecorded),
@@ -3754,6 +3785,33 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
     res.status(500).json({ error: "Could not generate the daily report." });
   }
 });
+app.get("/api/superadmin/merchant-fee-payments", requireSuperAdmin, (req, res) => {
+  const payments = readMerchantFeePayments().map(item => ({ ...item }));
+  res.set("Cache-Control", "no-store, private");
+  res.json({ payments });
+});
+app.post("/api/superadmin/merchant-fee-payments", requireSuperAdmin, (req, res) => {
+  const merchantType = String(req.body.merchantType || "").trim();
+  const merchantId = String(req.body.merchantId || "").trim();
+  const paymentDate = String(req.body.paymentDate || "").trim();
+  const amount = Number(req.body.amount);
+  const reference = String(req.body.reference || "").trim().slice(0, 120);
+  const note = String(req.body.note || "").trim().slice(0, 300);
+  if (!["restaurant", "business"].includes(merchantType)) return res.status(400).json({ error: "Choose a restaurant or other business." });
+  if (!nigeriaDayRange(paymentDate)) return res.status(400).json({ error: "Choose a valid payment date." });
+  if (!Number.isSafeInteger(amount) || amount <= 0) return res.status(400).json({ error: "Enter a whole-number amount greater than ₦0." });
+  if (reference.length < 4) return res.status(400).json({ error: "Enter the bank transfer reference." });
+  const merchant = merchantType === "restaurant" ? restaurants.find(item => String(item.id) === merchantId) : readOtherBusinesses().find(item => String(item.id) === merchantId);
+  if (!merchant) return res.status(404).json({ error: "Merchant not found." });
+  const records = readMerchantFeePayments();
+  if (records.some(item => String(item.reference || "").toLowerCase() === reference.toLowerCase())) return res.status(409).json({ error: "That payment reference has already been recorded." });
+  const record = { id: "MFP-" + crypto.randomBytes(6).toString("hex").toUpperCase(), merchantType, merchantId, merchantName: merchant.name, paymentDate, amount, reference, note, createdAt: new Date().toISOString(), recordedBy: req.account.username, status: "recorded" };
+  records.unshift(record);
+  saveMerchantFeePayments(records);
+  recordOperationsEvent({ type: "merchant_platform_fee_payment_recorded", entityType: merchantType, entityId: merchantId, entityName: merchant.name, actorRole: "ultimate_admin", actorId: req.account.username, details: "Recorded ₦" + amount.toLocaleString("en-NG") + " platform-fee remittance. Reference: " + reference });
+  res.status(201).json({ ok: true, payment: record, message: "Merchant fee remittance recorded. This is a bookkeeping record, not an automatic bank transfer." });
+});
+
 app.post("/api/superadmin/restaurant-settlements", requireSuperAdmin, (req, res) => {
   try {
     const restaurantId = String(req.body.restaurantId || "").trim();

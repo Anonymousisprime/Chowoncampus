@@ -33,7 +33,7 @@ jobs:
           const fs = require('fs');
           for (const page of ['other-businesses', 'business-dashboard', 'superadmin-other-businesses', 'student-dashboard', 'admin-dashboard']) {
             const html = fs.readFileSync('public/' + page + '.html', 'utf8');
-            const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
+            const scripts = html.split('<script>').slice(1).map(part => part.split('</script>')[0]);
             if (!scripts.length) continue;
             scripts.forEach((match, index) => fs.writeFileSync('/tmp/' + page + '-' + index + '.js', match[1]));
           }

@@ -1744,11 +1744,25 @@ app.put("/api/business/products", requireRole("business"), (req, res) => {
   const items = Array.isArray(req.body.products) ? req.body.products : null;
   if (!items || items.length > 300) return res.status(400).json({ error: "Submit a product list of up to 300 items." });
   const clean = [];
+  let totalUploadedImageBytes = 0;
   for (const item of items) {
     const name = String(item.name || "").trim().slice(0, 100);
     const price = Number(item.price);
     if (name.length < 2 || !Number.isSafeInteger(price) || price < 1 || price > 100000000) return res.status(400).json({ error: "Each product needs a name and a valid whole-number price." });
-    clean.push({ id: String(item.id || crypto.randomUUID()).slice(0, 80), name, description: String(item.description || "").trim().slice(0, 300), category: String(item.category || "").trim().slice(0, 60), price, imageUrl: safeHttpsUrl(item.imageUrl || "") || "", available: item.available !== false });
+    const submittedImage = String(item.imageUrl || "").trim();
+    let imageUrl = safeHttpsUrl(submittedImage) || "";
+    if (submittedImage.startsWith("data:image/")) {
+      const match = submittedImage.match(/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+=*)$/);
+      if (!match) return res.status(400).json({ error: "Product image must be a valid JPG, PNG or WEBP upload." });
+      const imageBytes = Math.floor(match[2].length * 3 / 4) - (match[2].endsWith("==") ? 2 : match[2].endsWith("=") ? 1 : 0);
+      if (imageBytes < 1 || imageBytes > 1024 * 1024) return res.status(413).json({ error: "Each product image must be 1 MB or smaller." });
+      totalUploadedImageBytes += imageBytes;
+      if (totalUploadedImageBytes > 12 * 1024 * 1024) return res.status(413).json({ error: "Uploaded product images must total 12 MB or less per save. Save products in smaller batches." });
+      imageUrl = submittedImage;
+    } else if (submittedImage && !imageUrl) {
+      return res.status(400).json({ error: "Product image links must use HTTPS." });
+    }
+    clean.push({ id: String(item.id || crypto.randomUUID()).slice(0, 80), name, description: String(item.description || "").trim().slice(0, 300), category: String(item.category || "").trim().slice(0, 60), price, imageUrl, available: item.available !== false });
   }
   const businesses = readOtherBusinesses();
   const business = businesses.find(item => item.id === req.account.businessId);

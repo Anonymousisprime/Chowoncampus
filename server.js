@@ -1868,7 +1868,7 @@ app.get("/api/student/restaurant-bank-accounts", requireRole("student"), (req, r
     if (!merchant.paymentAccountEncrypted || merchant.paymentAccountStatus !== "approved") continue;
     try {
       const account = JSON.parse(decryptVendorDocument(merchant.paymentAccountEncrypted).toString("utf8"));
-      if (!account.bankName || !account.accountName || !/^\\d{10}$/.test(String(account.accountNumber || ""))) continue;
+      if (!account.bankName || !account.accountName || !/^\d{10}$/.test(String(account.accountNumber || ""))) continue;
       accounts.push({
         restaurantId: merchant.id,
         restaurantName: merchant.name,

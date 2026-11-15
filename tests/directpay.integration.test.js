@@ -190,7 +190,7 @@ test("DirectPay merchant onboarding, receipts, verification and reconciliation",
 
     const restaurantView = await api(restaurantCookie, "/api/orders/" + encodeURIComponent(restaurantOrder1.id));
     assert.equal(restaurantView.response.status, 200);
-    assert.match(restaurantView.data.order.paymentReceiptDataUrl, /^data:image\/jpeg;base64,/);
+    assert.match(restaurantView.data.order.paymentReceiptDataUrl, /^data:image\/png;base64,/);
 
     const ordinaryAdmin = await login("/api/login", { username: "testadmin", password: "Ultimate-DirectPay-Password" });
     const restrictedView = await api(ordinaryAdmin, "/api/orders/" + encodeURIComponent(restaurantOrder1.id));

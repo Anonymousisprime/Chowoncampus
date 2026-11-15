@@ -4937,11 +4937,28 @@ const CAMPUS_AD_PACKAGES = Object.freeze({
   growth: { days: 14, price: 7000 },
   premium: { days: 30, price: 12000 }
 });
+const CAMPUS_POPUP_AD_PACKAGES = Object.freeze({
+  starter: { days: 3, price: 7000 },
+  basic: { days: 7, price: 15000 },
+  growth: { days: 14, price: 25000 },
+  premium: { days: 30, price: 40000 }
+});
+function campusAdIsPremiumAccount(account) {
+  if (!account || account.role !== "student") return false;
+  const premium = account.premium || account.subscription || {};
+  const endsAt = premium.endsAt || account.premiumEndsAt || "";
+  const inDate = !endsAt || (Number.isFinite(new Date(endsAt).getTime()) && new Date(endsAt).getTime() > Date.now());
+  const entitled = account.premiumActive === true || account.isPremium === true ||
+    premium.active === true || premium.status === "active" ||
+    String(premium.tier || premium.plan || "").toLowerCase() === "premium";
+  return entitled && inDate;
+}
 function campusAdPublic(item) {
   return {
     id: item.id, title: item.title, advertiser: item.advertiser,
     type: item.type, description: item.description, imageUrl: item.imageUrl,
     targetUrl: item.targetUrl, destinationType: item.destinationType || "external", packageKey: item.packageKey,
+    placement: item.placement === "popup" ? "popup" : "dashboard",
     startsAt: item.startsAt, endsAt: item.endsAt
   };
 }
@@ -5001,8 +5018,14 @@ app.get("/api/ads/public", (req, res) => {
   try {
     const now = Date.now();
     const live = readCampusAds().filter(item => campusAdIsLive(item, now));
-    res.setHeader("Cache-Control", "public, max-age=30");
-    res.json({ ads: live.map(campusAdPublic) });
+    const account = getSession(req);
+    const premiumStudent = campusAdIsPremiumAccount(account);
+    const ads = premiumStudent ? [] : live.filter(item => item.placement !== "popup").map(campusAdPublic);
+    const popupAds = account?.role === "student" && !premiumStudent
+      ? live.filter(item => item.placement === "popup").map(campusAdPublic)
+      : [];
+    res.setHeader("Cache-Control", "no-store, private");
+    res.json({ ads, popupAds, hideAds: premiumStudent });
   } catch (error) {
     res.status(500).json({ error: "Could not load campus promotions." });
   }
@@ -5048,7 +5071,7 @@ app.get("/api/superadmin/ads", requireSuperAdmin, (req, res) => {
     revenue: sum.revenue + (ad.paymentReceived ? Number(ad.price) || 0 : 0)
   }), { campaigns: 0, active: 0, impressions: 0, clicks: 0, revenue: 0 });
   res.setHeader("Cache-Control", "no-store, private");
-  res.json({ ads, totals, packages: CAMPUS_AD_PACKAGES });
+  res.json({ ads, totals, packages: CAMPUS_AD_PACKAGES, popupPackages: CAMPUS_POPUP_AD_PACKAGES });
 });
 app.post("/api/superadmin/ads", requireSuperAdmin, (req, res) => {
   const title = String(req.body.title || "").trim();
@@ -5056,13 +5079,16 @@ app.post("/api/superadmin/ads", requireSuperAdmin, (req, res) => {
   const type = String(req.body.type || "business").trim();
   const description = String(req.body.description || "").trim();
   const packageKey = String(req.body.packageKey || "");
+  const placement = String(req.body.placement || "dashboard");
   const destinationType = String(req.body.destinationType || "external");
   const imageUrl = safeCampusAdImage(req.body.imageUrl);
   const rawTarget = String(req.body.targetUrl || "").trim();
   const targetUrl = destinationType === "internal"
     ? (/^\/(?!\/)[A-Za-z0-9/_?&=.%#-]*$/.test(rawTarget) ? rawTarget : null)
     : safeHttpsUrl(rawTarget, true);
-  const pkg = CAMPUS_AD_PACKAGES[packageKey];
+  if (!["dashboard", "popup"].includes(placement)) return res.status(400).json({ error: "Choose dashboard or pop-up placement." });
+  const packageSet = placement === "popup" ? CAMPUS_POPUP_AD_PACKAGES : CAMPUS_AD_PACKAGES;
+  const pkg = packageSet[packageKey];
   const price = pkg ? pkg.price * (destinationType === "external" ? 2 : 1) : 0;
   if (title.length < 3 || title.length > 90) return res.status(400).json({ error: "Promotion title must be 3–90 characters." });
   if (advertiser.length < 2 || advertiser.length > 100) return res.status(400).json({ error: "Enter an advertiser name (2–100 characters)." });
@@ -5076,7 +5102,7 @@ app.post("/api/superadmin/ads", requireSuperAdmin, (req, res) => {
   if (!Number.isFinite(startsAtInput.getTime()) || startsAtInput.getTime() < now.getTime() - 5 * 60 * 1000) return res.status(400).json({ error: "Choose a valid start time that is not in the past." });
   const ad = {
     id: "AD-" + crypto.randomBytes(5).toString("hex").toUpperCase(),
-    title, advertiser, type, description, imageUrl, targetUrl, destinationType, packageKey,
+    title, advertiser, type, description, imageUrl, targetUrl, destinationType, packageKey, placement,
     days: pkg.days, price, startsAt: startsAtInput.toISOString(),
     endsAt: new Date(startsAtInput.getTime() + pkg.days * 86400000).toISOString(),
     status: "pending", paymentReceived: false, impressions: 0, clicks: 0,

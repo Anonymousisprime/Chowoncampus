@@ -4328,8 +4328,8 @@ function assignReadyOrders() {
       `A pickup request for order ${order.id} has been sent to ${agent.name}.`, order.id);
     createNotification({ role: "admin" }, "Pickup request sent",
       `${agent.name} has 75 seconds to accept order ${order.id}.`, order.id);
-    createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Delivery agent notified",
-      `${agent.name} has 75 seconds to accept pickup for ${order.id}.`, order.id);
+    if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, "Delivery agent notified", `${agent.name} has 75 seconds to accept pickup for ${order.id}.`, order.id);
+    else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Delivery agent notified", `${agent.name} has 75 seconds to accept pickup for ${order.id}.`, order.id);
     changed = true;
   }
 

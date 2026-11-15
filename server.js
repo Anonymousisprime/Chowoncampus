@@ -38,6 +38,7 @@ const storageFiles = {
   "restaurant-settlements.json": "restaurantSettlements",
   "restaurant-payment-settings.json": "restaurantPaymentSettings",
   "merchant-fee-payments.json": "merchantFeePayments",
+  "merchant-fee-ledger-meta.json": "merchantFeeLedgerMeta",
   "campus-ads.json": "campusAds",
   "academy-data.json": "academyData",
   "other-businesses.json": "otherBusinesses"
@@ -79,6 +80,7 @@ async function initializePersistentStorage() {
     ["restaurant-settlements.json", []],
     ["restaurant-payment-settings.json", {}],
     ["merchant-fee-payments.json", []],
+    ["merchant-fee-ledger-meta.json", { headHash: "0000000000000000000000000000000000000000000000000000000000000000", recordCount: 0 }],
     ["campus-ads.json", []],
     ["academy-data.json", { version: 1, lessons: [], faqs: [], quizzes: {}, progress: [], quizResults: [] }],
     ["other-businesses.json", []]
@@ -3664,6 +3666,9 @@ const MERCHANT_FEE_PAYMENTS_FILE = path.join(__dirname, "merchant-fee-payments.j
 const MERCHANT_FEE_LEDGER_GENESIS = "0".repeat(64);
 function readMerchantFeePayments() { return readStoredJson(MERCHANT_FEE_PAYMENTS_FILE, []); }
 function saveMerchantFeePayments(records) { saveStoredJson(MERCHANT_FEE_PAYMENTS_FILE, records); }
+const MERCHANT_FEE_LEDGER_META_FILE = path.join(__dirname, "merchant-fee-ledger-meta.json");
+function readMerchantFeeLedgerMeta() { return readStoredJson(MERCHANT_FEE_LEDGER_META_FILE, { headHash: MERCHANT_FEE_LEDGER_GENESIS, recordCount: 0 }); }
+function saveMerchantFeeLedgerMeta(meta) { saveStoredJson(MERCHANT_FEE_LEDGER_META_FILE, meta); }
 function merchantFeeRecordHash(record) {
   const payload = {
     id: record.id, merchantType: record.merchantType, merchantId: record.merchantId,
@@ -3673,7 +3678,11 @@ function merchantFeeRecordHash(record) {
   };
   return crypto.createHash("sha256").update(JSON.stringify(payload), "utf8").digest("hex");
 }
-function verifyMerchantFeeLedger(records) {
+function verifyMerchantFeeLedger(records, meta = readMerchantFeeLedgerMeta()) {
+  const currentHead = records[0]?.recordHash || MERCHANT_FEE_LEDGER_GENESIS;
+  if (Number(meta?.recordCount) !== records.length || meta?.headHash !== currentHead) {
+    return { valid: false, checkedRecords: records.length, failedRecordId: records[0]?.id || null };
+  }
   let previousHash = MERCHANT_FEE_LEDGER_GENESIS;
   for (let index = records.length - 1; index >= 0; index--) {
     const record = records[index];
@@ -3879,7 +3888,7 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
 });
 app.get("/api/superadmin/merchant-fee-payments", requireSuperAdmin, (req, res) => {
   const payments = readMerchantFeePayments().map(item => ({ ...item }));
-  const integrity = verifyMerchantFeeLedger(payments);
+  const integrity = verifyMerchantFeeLedger(payments, readMerchantFeeLedgerMeta());
   res.set("Cache-Control", "no-store, private");
   res.json({ payments, integrity });
 });
@@ -3897,7 +3906,7 @@ app.post("/api/superadmin/merchant-fee-payments", requireSuperAdmin, (req, res) 
   const merchant = merchantType === "restaurant" ? restaurants.find(item => String(item.id) === merchantId) : readOtherBusinesses().find(item => String(item.id) === merchantId);
   if (!merchant) return res.status(404).json({ error: "Merchant not found." });
   const records = readMerchantFeePayments();
-  const integrity = verifyMerchantFeeLedger(records);
+  const integrity = verifyMerchantFeeLedger(records, readMerchantFeeLedgerMeta());
   if (!integrity.valid) return res.status(409).json({ error: "The merchant fee ledger failed its integrity check. New entries are blocked until Ultimate Admin reviews the record history." });
   if (records.some(item => String(item.reference || "").toLowerCase() === reference.toLowerCase())) return res.status(409).json({ error: "That payment reference has already been recorded." });
   const cutoff = nigeriaDayRange(paymentDate).end.getTime();
@@ -3921,6 +3930,7 @@ app.post("/api/superadmin/merchant-fee-payments", requireSuperAdmin, (req, res) 
   record.recordHash = merchantFeeRecordHash(record);
   records.unshift(record);
   saveMerchantFeePayments(records);
+  saveMerchantFeeLedgerMeta({ headHash: record.recordHash, recordCount: records.length, updatedAt: record.createdAt, updatedBy: req.account.username });
   recordOperationsEvent({ type: "merchant_platform_fee_payment_recorded", entityType: merchantType, entityId: merchantId, entityName: merchant.name, actorRole: "ultimate_admin", actorId: req.account.username, details: "Recorded ₦" + amount.toLocaleString("en-NG") + " platform-fee remittance. Reference: " + reference });
   res.status(201).json({ ok: true, payment: record, message: "Merchant fee remittance recorded. This is a bookkeeping record, not an automatic bank transfer." });
 });

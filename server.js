@@ -1671,7 +1671,7 @@ app.get("/api/business/me", requireRole("business"), (req, res) => {
   const business = readOtherBusinesses().find(item => item.id === req.account.businessId);
   if (!business) return res.status(404).json({ error: "Business account not found." });
   res.set("Cache-Control", "no-store");
-  res.json({ business: { ...publicOtherBusiness(business), status: business.status, paused: business.paused === true, settlementConfigured: business.settlementConfigured === true } });
+  res.json({ business: { ...publicOtherBusiness(business), status: business.status, paused: business.paused === true, settlementConfigured: Boolean(getPaystackSubaccountCode(business.id)) } });
 });
 app.put("/api/business/products", requireRole("business"), (req, res) => {
   const items = Array.isArray(req.body.products) ? req.body.products : null;
@@ -1707,7 +1707,7 @@ app.get("/api/admin/other-businesses", requireSuperAdmin, (req, res) => {
     id: item.id, name: item.name, category: item.category, description: item.description, location: item.location,
     ownerName: item.ownerName, phone: item.phone, username: item.username, status: item.status,
     suspended: item.suspended === true, online: item.online === true, productCount: (item.products || []).length,
-    settlementConfigured: Boolean(getPaystackSubaccountCode(item.id)), createdAt: item.createdAt
+    settlementConfigured: Boolean(getPaystackSubaccountCode(item.id)), paystackEnvKey: "PAYSTACK_SUBACCOUNT_" + String(item.id).replace(/[^a-zA-Z0-9]/g, "_").toUpperCase(), createdAt: item.createdAt
   }));
   res.set("Cache-Control", "no-store, private");
   res.json({ businesses });
@@ -1718,7 +1718,10 @@ app.patch("/api/admin/other-businesses/:id", requireSuperAdmin, (req, res) => {
   const businesses = readOtherBusinesses();
   const business = businesses.find(item => item.id === req.params.id);
   if (!business) return res.status(404).json({ error: "Business application not found." });
-  if (action === "approve") { business.status = "approved"; business.reviewedAt = new Date().toISOString(); business.reviewedBy = req.account.username; }
+  if (action === "approve") {
+    if (!getPaystackSubaccountCode(business.id)) return res.status(409).json({ error: "Configure this business own Paystack subaccount in Render before approval. Required environment variable: PAYSTACK_SUBACCOUNT_" + String(business.id).replace(/[^a-zA-Z0-9]/g, "_").toUpperCase() });
+    business.status = "approved"; business.reviewedAt = new Date().toISOString(); business.reviewedBy = req.account.username;
+  }
   if (action === "reject") { business.status = "rejected"; business.rejectionReason = String(req.body.reason || "").trim().slice(0, 300); business.online = false; }
   if (action === "suspend") { business.suspended = true; business.suspensionReason = String(req.body.reason || "").trim().slice(0, 300); business.online = false; }
   if (action === "restore") { business.suspended = false; business.suspensionReason = ""; }

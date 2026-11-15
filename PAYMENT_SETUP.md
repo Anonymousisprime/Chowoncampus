@@ -1,32 +1,31 @@
-# ChowOnCampus payment setup
+# ChowOnCampus DirectPay setup
 
-## Required Render environment variables
+ChowOnCampus uses direct bank transfer for merchant orders. Students select the merchant's approved bank account, transfer the exact order total, then upload a receipt and transaction reference inside ChowOnCampus.
 
-Set these on the existing ChowOnCampus web service:
+## Merchant bank accounts
 
-- `PAYSTACK_SECRET_KEY`: a Paystack secret key. Start with a **test** secret key while testing; never commit it to GitHub or put it in frontend code.
-- `PUBLIC_APP_URL`: `https://chowoncampus.onrender.com`
+1. Each restaurant or other business submits its bank name, account name, account number, and optional WhatsApp number in its merchant dashboard.
+2. The Ultimate Admin reviews the details and supporting evidence.
+3. The account is displayed to students only after it has been approved.
+4. The assigned merchant checks its own bank account and confirms that the money was actually received. A receipt image or WhatsApp message alone is not proof of credit.
+5. The Ultimate Admin can review receipt disputes and record an override with a reason.
 
-The checkout uses Paystack's server-side transaction initialization and verification endpoints. The secret key stays on the server.
+## Student checkout
 
-## Paystack webhook
+- Food orders include the fixed ₦300 delivery fee and applicable ₦200 takeaway packaging fee.
+- The 1% student service fee is calculated on the items subtotal.
+- Non-food business orders do not include the food takeaway packaging fee.
+- Students upload receipts as supported image files, up to the configured upload limit.
+- Only the assigned merchant and authorized Ultimate Admin can access the receipt.
+- Merchants must not begin fulfilment until payment is verified.
 
-In the Paystack dashboard, configure this webhook URL:
+## Premium membership
 
-`https://chowoncampus.onrender.com/api/payments/paystack/webhook`
+Premium access is currently granted or revoked by the Ultimate Admin. There is no online checkout or automatic renewal.
 
-The endpoint verifies Paystack's `x-paystack-signature` using HMAC-SHA512 before processing successful-charge events. Keep the webhook URL on HTTPS.
+## Important operational notes
 
-## Test before going live
-
-1. Add a Paystack **test** secret key in Render's environment settings and redeploy/restart the service.
-2. Create or sign in to a student account, add an item, fill the delivery details, and enter an email address for the receipt.
-3. Continue to secure checkout and complete a Paystack test transaction.
-4. Confirm the browser returns to ChowOnCampus and the order shows `Paid — Paystack verified` and `Confirmed`.
-5. Confirm the restaurant sees the order only after payment verification; unpaid orders should not appear in restaurant/agent fulfilment lists.
-6. Test an abandoned payment, a retry, and a mismatched/failed payment. None should confirm the order.
-7. Only after successful test transactions, configure the live secret key in Render and use Paystack live mode.
-
-The app does not mark an order paid based only on a browser redirect. It verifies the transaction with Paystack and checks reference, amount, currency, order metadata, and customer email. The signed webhook provides a second way to reconcile a successful payment if the customer closes the browser before returning.
-
-**Important:** do not switch to live payments until test-mode checkout, webhook delivery, and order fulfilment have been checked end to end.
+- Bank-credit confirmation is manual; ChowOnCampus does not independently query bank accounts.
+- Keep merchant bank details private until approved.
+- Keep receipt access restricted to the order's assigned merchant and authorized Ultimate Admin.
+- Record payment decisions, overrides, and disputes in the audit history.

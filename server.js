@@ -36,6 +36,9 @@ const storageFiles = {
   "operations-cases.json": "operationsCases",
   "restaurant-suspensions.json": "restaurantSuspensions",
   "restaurant-settlements.json": "restaurantSettlements",
+  "restaurant-payment-settings.json": "restaurantPaymentSettings",
+  "merchant-fee-payments.json": "merchantFeePayments",
+  "merchant-fee-ledger-meta.json": "merchantFeeLedgerMeta",
   "campus-ads.json": "campusAds",
   "academy-data.json": "academyData",
   "other-businesses.json": "otherBusinesses"
@@ -75,6 +78,9 @@ async function initializePersistentStorage() {
     ["operations-cases.json", []],
     ["restaurant-suspensions.json", {}],
     ["restaurant-settlements.json", []],
+    ["restaurant-payment-settings.json", {}],
+    ["merchant-fee-payments.json", []],
+    ["merchant-fee-ledger-meta.json", { headHash: "0000000000000000000000000000000000000000000000000000000000000000", recordCount: 0 }],
     ["campus-ads.json", []],
     ["academy-data.json", { version: 1, lessons: [], faqs: [], quizzes: {}, progress: [], quizResults: [] }],
     ["other-businesses.json", []]
@@ -380,6 +386,11 @@ for (const restaurant of restaurants) {
     restaurant.longitude = Number(saved.longitude);
   }
 }
+const RESTAURANT_PAYMENT_SETTINGS_FILE = path.join(__dirname, "restaurant-payment-settings.json");
+function readRestaurantPaymentSettings() { return readStoredJson(RESTAURANT_PAYMENT_SETTINGS_FILE, {}); }
+function saveRestaurantPaymentSettings(records) { saveStoredJson(RESTAURANT_PAYMENT_SETTINGS_FILE, records); }
+const restaurantPaymentSettings = readRestaurantPaymentSettings();
+for (const restaurant of restaurants) Object.assign(restaurant, restaurantPaymentSettings[restaurant.id] || {});
 
 // Restaurant menu overrides are kept separately so menu edits survive app restarts
 // when the deployment has persistent storage configured.
@@ -569,7 +580,7 @@ function createSmartNotificationOnce(target, key, title, message) {
 function smartNotificationEligibleOrders(orders) {
   const accepted = new Set(["Confirmed", "Preparing", "Ready for pickup", "Out for delivery", "Completed"]);
   return orders.filter(order => accepted.has(order.status) &&
-    ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus));
+    isVerifiedOrderPayment(order));
 }
 
 function smartDistanceMeters(lat1, lon1, lat2, lon2) {
@@ -774,8 +785,19 @@ function requireRole(...roles) {
   };
 }
 
-function publicOrder(order) {
-  const { chatMessages, paymentEmail, paystackAuthorizationUrl, paystackSubaccountCode, deliveryCode, deliveryCodeAttempts, deliveryCodeLocked, ...safeOrder } = order;
+function isVerifiedOrderPayment(order) { return String(order?.paymentStatus || "").startsWith("Paid —") || order?.paymentStatus === "Paid — demo verified"; }
+
+function publicOrder(order, includeReceipt = false) {
+  const { chatMessages, paymentEmail, deliveryCode, deliveryCodeAttempts, deliveryCodeLocked, paymentReceiptEncrypted, paymentReceiptHistory, paymentReferenceHistory, paymentReceiptMimeType, paymentReceiptFileName, paymentReceiptUploadedAt, transactionReference, paymentVerification, paymentBankAccountEncrypted, ...safeOrder } = order;
+  if (includeReceipt && paymentReceiptEncrypted) {
+    try {
+      safeOrder.paymentReceiptDataUrl = "data:" + String(order.paymentReceiptMimeType || "image/jpeg") + ";base64," + decryptVendorDocument(paymentReceiptEncrypted).toString("base64");
+      safeOrder.paymentReceiptFileName = order.paymentReceiptFileName || "payment-receipt";
+      safeOrder.paymentReceiptUploadedAt = order.paymentReceiptUploadedAt || null;
+      safeOrder.transactionReference = order.transactionReference || "";
+      safeOrder.paymentVerification = order.paymentVerification || null;
+    } catch { safeOrder.paymentReceiptUnavailable = true; }
+  }
   return safeOrder;
 }
 
@@ -787,6 +809,10 @@ function createDeliveryCode() {
 function studentPublicOrder(order, username) {
   const safeOrder = publicOrder(order);
   if (order.customerPhone === username && order.deliveryCode && !["Completed", "Cancelled"].includes(order.status)) safeOrder.deliveryCode = order.deliveryCode;
+  if (order.customerPhone === username && order.paymentMethod === "bank_transfer" && order.paymentBankAccountEncrypted) {
+    try { safeOrder.paymentBankAccount = JSON.parse(decryptVendorDocument(order.paymentBankAccountEncrypted).toString("utf8")); } catch {}
+  }
+  if (order.customerPhone === username) safeOrder.merchantWhatsAppNumber = order.merchantWhatsAppNumber || "";
   return safeOrder;
 }
 
@@ -807,10 +833,8 @@ function saveStudents(students) {
 const PREMIUM_PRICE_NAIRA=3000, PREMIUM_DURATION_DAYS=30;
 function getStudentPremium(s){const t=s?.premiumExpiresAt?new Date(s.premiumExpiresAt).getTime():0;const active=Number.isFinite(t)&&t>Date.now()&&!s?.premiumRevokedAt;return{active,endsAt:s?.premiumExpiresAt||null,source:s?.premiumSource||null};}
 function findStudentByPhone(phone){return readStudents().find(s=>String(s.phone)===String(phone))||null;}
-function premiumPaymentEmail(phone){return String(phone||"").replace(/\D/g,"")+"@payments.chowoncampus.com";}
 function isStudentPremiumAt(s,at=Date.now()){const time=Number(at),expires=Date.parse(s?.premiumExpiresAt||"");if(!Number.isFinite(time)||!Number.isFinite(expires)||expires<=time)return false;const revoked=s?.premiumRevokedAt?Date.parse(s.premiumRevokedAt):NaN;if(Number.isFinite(revoked)&&revoked<=time)return false;let started=s?.premiumStartedAt||s?.premiumGrantedAt||s?.premiumLastPaymentAt||null;if(!started&&Array.isArray(s?.premiumPayments)&&s.premiumPayments.length){const dates=s.premiumPayments.map(x=>Date.parse(x.paidAt||"")).filter(Number.isFinite);if(dates.length)started=new Date(Math.min(...dates)).toISOString();}if(!started)started=new Date(expires-PREMIUM_DURATION_DAYS*86400000).toISOString();const start=Date.parse(started);return !Number.isFinite(start)||start<=time;}
 function extendStudentPremium(s,ref,source,actor){const p=getStudentPremium(s),base=p.active?new Date(p.endsAt).getTime():Date.now(),endsAt=new Date(base+PREMIUM_DURATION_DAYS*86400000).toISOString();if(!p.active)s.premiumStartedAt=new Date().toISOString();s.premiumExpiresAt=endsAt;s.premiumSource=source;s.premiumGrantedBy=actor||null;s.premiumRevokedAt=null;s.premiumRevokedBy=null;s.premiumPayments=Array.isArray(s.premiumPayments)?s.premiumPayments:[];if(ref&&!s.premiumPayments.some(x=>x.reference===ref)){s.premiumPayments.unshift({reference:ref,amount:PREMIUM_PRICE_NAIRA,currency:"NGN",paidAt:new Date().toISOString(),endsAt});s.premiumPayments=s.premiumPayments.slice(0,100);}return endsAt;}
-function activatePremiumFromPayment(s,ref){s.premiumPendingPayments=(s.premiumPendingPayments||[]).filter(x=>x.reference!==ref);if((s.premiumPayments||[]).some(x=>x.reference===ref))return false;extendStudentPremium(s,ref,"paystack",null);s.premiumLastPaymentAt=new Date().toISOString();return true;}
 
 const FOODBACK_CONFIG_FILE = path.join(__dirname, "foodback-config.json");
 function readFoodBackConfig() {
@@ -1356,8 +1380,10 @@ app.get("/api/menu", (req, res) => {
   const average = values => values.length ? Math.round(values.reduce((sum, value) => sum + Number(value), 0) / values.length * 10) / 10 : null;
   res.json({ restaurants: restaurants.filter(restaurant => vendorIsApproved(restaurant.id)).map(restaurant => {
     const restaurantReviews = ratedOrders.filter(order => order.restaurantId === restaurant.id && order.rating.restaurantRating);
+    const { paymentAccountEncrypted, ...publicRestaurant } = restaurant;
     return {
-      ...restaurant,
+      ...publicRestaurant,
+      whatsappNumber: restaurant.whatsappNumber || "",
       ...getRestaurantOperations(restaurant.id),
       location: restaurant.location || "",
       ratingAverage: average(restaurantReviews.map(order => order.rating.restaurantRating)),
@@ -1642,6 +1668,7 @@ function publicOtherBusiness(item) {
   return {
     id: item.id, name: item.name, category: item.category, description: item.description || "",
     location: item.location || "", latitude: item.latitude ?? null, longitude: item.longitude ?? null,
+    whatsappNumber: item.whatsappNumber || "",
     online: item.online === true, status: item.status, products: (item.products || []).filter(p => p.available !== false)
       .map(p => ({ id: p.id, name: p.name, description: p.description || "", category: p.category || "", price: p.price, imageUrl: p.imageUrl || "", available: p.available !== false }))
   };
@@ -1746,8 +1773,10 @@ app.patch("/api/admin/other-businesses/:id/documents/:docId", requireSuperAdmin,
   res.json({ ok: true, message: "Document review saved.", verification: { identity: business.identityVerified, business: business.businessVerified, settlement: business.settlementVerified } });
 });
 app.get("/api/business/orders", requireRole("business"), (req, res) => {
-  const orders = readOrders().filter(order => order.merchantType === "business" && order.businessId === req.account.businessId && ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus))
-    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).map(publicOrder);
+  const orders = readOrders().filter(order => order.merchantType === "business" && order.businessId === req.account.businessId &&
+    (isVerifiedOrderPayment(order) ||
+     (order.paymentMethod === "bank_transfer" && Boolean(order.paymentReceiptEncrypted))))
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).map(order => publicOrder(order, true));
   res.set("Cache-Control", "no-store, private");
   res.json({ orders });
 });
@@ -1755,8 +1784,114 @@ app.get("/api/business/me", requireLogin, (req, res) => {
   if (req.account.role !== "business") return res.status(403).json({ error: "Business account required." });
   const business = readOtherBusinesses().find(item => item.id === req.account.businessId);
   if (!business) return res.status(404).json({ error: "Business account not found." });
-  res.set("Cache-Control", "no-store");
-  res.json({ business: { ...publicOtherBusiness(business), status: business.status, paused: business.paused === true, settlementConfigured: Boolean(getPaystackSubaccountCode(business.id)) } });
+  res.set("Cache-Control", "no-store, private");
+  res.json({ business: { ...publicOtherBusiness(business), status: business.status, paused: business.paused === true, paymentAccountConfigured: Boolean(business.paymentAccountEncrypted && business.paymentAccountStatus === "approved") } });
+});
+
+function merchantForSession(account) {
+  if (account.role === "restaurant") return { type: "restaurant", merchant: restaurants.find(item => String(item.id) === String(account.restaurantId)) };
+  if (account.role === "business") return { type: "business", merchant: readOtherBusinesses().find(item => String(item.id) === String(account.businessId)) };
+  return { type: "", merchant: null };
+}
+function maskedMerchantPaymentSettings(merchant) {
+  let account = null;
+  try { if (merchant?.paymentAccountEncrypted) account = JSON.parse(decryptVendorDocument(merchant.paymentAccountEncrypted).toString("utf8")); } catch {}
+  return {
+    whatsappNumber: merchant?.whatsappNumber || "",
+    bankAccountStatus: merchant?.paymentAccountStatus || "not_submitted",
+    bankName: account?.bankName || "",
+    accountName: account?.accountName || "",
+    accountNumber: account?.accountNumber || "",
+    reviewedAt: merchant?.paymentAccountReviewedAt || null,
+    rejectionReason: merchant?.paymentAccountRejectionReason || "",
+    reviewHistory: Array.isArray(merchant?.paymentAccountHistory) ? merchant.paymentAccountHistory : []
+  };
+}
+function saveMerchantPaymentSettings(type, merchant, settings) {
+  if (type === "restaurant") {
+    const all = readRestaurantPaymentSettings();
+    all[merchant.id] = { ...(all[merchant.id] || {}), ...settings };
+    saveRestaurantPaymentSettings(all);
+    Object.assign(merchant, all[merchant.id]);
+  } else {
+    const businesses = readOtherBusinesses();
+    const target = businesses.find(item => item.id === merchant.id);
+    Object.assign(target, settings);
+    saveOtherBusinesses(businesses);
+    Object.assign(merchant, settings);
+  }
+}
+app.get("/api/merchant/payment-settings", requireLogin, (req, res) => {
+  const { merchant } = merchantForSession(req.account);
+  if (!merchant) return res.status(403).json({ error: "Restaurant or business account required." });
+  res.set("Cache-Control", "no-store, private");
+  res.json(maskedMerchantPaymentSettings(merchant));
+});
+app.put("/api/merchant/payment-settings", requireLogin, (req, res) => {
+  const { type, merchant } = merchantForSession(req.account);
+  if (!merchant) return res.status(403).json({ error: "Restaurant or business account required." });
+  const whatsappNumber = req.body.whatsappNumber ? normalizeNigerianPhone(req.body.whatsappNumber) : "";
+  if (req.body.whatsappNumber && !whatsappNumber) return res.status(400).json({ error: "Enter a valid WhatsApp number, including country code if needed." });
+  const hasBankFields = ["bankName", "accountName", "accountNumber"].some(key => req.body[key] !== undefined);
+  const updates = { whatsappNumber, updatedAt: new Date().toISOString() };
+  if (hasBankFields) {
+    const bankName = String(req.body.bankName || "").trim().slice(0, 100);
+    const accountName = String(req.body.accountName || "").trim().slice(0, 120);
+    const accountNumber = String(req.body.accountNumber || "").replace(/\s/g, "");
+    if (bankName.length < 2 || accountName.length < 2 || !/^\d{10}$/.test(accountNumber)) return res.status(400).json({ error: "Enter a bank name, account name and valid 10-digit Nigerian account number." });
+    try {
+      updates.paymentAccountEncrypted = encryptVendorDocument(Buffer.from(JSON.stringify({ bankName, accountName, accountNumber }), "utf8"));
+    } catch {
+      return res.status(503).json({ error: "Secure bank-account storage is not configured. Contact ChowOnCampus support." });
+    }
+    updates.paymentAccountStatus = "pending";
+    const submittedAt = new Date().toISOString();
+    updates.paymentAccountSubmittedAt = submittedAt;
+    updates.paymentAccountSubmittedBy = req.account.username;
+    const priorAccountHistory = Array.isArray(merchant.paymentAccountHistory) ? merchant.paymentAccountHistory : [];
+    updates.paymentAccountHistory = [...priorAccountHistory, {
+      action: "submitted", at: submittedAt, by: req.account.username,
+      bankName, accountName, accountLast4: accountNumber.slice(-4), status: "pending"
+    }];
+    updates.paymentAccountReviewedAt = null;
+    updates.paymentAccountReviewedBy = null;
+    updates.paymentAccountRejectionReason = "";
+  }
+  saveMerchantPaymentSettings(type, merchant, updates);
+  recordOperationsEvent({ type: "merchant_payment_settings_updated", entityType: type, entityId: merchant.id, entityName: merchant.name, actorRole: type, actorId: req.account.username, details: (hasBankFields ? "Bank account submitted for Ultimate Admin approval. " : "") + "WhatsApp contact updated." });
+  res.set("Cache-Control", "no-store, private");
+  res.json({ ok: true, settings: maskedMerchantPaymentSettings(merchant), message: hasBankFields ? "Bank details submitted for Ultimate Admin approval. They cannot receive transfers through checkout until approved." : "WhatsApp contact saved." });
+});
+app.get("/api/superadmin/merchant-payment-accounts", requireSuperAdmin, (req, res) => {
+  const rows = [];
+  for (const merchant of restaurants) rows.push({ type: "restaurant", id: merchant.id, name: merchant.name, ...maskedMerchantPaymentSettings(merchant) });
+  for (const merchant of readOtherBusinesses()) rows.push({ type: "business", id: merchant.id, name: merchant.name, ...maskedMerchantPaymentSettings(merchant) });
+  res.set("Cache-Control", "no-store, private");
+  res.json({ accounts: rows });
+});
+app.post("/api/superadmin/merchant-payment-accounts/:type/:id/review", requireSuperAdmin, (req, res) => {
+  const type = String(req.params.type || "");
+  const decision = String(req.body.decision || "").trim().toLowerCase();
+  const reason = String(req.body.reason || "").trim().slice(0, 300);
+  if (!["restaurant", "business"].includes(type) || !["approved", "rejected"].includes(decision)) return res.status(400).json({ error: "Choose a valid merchant type and approval decision." });
+  if (decision === "rejected" && reason.length < 5) return res.status(400).json({ error: "Provide a rejection reason." });
+  const merchant = type === "restaurant" ? restaurants.find(item => item.id === req.params.id) : readOtherBusinesses().find(item => item.id === req.params.id);
+  if (!merchant || !merchant.paymentAccountEncrypted) return res.status(404).json({ error: "Submitted bank account not found." });
+  const now = new Date().toISOString();
+  const priorHistory = Array.isArray(merchant.paymentAccountHistory) ? merchant.paymentAccountHistory : [];
+  const settings = {
+    paymentAccountStatus: decision, paymentAccountReviewedAt: now,
+    paymentAccountReviewedBy: req.account.username,
+    paymentAccountRejectionReason: decision === "rejected" ? reason : "",
+    paymentAccountHistory: [...priorHistory, {
+      action: decision, at: now, by: req.account.username,
+      reason: decision === "rejected" ? reason : "",
+      accountLast4: (() => { try { return JSON.parse(decryptVendorDocument(merchant.paymentAccountEncrypted).toString("utf8")).accountNumber.slice(-4); } catch { return ""; } })()
+    }]
+  };
+  saveMerchantPaymentSettings(type, merchant, settings);
+  recordOperationsEvent({ type: "merchant_bank_account_" + decision, entityType: type, entityId: merchant.id, entityName: merchant.name, actorRole: "ultimate_admin", actorId: req.account.username, details: "Bank account " + decision + (reason ? ": " + reason : ".") });
+  res.json({ ok: true, message: "Merchant bank account " + decision + "." });
 });
 app.put("/api/business/products", requireRole("business"), (req, res) => {
   const items = Array.isArray(req.body.products) ? req.body.products : null;
@@ -1830,14 +1965,14 @@ app.post("/api/admin/other-businesses", requireSuperAdmin, (req, res) => {
   businesses.unshift(business);
   saveOtherBusinesses(businesses);
   createNotification({ role: "admin" }, "Other business account created", name + " was created by Ultimate Admin and is awaiting verification.");
-  res.status(201).json({ ok: true, message: "Business account created. It remains pending until all documents are verified and its own Paystack subaccount is configured.", business: { id: business.id, name: business.name, username: business.username, status: business.status } });
+  res.status(201).json({ ok: true, message: "Business account created. It remains pending until all required documents and the merchant bank account are verified.", business: { id: business.id, name: business.name, username: business.username, status: business.status } });
 });
 app.get("/api/admin/other-businesses", requireSuperAdmin, (req, res) => {
   const businesses = readOtherBusinesses().map(item => ({
     id: item.id, name: item.name, category: item.category, description: item.description, location: item.location,
     ownerName: item.ownerName, phone: item.phone, username: item.username, status: item.status,
     suspended: item.suspended === true, online: item.online === true, productCount: (item.products || []).length,
-    settlementConfigured: Boolean(getPaystackSubaccountCode(item.id)), paystackEnvKey: "PAYSTACK_SUBACCOUNT_" + String(item.id).replace(/[^a-zA-Z0-9]/g, "_").toUpperCase(), documents: (item.documents || []).filter(doc => !doc.supersededAt).map(doc => ({ id: doc.id, type: doc.type, filename: doc.filename, reviewStatus: doc.reviewStatus || "pending", rejectionReason: doc.rejectionReason || "" })), identityVerified: item.identityVerified === true, businessVerified: item.businessVerified === true, settlementVerified: item.settlementVerified === true, createdAt: item.createdAt
+    paymentAccountConfigured: Boolean(item.paymentAccountEncrypted && item.paymentAccountStatus === "approved"), documents: (item.documents || []).filter(doc => !doc.supersededAt).map(doc => ({ id: doc.id, type: doc.type, filename: doc.filename, reviewStatus: doc.reviewStatus || "pending", rejectionReason: doc.rejectionReason || "" })), identityVerified: item.identityVerified === true, businessVerified: item.businessVerified === true, settlementVerified: item.settlementVerified === true, createdAt: item.createdAt
   }));
   res.set("Cache-Control", "no-store, private");
   res.json({ businesses });
@@ -1850,7 +1985,7 @@ app.patch("/api/admin/other-businesses/:id", requireSuperAdmin, (req, res) => {
   if (!business) return res.status(404).json({ error: "Business application not found." });
   if (action === "approve") {
     if (!business.identityVerified || !business.businessVerified || !business.settlementVerified) return res.status(409).json({ error: "Verify the owner identity, business proof and settlement document before approval." });
-    if (!getPaystackSubaccountCode(business.id)) return res.status(409).json({ error: "Configure this business own Paystack subaccount in Render before approval. Required environment variable: PAYSTACK_SUBACCOUNT_" + String(business.id).replace(/[^a-zA-Z0-9]/g, "_").toUpperCase() });
+    if (!business.paymentAccountEncrypted || business.paymentAccountStatus !== "approved") return res.status(409).json({ error: "Approve this business bank account in the merchant payment settings before approving the business." });
     business.status = "approved"; business.reviewedAt = new Date().toISOString(); business.reviewedBy = req.account.username;
   }
   if (action === "reject") { business.status = "rejected"; business.rejectionReason = String(req.body.reason || "").trim().slice(0, 300); business.online = false; }
@@ -2006,9 +2141,9 @@ app.post("/api/logout", (req, res) => {
 app.post("/api/orders", requireRole("student"), (req, res) => {
   const { hostel, block, room, landmark, latitude, longitude, restaurantId, businessId, items, requestId } = req.body;
   const requestedMerchantId = String(businessId || restaurantId || "").trim();
-  const paymentMethod = String(req.body.paymentMethod || "paystack").trim().toLowerCase();
-  if (!["paystack", "foodback"].includes(paymentMethod)) return res.status(400).json({ error: "Choose Paystack or FoodBack as your payment method." });
-  if (businessId && paymentMethod !== "paystack") return res.status(400).json({ error: "FoodBack is not enabled for Other Businesses yet. Use Paystack for this shop order." });
+  const paymentMethod = String(req.body.paymentMethod || "bank_transfer").trim().toLowerCase();
+  if (!["foodback", "bank_transfer"].includes(paymentMethod)) return res.status(400).json({ error: "Choose direct bank transfer or FoodBack as your payment method." });
+  if (businessId && paymentMethod === "foodback") return res.status(400).json({ error: "FoodBack is not enabled for Other Businesses yet. Choose direct bank transfer." });
   let student;
   try {
     student = readStudents().find(item => item.phone === req.account.username);
@@ -2065,13 +2200,15 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
 
   const hasCoordinates = latitude !== undefined && longitude !== undefined && Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude)) && Math.abs(Number(latitude)) <= 90 && Math.abs(Number(longitude)) <= 180;
   const deliveryLocation = { hostel: hostel.trim(), block: typeof block === "string" ? block.trim().slice(0, 100) : "", room: typeof room === "string" ? room.trim().slice(0, 40) : "", landmark: typeof landmark === "string" ? landmark.trim().slice(0, 150) : "", latitude: hasCoordinates ? Number(latitude) : null, longitude: hasCoordinates ? Number(longitude) : null };
-  const restaurant = restaurants.find(r => r.id === requestedMerchantId);
+  const restaurant = businessId ? null : restaurants.find(r => r.id === requestedMerchantId);
   const business = businessId ? readOtherBusinesses().find(item => item.id === requestedMerchantId) : null;
   const merchant = restaurant || (business && business.status === "approved" && !business.suspended ? business : null);
   if (restaurant && !vendorIsApproved(restaurant.id)) return res.status(403).json({ error: "This restaurant is not yet approved to accept orders. Please choose an approved restaurant." });
   if (restaurant && !restaurantAcceptsOrders(restaurant)) return res.status(409).json({ error: "This restaurant is currently offline or has paused incoming orders. Please choose another restaurant or try again later." });
   if (business && (!business.online || business.paused)) return res.status(409).json({ error: "This business is currently offline or has paused incoming orders. Please choose another shop or try again later." });
-  if (business && !getPaystackSubaccountCode(business.id)) return res.status(503).json({ error: "This shop is not yet enabled for checkout. Its own Paystack subaccount must be configured in Render and verified first." });
+  if (paymentMethod === "bank_transfer" && (!merchant.paymentAccountEncrypted || merchant.paymentAccountStatus !== "approved")) {
+    return res.status(409).json({ error: "This business has not yet had its bank account approved by ChowOnCampus. Choose another payment method or try again later." });
+  }
 
   if (
     !merchant ||
@@ -2123,12 +2260,13 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
   );
   const deliveryFee = deliveryQuote.deliveryFee;
   const baseTotal = subtotal + deliveryFee;
-  const paymentFee = Math.round(baseTotal * STUDENT_PAYMENT_FEE_RATE);
+  // The 1% student service fee applies to the items subtotal only, not delivery or packaging.
+  const paymentFee = Math.round(foodSubtotal * STUDENT_PAYMENT_FEE_RATE);
   const orderTotal = baseTotal + paymentFee;
   if (paymentMethod === "foodback") {
     expireFoodBackCredits(student);
     if ((Number(student.foodbackBalance) || 0) < orderTotal) {
-      return res.status(400).json({ error: "Your FoodBack balance is not enough to cover the full order. Choose Paystack or earn more FoodBack first." });
+      return res.status(400).json({ error: "Your FoodBack balance is not enough to cover the full order. Choose direct bank transfer or earn more FoodBack first." });
     }
   }
 
@@ -2160,10 +2298,12 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     paymentFee,
     total: orderTotal,
     paymentMethod,
+    merchantWhatsAppNumber: String(merchant.whatsappNumber || ""),
+    paymentBankAccountEncrypted: paymentMethod === "bank_transfer" ? merchant.paymentAccountEncrypted : null,
     status: paymentMethod === "foodback" ? "Awaiting admin approval" : "Awaiting payment",
     statusHistory: [{ status: paymentMethod === "foodback" ? "Awaiting admin approval" : "Awaiting payment", at: new Date().toISOString(), by: "system" }],
     updatedAt: new Date().toISOString(),
-    paymentStatus: paymentMethod === "foodback" ? "FoodBack — awaiting admin approval" : (IS_PRODUCTION ? "Unpaid" : "Unpaid — demo only"),
+    paymentStatus: paymentMethod === "foodback" ? "FoodBack — awaiting admin approval" : paymentMethod === "bank_transfer" ? "Bank transfer — awaiting receipt" : (IS_PRODUCTION ? "Unpaid" : "Unpaid — demo only"),
     idempotencyKey: cleanRequestId || null,
     deliveryCode: createDeliveryCode(),
     deliveryCodeAttempts: 0,
@@ -2199,8 +2339,8 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
       saveStudents(students);
       createNotification({ role: "admin" }, "FoodBack order needs approval", order.id + ": " + order.customerName + " used " + "₦" + order.total.toLocaleString("en-NG") + " FoodBack credits. Review this order in the admin dashboard.", order.id);
     } else {
-      // Keep unpaid production orders out of restaurant fulfilment until Paystack confirms payment.
-      if (!IS_PRODUCTION) notifyOrderParties(order, "New order placed", order.customerName + " placed an order at " + order.restaurantName + ".");
+      // Bank-transfer orders stay out of fulfilment until the receipt is submitted and actual bank credit is verified.
+      if (!IS_PRODUCTION && paymentMethod !== "bank_transfer") notifyOrderParties(order, "New order placed", order.customerName + " placed an order at " + order.restaurantName + ".");
     }
 
     res.status(201).json({
@@ -2213,266 +2353,169 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
   }
 });
 
-// Paystack checkout is initialized server-side; the secret key is never sent to the browser.
-function hasPaystackConfig() {
-  const key = String(process.env.PAYSTACK_SECRET_KEY || "").trim();
-  // Production checkout must never silently run with a test key.
-  return IS_PRODUCTION ? /^sk_live_/.test(key) : /^sk_test_/.test(key);
-}
-
-// Each restaurant has its own Paystack subaccount. Keep these codes in Render environment
-// variables, never in browser code or committed source. Example: PAYSTACK_SUBACCOUNT_CB=ACCT_...
-function getPaystackSubaccountCode(restaurantId) {
-  const suffix = String(restaurantId || "").replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
-  const code = String(process.env["PAYSTACK_SUBACCOUNT_" + suffix] || "").trim();
-  return /^ACCT_[A-Za-z0-9]+$/.test(code) ? code : null;
-}
-
-async function paystackRequest(url, options = {}) {
-  const response = await fetch("https://api.paystack.co" + url, {
-    ...options,
-    headers: {
-      Authorization: "Bearer " + process.env.PAYSTACK_SECRET_KEY,
-      "Content-Type": "application/json",
-      ...(options.headers || {})
-    }
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok || result.status !== true) {
-    console.error("Paystack request failed:", response.status, result.message || "unknown error");
-    throw new Error("Payment provider could not complete the request. Please try again.");
-  }
-  return result.data;
-}
-
-
-app.post("/api/premium/paystack/initialize",requireRole("student"),async(req,res)=>{
- if(!hasPaystackConfig())return res.status(503).json({error:"Premium payments are not configured yet."});
- const students=readStudents(),s=students.find(x=>x.phone===req.account.username);if(!s)return res.status(404).json({error:"Student account not found."});
- if(getStudentPremium(s).active)return res.status(409).json({error:"Premium is already active until "+s.premiumExpiresAt+"."});
- const reference="COCPREM-"+crypto.randomBytes(12).toString("hex").toUpperCase();
- try{const p=await paystackRequest("/transaction/initialize",{method:"POST",body:JSON.stringify({email:premiumPaymentEmail(s.phone),amount:300000,currency:"NGN",reference,callback_url:"https://chowoncampus.onrender.com/student-dashboard.html?premium=success",metadata:{type:"chowoncampus_premium",student_phone:s.phone,plan:"premium_30_days",duration_days:30}})});
- s.premiumPendingPayments=Array.isArray(s.premiumPendingPayments)?s.premiumPendingPayments:[];s.premiumPendingPayments.push({reference,initializedAt:new Date().toISOString()});s.premiumPendingPayments=s.premiumPendingPayments.slice(-10);saveStudents(students);res.json({authorizationUrl:p.authorization_url,reference});
- }catch(e){console.error("Premium payment init:",e.message);res.status(502).json({error:"Could not start Premium payment. Please try again."});}
-});
-app.post("/api/premium/paystack/verify",requireRole("student"),async(req,res)=>{
- if(!hasPaystackConfig())return res.status(503).json({error:"Premium payments are not configured yet."});
- const ref=String(req.body.reference||"").trim();if(!/^COCPREM-[A-F0-9]{24}$/.test(ref))return res.status(400).json({error:"Invalid Premium payment reference."});
- const students=readStudents(),s=students.find(x=>x.phone===req.account.username);if(!s)return res.status(404).json({error:"Student account not found."});
- if((s.premiumPayments||[]).some(x=>x.reference===ref))return res.json({ok:true,premium:getStudentPremium(s),message:"Payment was already verified."});
- if(!(s.premiumPendingPayments||[]).some(x=>x.reference===ref))return res.status(400).json({error:"This payment was not started for your account."});
- try{const p=await paystackRequest("/transaction/verify/"+encodeURIComponent(ref));if(p.status!=="success"||p.reference!==ref||Number(p.amount)!==300000||p.currency!=="NGN"||String(p.metadata?.type||"")!=="chowoncampus_premium"||String(p.metadata?.student_phone||"")!==String(s.phone)||String(p.customer?.email||"").toLowerCase()!==premiumPaymentEmail(s.phone).toLowerCase())return res.status(400).json({error:"Payment could not be verified for this account. If charged, contact support with your reference."});
- activatePremiumFromPayment(s,ref);saveStudents(students);res.setHeader("Cache-Control","no-store, private");res.json({ok:true,premium:getStudentPremium(s),message:"Premium activated for 30 days. Your badge and ad-free access are active."});
- }catch(e){console.error("Premium verification:",e.message);res.status(502).json({error:"Could not verify payment right now. Please try again shortly."});}
-});
 app.get("/api/superadmin/premium/students",requireSuperAdmin,(req,res)=>{const students=readStudents().map(s=>({id:s.id,name:s.name,phone:s.phone,premium:getStudentPremium(s),source:s.premiumSource||null,paymentCount:(s.premiumPayments||[]).length}));res.setHeader("Cache-Control","no-store, private");res.json({students,price:3000,durationDays:30});});
 app.post("/api/superadmin/premium/:id/grant",requireSuperAdmin,(req,res)=>{const raw=String(req.body.endsAt||"");if(!/^\d{4}-\d{2}-\d{2}$/.test(raw))return res.status(400).json({error:"Choose a valid expiry date."});const expiry=new Date(raw+"T23:59:59.999+01:00");if(!Number.isFinite(expiry.getTime())||expiry.getTime()<=Date.now())return res.status(400).json({error:"Expiry must be in the future."});const students=readStudents(),s=students.find(x=>x.id===req.params.id);if(!s)return res.status(404).json({error:"Student account not found."});const wasPremiumActive=getStudentPremium(s).active;if(!wasPremiumActive)s.premiumStartedAt=new Date().toISOString();s.premiumExpiresAt=expiry.toISOString();s.premiumSource="admin";s.premiumGrantedBy=req.account.username;s.premiumGrantedAt=new Date().toISOString();s.premiumRevokedAt=null;s.premiumRevokedBy=null;saveStudents(students);res.json({ok:true,premium:getStudentPremium(s),message:"Premium granted or extended."});});
 app.post("/api/superadmin/premium/:id/revoke",requireSuperAdmin,(req,res)=>{const students=readStudents(),s=students.find(x=>x.id===req.params.id);if(!s)return res.status(404).json({error:"Student account not found."});s.premiumExpiresAt=new Date().toISOString();s.premiumRevokedAt=s.premiumExpiresAt;s.premiumRevokedBy=req.account.username;saveStudents(students);res.json({ok:true,message:"Premium revoked. Badge and ad-free access stop immediately."});});
 
-app.post("/api/orders/:id/paystack/initialize", requireRole("student"), async (req, res) => {
-  if (!IS_PRODUCTION) return res.status(400).json({ error: "Use the local demo payment flow outside production." });
-  if (!hasPaystackConfig()) return res.status(503).json({ error: "Online payments are not configured yet. Please contact support." });
+// Local testing only: simulates payment without charging money.
+// View orders: restaurants see their orders, agents see assigned orders.
+app.post("/api/orders/:id/bank-transfer/submit", requireRole("student"), (req, res) => {
   const orders = readOrders();
   const order = orders.find(item => item.id === req.params.id);
   if (!order) return res.status(404).json({ error: "Order not found." });
-  if (order.customerPhone !== req.account.username) return res.status(403).json({ error: "You can only pay for your own order." });
-  const savedLocation = order.deliveryLocation || {};
-  const deliveryAreaCheck = getDeliveryAreaCheck(savedLocation.latitude, savedLocation.longitude);
-  if (!deliveryAreaCheck.ok) return res.status(400).json({ error: deliveryAreaCheck.error });
-  const subaccountCode = getPaystackSubaccountCode(order.restaurantId);
-  if (!subaccountCode) return res.status(503).json({ error: order.merchantType === "business" ? "This shop does not yet have its own Paystack subaccount configured. Payment is disabled until the shop settlement account is verified." : "This restaurant is not configured for secure split payments yet. Please contact ChowOnCampus support." });
-  if (["Paid — Paystack verified", "Paid — demo verified"].includes(order.paymentStatus)) {
-    return res.status(409).json({ error: "This order has already been paid." });
+  if (order.customerPhone !== req.account.username) return res.status(403).json({ error: "You can only submit payment for your own order." });
+  if (order.paymentMethod !== "bank_transfer") return res.status(400).json({ error: "This order does not use bank transfer." });
+  if (isVerifiedOrderPayment(order)) return res.status(409).json({ error: "This order is already marked as paid." });
+  if (order.status === "Cancelled") return res.status(409).json({ error: "This order has been cancelled." });
+  const transactionReference = String(req.body.transactionReference || "").trim().slice(0, 120);
+  const mimeType = String(req.body.mimeType || "").toLowerCase();
+  const data = String(req.body.receiptDataBase64 || "");
+  if (transactionReference.length < 4) return res.status(400).json({ error: "Enter the bank transaction reference shown on your receipt." });
+  if (!["image/jpeg", "image/png", "image/webp"].includes(mimeType) || !/^[A-Za-z0-9+/]+=*$/.test(data)) return res.status(400).json({ error: "Upload a JPG, PNG or WEBP transfer receipt." });
+  const buffer = Buffer.from(data, "base64");
+  if (!buffer.length || buffer.length > 2 * 1024 * 1024) return res.status(413).json({ error: "The transfer receipt must be 2 MB or smaller." });
+  const isJpeg = buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  const isPng = buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const isWebp = buffer.length >= 12 && buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WEBP";
+  if ((mimeType === "image/jpeg" && !isJpeg) || (mimeType === "image/png" && !isPng) || (mimeType === "image/webp" && !isWebp)) {
+    return res.status(400).json({ error: "The uploaded file content does not match its selected image type." });
   }
-  if (order.paymentStatus === "Payment pending" && order.paystackReference && order.paystackAuthorizationUrl &&
-      order.paystackSplitConfigured === true && order.paystackSubaccountCode === subaccountCode) {
-    return res.json({ authorizationUrl: order.paystackAuthorizationUrl, reference: order.paystackReference, orderId: order.id });
-  }
-  // Do not reuse a checkout link initialized before split payments were enabled or for another subaccount.
-  if (order.paymentStatus === "Payment pending") {
-    order.paymentStatus = "Unpaid";
-    order.paystackReference = null;
-    order.paystackAuthorizationUrl = null;
-    order.paystackSplitConfigured = false;
-  }
-  // Paystack requires an email field, but ChowOnCampus does not collect one at checkout.
-  // Use a deterministic phone-based alias so students are not blocked by an extra email field.
-  const email = String(order.customerPhone || "").replace(/\D/g, "") + "@payments.chowoncampus.com";
-  if (order.status === "Cancelled") return res.status(400).json({ error: "This order has been cancelled." });
-  if (!Number.isSafeInteger(Number(order.total)) || Number(order.total) <= 0) {
-    return res.status(400).json({ error: "The order total is invalid. Please contact support." });
-  }
-  const reference = "COC-" + crypto.randomBytes(16).toString("hex");
-  const baseUrl = String(process.env.PUBLIC_APP_URL || ((req.headers["x-forwarded-proto"] || req.protocol) + "://" + req.get("host"))).replace(/\/$/, "");
-  const amountKobo = Math.round(Number(order.total) * 100);
-  const restaurantShareKobo = Math.round(Number(order.subtotal) * 100);
-  const platformShareKobo = Math.round((Number(order.deliveryFee) + Number(order.paymentFee || 0)) * 100);
-  if (!Number.isSafeInteger(amountKobo) || amountKobo <= 0 ||
-      !Number.isSafeInteger(restaurantShareKobo) || restaurantShareKobo < 0 ||
-      !Number.isSafeInteger(platformShareKobo) || platformShareKobo < 0 ||
-      restaurantShareKobo + platformShareKobo !== amountKobo) {
-    return res.status(400).json({ error: "The order payment split does not balance. Please recreate the order or contact support." });
-  }
+  const duplicateReference = orders.some(item => {
+    const used = [item.transactionReference, ...(Array.isArray(item.paymentReferenceHistory) ? item.paymentReferenceHistory.map(entry => entry.reference) : [])];
+    return used.some(value => String(value || "").toLowerCase() === transactionReference.toLowerCase());
+  });
+  if (duplicateReference) return res.status(409).json({ error: "That transaction reference has already been used. Each bank transaction can only be submitted once." });
   try {
-    const payment = await paystackRequest("/transaction/initialize", {
-      method: "POST",
-      body: JSON.stringify({
-        email,
-        amount: amountKobo,
-        currency: "NGN",
-        reference,
-        subaccount: subaccountCode,
-        transaction_charge: platformShareKobo,
-        bearer: "account",
-        callback_url: baseUrl + "/?payment=paystack&orderId=" + encodeURIComponent(order.id),
-        metadata: {
-          order_id: order.id,
-          customer_phone: order.customerPhone,
-          merchant_type: order.merchantType || "restaurant",
-          business_id: order.businessId || "",
-          restaurant_id: order.restaurantId,
-          restaurant_share_kobo: restaurantShareKobo,
-          platform_share_kobo: platformShareKobo,
-          payment_fee_kobo: Math.round(Number(order.paymentFee || 0) * 100)
-        }
-      })
-    });
-    order.paymentEmail = email;
-    order.paystackReference = reference;
-    order.paystackAuthorizationUrl = payment.authorization_url;
-    order.paystackSubaccountCode = subaccountCode;
-    order.paystackSplitConfigured = true;
-    order.restaurantShare = Number(order.subtotal);
-    order.platformShare = Number(order.deliveryFee) + Number(order.paymentFee || 0);
-    order.paymentInitializationAt = new Date().toISOString();
-    order.paymentStatus = "Payment pending";
-    order.updatedAt = order.paymentInitializationAt;
+    const encrypted = encryptVendorDocument(buffer);
+    const now = new Date().toISOString();
+    order.paymentReferenceHistory = Array.isArray(order.paymentReferenceHistory) ? order.paymentReferenceHistory : [];
+    order.paymentReferenceHistory.push({ reference: transactionReference, submittedAt: now, submittedBy: req.account.username });
+    order.paymentReceiptHistory = Array.isArray(order.paymentReceiptHistory) ? order.paymentReceiptHistory : [];
+    if (order.paymentReceiptEncrypted) order.paymentReceiptHistory.push({ transactionReference: order.transactionReference || "", mimeType: order.paymentReceiptMimeType || "", fileName: order.paymentReceiptFileName || "", uploadedAt: order.paymentReceiptUploadedAt || null, encrypted: order.paymentReceiptEncrypted });
+    order.paymentReceiptHistory = order.paymentReceiptHistory.slice(-10);
+    order.paymentReceiptEncrypted = encrypted;
+    order.paymentReceiptMimeType = mimeType;
+    order.paymentReceiptFileName = String(req.body.fileName || "transfer-receipt").replace(/[\\/]/g, "_").slice(0, 120);
+    order.paymentReceiptUploadedAt = now;
+    order.transactionReference = transactionReference;
+    const history = Array.isArray(order.paymentVerification?.history) ? order.paymentVerification.history : [];
+    order.paymentVerification = { status: "pending", submittedAt: now, submittedBy: req.account.username, history: [...history, { action: "receipt_submitted", at: now, by: req.account.username, role: "student" }] };
+    order.paymentStatus = "Bank transfer — awaiting restaurant verification";
+    order.updatedAt = now;
     saveOrders(orders);
-    return res.json({ authorizationUrl: payment.authorization_url, reference, orderId: order.id });
+    recordOperationsEvent({ type: "bank_transfer_receipt_submitted", entityType: "order", entityId: order.id, entityName: order.restaurantName, actorRole: "student", actorId: req.account.username, details: "Student submitted a bank-transfer receipt for merchant verification." });
+    createNotification({ role: "student", username: order.customerPhone }, "Receipt submitted", "Your receipt for " + order.id + " was submitted for merchant verification.", order.id);
+    if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, "Bank transfer receipt submitted", order.id + ": " + order.customerName + " submitted a receipt. Check your bank account before confirming.", order.id);
+    else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Bank transfer receipt submitted", order.id + ": " + order.customerName + " submitted a receipt. Check your bank account before confirming.", order.id);
+    createNotification({ role: "admin" }, "Bank transfer needs review", order.id + " has a receipt awaiting merchant verification.", order.id);
+    res.setHeader("Cache-Control", "no-store, private");
+    return res.json({ ok: true, order: studentPublicOrder(order, req.account.username), message: "Receipt submitted. The business must confirm that the money actually arrived in its bank account." });
   } catch (error) {
-    console.error("Paystack initialization failed for order:", order.id, error.message);
-    return res.status(502).json({ error: error.message || "Could not start payment. Please try again." });
+    console.error("Bank-transfer receipt upload failed:", error.message);
+    return res.status(503).json({ error: "Secure receipt storage is unavailable. Please contact support." });
   }
 });
 
-app.post("/api/payments/paystack/webhook", async (req, res) => {
-  if (!hasPaystackConfig()) return res.sendStatus(503);
-  const signature = String(req.headers["x-paystack-signature"] || "");
-  const rawBody = req.rawBody;
-  if (!signature || !rawBody) return res.sendStatus(400);
-  const expected = crypto.createHmac("sha512", process.env.PAYSTACK_SECRET_KEY).update(rawBody).digest();
-  let received;
-  try { received = Buffer.from(signature, "hex"); } catch { return res.sendStatus(401); }
-  if (received.length !== expected.length || !crypto.timingSafeEqual(received, expected)) return res.sendStatus(401);
-
-  const event = req.body || {};
-  if (event.event !== "charge.success" || !event.data) return res.sendStatus(200);
-  const payment = event.data;
-  const reference = String(payment.reference || "");
-  if(String(payment.metadata?.type||"")==="chowoncampus_premium"){
-    try{const students=readStudents(),s=students.find(x=>x.phone===String(payment.metadata?.student_phone||""));const pending=s&&(s.premiumPendingPayments||[]).some(x=>x.reference===reference);const valid=s&&pending&&payment.status==="success"&&Number(payment.amount)===300000&&payment.currency==="NGN"&&String(payment.metadata?.plan||"")==="premium_30_days"&&String(payment.customer?.email||"").toLowerCase()===premiumPaymentEmail(s.phone).toLowerCase();if(valid){activatePremiumFromPayment(s,reference);saveStudents(students);}else console.warn("Premium webhook mismatch:",reference);return res.sendStatus(200);}catch(e){console.error("Premium webhook:",e.message);return res.sendStatus(500);}
-  }
-  const orderId = String(payment.metadata?.order_id || "");
-  if (!orderId || !reference) return res.sendStatus(200);
-  try {
-    const orders = readOrders();
-    const order = orders.find(item => item.id === orderId);
-    if (!order || order.paystackReference !== reference) return res.sendStatus(200);
-    const validPayment = payment.status === "success" &&
-      Number(payment.amount) === Math.round(Number(order.total) * 100) &&
-      payment.currency === "NGN" &&
-      String(payment.metadata?.restaurant_id || "") === String(order.restaurantId) &&
-      String(payment.metadata?.merchant_type || "restaurant") === String(order.merchantType || "restaurant") &&
-      String(payment.metadata?.business_id || "") === String(order.businessId || "") &&
-      Number(payment.metadata?.restaurant_share_kobo) === Math.round(Number(order.subtotal) * 100) &&
-      Number(payment.metadata?.platform_share_kobo) === Math.round((Number(order.deliveryFee) + Number(order.paymentFee || 0)) * 100) &&
-      String(payment.customer?.email || "").toLowerCase() === String(order.paymentEmail || "").toLowerCase();
-    if (!validPayment) {
-      console.warn("Paystack webhook did not match order amount or customer:", order.id);
-      return res.sendStatus(200);
-    }
-    if (order.paymentStatus !== "Paid — Paystack verified" && order.status !== "Cancelled") {
-      const changedAt = new Date().toISOString();
-      order.paymentStatus = "Paid — Paystack verified";
-      order.paidAt = changedAt;
-      order.paymentChannel = String(payment.channel || "");
-      order.status = "Confirmed";
-      order.updatedAt = changedAt;
-      order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
-      order.statusHistory.push({ status: "Confirmed", at: changedAt, by: "Paystack webhook" });
-      saveOrders(orders);
-      notifyOrderParties(order, "Payment verified — new order", order.customerName + " paid for an order at " + order.restaurantName + ".");
-      return res.json({ received: true });
-    }
-    return res.sendStatus(200);
-  } catch (error) {
-    console.error("Paystack webhook processing failed:", error.message);
-    return res.sendStatus(500);
-  }
-});
-
-app.post("/api/payments/paystack/verify", requireRole("student"), async (req, res) => {
-  if (!hasPaystackConfig()) return res.status(503).json({ error: "Online payments are not configured yet." });
-  const orderId = String(req.body.orderId || "").trim();
-  const reference = String(req.body.reference || "").trim();
-  if (!orderId || !reference || reference.length > 100) return res.status(400).json({ error: "Order ID and payment reference are required." });
+app.post("/api/orders/:id/bank-transfer/verify", requireLogin, (req, res) => {
+  const role = req.account.role;
+  if (!["restaurant", "business"].includes(role)) return res.status(403).json({ error: "Only the business that owns this order can verify its bank transfer." });
   const orders = readOrders();
-  const order = orders.find(item => item.id === orderId);
+  const order = orders.find(item => item.id === req.params.id);
   if (!order) return res.status(404).json({ error: "Order not found." });
-  if (order.customerPhone !== req.account.username) return res.status(403).json({ error: "You can only verify your own order." });
-  if (order.paymentStatus === "Paid — Paystack verified" && order.paystackReference === reference) {
-    return res.json({ ok: true, order: publicOrder(order), message: "Payment was already verified." });
-  }
-  if (order.paystackReference !== reference) return res.status(400).json({ error: "This payment reference does not match the order." });
-  if (order.status === "Cancelled") return res.status(400).json({ error: "This order has been cancelled." });
-  try {
-    const payment = await paystackRequest("/transaction/verify/" + encodeURIComponent(reference));
-    const expectedAmount = Math.round(Number(order.total) * 100);
-    if (payment.status !== "success" || payment.reference !== reference ||
-        Number(payment.amount) !== expectedAmount || payment.currency !== "NGN" ||
-        String(payment.metadata?.order_id || "") !== order.id ||
-        String(payment.metadata?.restaurant_id || "") !== String(order.restaurantId) ||
-        String(payment.metadata?.merchant_type || "restaurant") !== String(order.merchantType || "restaurant") ||
-        String(payment.metadata?.business_id || "") !== String(order.businessId || "") ||
-        Number(payment.metadata?.restaurant_share_kobo) !== Math.round(Number(order.subtotal) * 100) ||
-        Number(payment.metadata?.platform_share_kobo) !== Math.round((Number(order.deliveryFee) + Number(order.paymentFee || 0)) * 100) ||
-        String(payment.customer?.email || "").toLowerCase() !== String(order.paymentEmail || "").toLowerCase()) {
-      return res.status(400).json({ error: "Payment could not be verified against this order. If you were charged, contact support with your payment reference." });
-    }
-    const changedAt = new Date().toISOString();
-    order.paymentStatus = "Paid — Paystack verified";
-    order.paidAt = changedAt;
-    order.paymentChannel = String(payment.channel || "");
+  const ownsOrder = role === "restaurant"
+    ? order.merchantType === "restaurant" && String(order.restaurantId) === String(req.account.restaurantId)
+    : order.merchantType === "business" && String(order.businessId) === String(req.account.businessId);
+  if (!ownsOrder) return res.status(403).json({ error: "You can only verify payments for your own business." });
+  if (order.paymentMethod !== "bank_transfer" || !order.paymentReceiptEncrypted || !order.transactionReference) return res.status(409).json({ error: "No transfer receipt is available to verify." });
+  if (order.paymentStatus === "Paid — bank transfer verified") return res.status(409).json({ error: "This order is already verified as paid." });
+  const decision = String(req.body.decision || "").trim().toLowerCase();
+  const reason = String(req.body.reason || "").trim().slice(0, 300);
+  if (!["received", "not_received", "investigate"].includes(decision)) return res.status(400).json({ error: "Choose received, not received or investigate." });
+  if (decision === "not_received" && reason.length < 5) return res.status(400).json({ error: "Add a short reason explaining why the payment was not received." });
+  const now = new Date().toISOString();
+  const history = Array.isArray(order.paymentVerification?.history) ? order.paymentVerification.history : [];
+  const status = decision === "received" ? "verified" : decision === "not_received" ? "rejected" : "investigating";
+  order.paymentVerification = { status, decision, reason, verifiedAt: now, verifiedBy: req.account.username, verifiedRole: role, history: [...history, { action: decision, at: now, by: req.account.username, role, reason }] };
+  if (decision === "received") {
+    order.paymentStatus = "Paid — bank transfer verified";
+    order.paidAt = now;
     order.status = "Confirmed";
-    order.updatedAt = changedAt;
     order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
-    order.statusHistory.push({ status: "Confirmed", at: changedAt, by: "Paystack verification" });
-    saveOrders(orders);
-    notifyOrderParties(order, "Payment verified — new order", order.customerName + " paid for an order at " + order.restaurantName + ".");
-    return res.json({ ok: true, order: publicOrder(order), message: "Payment verified successfully. Your order is confirmed." });
-  } catch (error) {
-    console.error("Paystack verification failed for order:", order.id, error.message);
-    return res.status(502).json({ error: "We could not verify the payment right now. If you were charged, contact support with your payment reference." });
+    order.statusHistory.push({ status: "Confirmed", at: now, by: req.account.username + " (merchant payment verification)" });
+    notifyOrderParties(order, "Bank transfer verified — new order", order.customerName + "'s payment for " + order.id + " has been confirmed.");
+  } else if (decision === "not_received") {
+    order.paymentStatus = "Bank transfer rejected — no bank credit";
+    createNotification({ role: "student", username: order.customerPhone }, "Payment not confirmed", "The merchant could not confirm bank credit for order " + order.id + ". Check the transfer details or contact ChowOnCampus support.", order.id);
+    createNotification({ role: "admin" }, "Bank transfer rejected", order.id + " was rejected by its merchant because no bank credit was found.", order.id);
+  } else {
+    order.paymentStatus = "Bank transfer — under investigation";
+    createNotification({ role: "student", username: order.customerPhone }, "Payment under review", "The merchant has flagged the transfer for order " + order.id + " for investigation. Do not submit another transfer until you receive an update.", order.id);
+    createNotification({ role: "admin" }, "Bank transfer requires investigation", order.id + " was flagged for payment investigation.", order.id);
   }
+  order.updatedAt = now;
+  saveOrders(orders);
+  recordOperationsEvent({ type: "bank_transfer_" + decision, entityType: "order", entityId: order.id, entityName: order.restaurantName, actorRole: role, actorId: req.account.username, details: "Merchant payment decision: " + decision + (reason ? ". " + reason : ".") });
+  res.setHeader("Cache-Control", "no-store, private");
+  return res.json({ ok: true, order: publicOrder(order, true), message: decision === "received" ? "Payment confirmed. The order is now available for fulfilment." : decision === "not_received" ? "Payment rejected. The student has been notified and may submit a new transfer receipt." : "Payment flagged for admin investigation. The order remains blocked from fulfilment." });
 });
 
-// Local testing only: simulates payment without charging money.
-// View orders: restaurants see their orders, agents see assigned orders.
+app.post("/api/superadmin/orders/:id/bank-transfer/override", requireSuperAdmin, (req, res) => {
+  const orders = readOrders();
+  const order = orders.find(item => item.id === req.params.id);
+  if (!order) return res.status(404).json({ error: "Order not found." });
+  if (order.paymentMethod !== "bank_transfer" || !order.paymentReceiptEncrypted) return res.status(409).json({ error: "A bank-transfer receipt is required before an admin override." });
+  const decision = String(req.body.decision || "").trim().toLowerCase();
+  const reason = String(req.body.reason || "").trim().slice(0, 300);
+  if (!["received", "not_received"].includes(decision) || reason.length < 10) {
+    return res.status(400).json({ error: "Choose a valid decision and provide an override reason of at least 10 characters." });
+  }
+  if (decision === "not_received" && ["Preparing", "Ready for pickup", "Out for delivery", "Completed", "Cancelled"].includes(order.status)) {
+    return res.status(409).json({ error: "This order has already entered fulfilment or is closed. Open a dispute case instead of reversing its payment status." });
+  }
+  const now = new Date().toISOString();
+  const history = Array.isArray(order.paymentVerification?.history) ? order.paymentVerification.history : [];
+  order.paymentVerification = { status: decision === "received" ? "verified" : "rejected", decision, reason, overridden: true, verifiedAt: now, verifiedBy: req.account.username, verifiedRole: "ultimate_admin", history: [...history, { action: "admin_override_" + decision, at: now, by: req.account.username, role: "ultimate_admin", reason }] };
+  if (decision === "received") {
+    order.paymentStatus = "Paid — bank transfer verified";
+    order.paidAt = now;
+    order.status = "Confirmed";
+    order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+    order.statusHistory.push({ status: "Confirmed", at: now, by: req.account.username + " (ultimate admin override)" });
+    notifyOrderParties(order, "Payment verified by ChowOnCampus", "Ultimate Admin confirmed payment for " + order.id + ".");
+  } else {
+    order.paymentStatus = "Bank transfer rejected — admin override";
+    if (order.status === "Confirmed") {
+      order.status = "Awaiting payment";
+      order.deliveryCode = null;
+      order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+      order.statusHistory.push({ status: "Awaiting payment", at: now, by: req.account.username + " (ultimate admin payment override)" });
+    }
+    createNotification({ role: "student", username: order.customerPhone }, "Payment decision updated", "Ultimate Admin rejected the bank-transfer verification for order " + order.id + ". Review the reason with ChowOnCampus support before taking further action.", order.id);
+  }
+  order.updatedAt = now;
+  saveOrders(orders);
+  recordOperationsEvent({ type: "bank_transfer_admin_override", entityType: "order", entityId: order.id, entityName: order.restaurantName, actorRole: "ultimate_admin", actorId: req.account.username, details: "Admin override: " + decision + ". Reason: " + reason });
+  return res.json({ ok: true, message: "Admin override recorded with an audit reason." });
+});
+
 app.get("/api/orders", requireLogin, (req, res) => {
   try {
     let orders = readOrders();
 
     if (req.account.role === "business") {
-      orders = orders.filter(order => order.merchantType === "business" && order.businessId === req.account.businessId && ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus));
+      orders = orders.filter(order => order.merchantType === "business" && order.businessId === req.account.businessId &&
+        (isVerifiedOrderPayment(order) ||
+         (order.paymentMethod === "bank_transfer" && Boolean(order.paymentReceiptEncrypted))));
     } else if (req.account.role === "restaurant") {
       orders = vendorIsApproved(req.account.restaurantId) ? orders.filter(
         order => order.restaurantId === req.account.restaurantId &&
-          ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)
+          (isVerifiedOrderPayment(order) ||
+           (order.paymentMethod === "bank_transfer" && Boolean(order.paymentReceiptEncrypted)))
       ) : [];
     } else if (req.account.role === "agent") {
       orders = orders.filter(
         order => order.assignedAgentId === req.account.agentId &&
-          ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)
+          isVerifiedOrderPayment(order)
       );
     } else if (req.account.role === "admin" && !req.account.isSuperAdmin) {
       orders = orders.filter(order => !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval"));
@@ -2495,7 +2538,12 @@ app.get("/api/orders", requireLogin, (req, res) => {
       return res.status(403).json({ error: "You don't have permission to view orders." });
     }
 
-    res.json({ orders: orders.map(order => req.account.role === "student" ? studentPublicOrder(order, req.account.username) : publicOrder(order)) });
+    res.setHeader("Cache-Control", "no-store, private");
+    res.json({ orders: orders.map(order => req.account.role === "student" ? studentPublicOrder(order, req.account.username) :
+      ((req.account.role === "admin" && req.account.isSuperAdmin) ||
+       (req.account.role === "restaurant" && order.restaurantId === req.account.restaurantId) ||
+       (req.account.role === "business" && order.businessId === req.account.businessId))
+        ? publicOrder(order, true) : publicOrder(order)) });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2699,7 +2747,7 @@ app.get("/api/orders/:id", (req, res) => {
         (session.role === "business" && order.merchantType === "business" && session.businessId === order.businessId) ||
         (session.role === "agent" && session.agentId === order.assignedAgentId)
       )
-    ) return res.json({ order: publicOrder(order) });
+    ) return res.json({ order: publicOrder(order, session.role === "restaurant" || session.role === "business" || (session.role === "admin" && session.isSuperAdmin)) });
 
     res.json({
       order: {
@@ -3380,6 +3428,37 @@ function readRestaurantSettlements() {
 function saveRestaurantSettlements(records) {
   saveStoredJson(RESTAURANT_SETTLEMENTS_FILE, records);
 }
+const MERCHANT_FEE_PAYMENTS_FILE = path.join(__dirname, "merchant-fee-payments.json");
+const MERCHANT_FEE_LEDGER_GENESIS = "0".repeat(64);
+function readMerchantFeePayments() { return readStoredJson(MERCHANT_FEE_PAYMENTS_FILE, []); }
+function saveMerchantFeePayments(records) { saveStoredJson(MERCHANT_FEE_PAYMENTS_FILE, records); }
+const MERCHANT_FEE_LEDGER_META_FILE = path.join(__dirname, "merchant-fee-ledger-meta.json");
+function readMerchantFeeLedgerMeta() { return readStoredJson(MERCHANT_FEE_LEDGER_META_FILE, { headHash: MERCHANT_FEE_LEDGER_GENESIS, recordCount: 0 }); }
+function saveMerchantFeeLedgerMeta(meta) { saveStoredJson(MERCHANT_FEE_LEDGER_META_FILE, meta); }
+function merchantFeeRecordHash(record) {
+  const payload = {
+    id: record.id, merchantType: record.merchantType, merchantId: record.merchantId,
+    merchantName: record.merchantName, paymentDate: record.paymentDate, amount: record.amount,
+    reference: record.reference, note: record.note, createdAt: record.createdAt,
+    recordedBy: record.recordedBy, status: record.status, previousHash: record.previousHash
+  };
+  return crypto.createHash("sha256").update(JSON.stringify(payload), "utf8").digest("hex");
+}
+function verifyMerchantFeeLedger(records, meta = readMerchantFeeLedgerMeta()) {
+  const currentHead = records[0]?.recordHash || MERCHANT_FEE_LEDGER_GENESIS;
+  if (Number(meta?.recordCount) !== records.length || meta?.headHash !== currentHead) {
+    return { valid: false, checkedRecords: records.length, failedRecordId: records[0]?.id || null };
+  }
+  let previousHash = MERCHANT_FEE_LEDGER_GENESIS;
+  for (let index = records.length - 1; index >= 0; index--) {
+    const record = records[index];
+    if (!record || record.previousHash !== previousHash || record.recordHash !== merchantFeeRecordHash(record)) {
+      return { valid: false, checkedRecords: records.length, failedRecordId: record?.id || null };
+    }
+    previousHash = record.recordHash;
+  }
+  return { valid: true, checkedRecords: records.length, failedRecordId: null };
+}
 function nigeriaDayRange(value) {
   const day = String(value || "");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
@@ -3406,15 +3485,23 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
     const students = readStudents();
     const agentRecords = readAgentRecords();
     const restaurantsList = restaurants;
+    const businessesList = readOtherBusinesses().filter(item => item.status === "approved");
     const settlements = readRestaurantSettlements().filter(item => item.status === "confirmed" && item.settlementDate === range.day);
+    const merchantFeePayments = readMerchantFeePayments();
+    const isPaid = order => isVerifiedOrderPayment(order);
+    const feesForOrder = order => reportMoney(order.deliveryFee) + reportMoney(order.paymentFee);
     const dayOrders = orders.filter(order => inReportDay(order.createdAt, range));
-    const completedOrders = orders.filter(order => order.status === "Completed" && ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus) && inReportDay(order.completedAt || order.updatedAt, range));
-    const cancelledOrders = dayOrders.filter(order => order.status === "Cancelled");
+    const statusEventAt = (order, status) => {
+      const history = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+      const event = [...history].reverse().find(item => item.status === status);
+      return event?.at || (status === "Completed" ? order.completedAt || order.deliveredAt : order.cancelledAt) || order.updatedAt || order.createdAt;
+    };
+    const completedOrders = orders.filter(order => order.status === "Completed" && isVerifiedOrderPayment(order) && inReportDay(statusEventAt(order, "Completed"), range));
+    const cancelledOrders = orders.filter(order => order.status === "Cancelled" && inReportDay(statusEventAt(order, "Cancelled"), range));
     const failedOrders = dayOrders.filter(order => /failed|declined|rejected/i.test(String(order.paymentStatus || "")) || order.status === "Failed");
     const pendingOrders = dayOrders.filter(order => !["Completed", "Cancelled", "Failed"].includes(order.status));
-    const paidOrders = dayOrders.filter(order => ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus));
-    const paystackOrders = paidOrders.filter(order => order.paymentStatus === "Paid — Paystack verified");
-    const foodbackOrders = paidOrders.filter(order => order.paymentStatus === "Paid — FoodBack approved");
+    const paidOrders = orders.filter(order => isPaid(order) && inReportDay(order.paidAt || order.createdAt, range));
+        const foodbackOrders = paidOrders.filter(order => order.paymentStatus === "Paid — FoodBack approved");
     const sum = (items, selector) => items.reduce((total, item) => total + reportMoney(selector(item)), 0);
     const restaurantRows = restaurantsList.map(restaurant => {
       const own = dayOrders.filter(order => String(order.restaurantId) === String(restaurant.id));
@@ -3422,16 +3509,35 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
       const reviews = orders.filter(order => String(order.restaurantId) === String(restaurant.id) && order.rating && inReportDay(order.rating.ratedAt, range));
       const scores = reviews.map(order => Number(order.rating.restaurantRating)).filter(score => Number.isFinite(score) && score >= 1 && score <= 5);
       const bankCredits = settlements.filter(item => String(item.restaurantId) === String(restaurant.id));
+      const paidToday = paidOrders.filter(order => order.merchantType !== "business" && String(order.restaurantId) === String(restaurant.id));
+      const paidThroughDate = orders.filter(order => order.merchantType !== "business" && String(order.restaurantId) === String(restaurant.id) && isPaid(order) && Date.parse(order.paidAt || order.createdAt || "") < range.end.getTime());
+      const feePaymentsToday = merchantFeePayments.filter(item => item.merchantType === "restaurant" && String(item.merchantId) === String(restaurant.id) && item.paymentDate === range.day);
+      const feePaymentsThroughDate = merchantFeePayments.filter(item => item.merchantType === "restaurant" && String(item.merchantId) === String(restaurant.id) && String(item.paymentDate || "") <= range.day);
       return {
         id: restaurant.id, name: restaurant.name, orders: own.length, completedOrders: successful.length,
-        cancelledOrders: own.filter(order => order.status === "Cancelled").length,
+        cancelledOrders: cancelledOrders.filter(order => String(order.restaurantId) === String(restaurant.id)).length,
         foodSales: sum(successful, order => order.subtotal),
+        platformFeesDueToday: sum(paidToday, feesForOrder),
+        platformFeesCollectedToday: sum(feePaymentsToday, item => item.amount),
+        platformFeesOutstanding: Math.max(0, sum(paidThroughDate, feesForOrder) - sum(feePaymentsThroughDate, item => item.amount)),
         averageRating: scores.length ? Math.round(scores.reduce((a,b) => a+b, 0) / scores.length * 10) / 10 : null,
         ratingCount: scores.length,
         unavailableFood: (restaurant.items || []).filter(item => item.available === false || item.isAvailable === false || item.soldOut === true).map(item => item.name),
         bankSettlements: bankCredits.map(item => ({ amount: item.amount, reference: item.bankReference, creditedAt: item.creditedAt, enteredAt: item.createdAt })),
         actualBankAmountCredited: sum(bankCredits, item => item.amount)
       };
+    }).sort((a,b) => b.orders - a.orders);
+    const businessRows = businessesList.map(business => {
+      const own = dayOrders.filter(order => order.merchantType === "business" && String(order.businessId) === String(business.id));
+      const paidToday = paidOrders.filter(order => order.merchantType === "business" && String(order.businessId) === String(business.id));
+      const paidThroughDate = orders.filter(order => order.merchantType === "business" && String(order.businessId) === String(business.id) && isPaid(order) && Date.parse(order.paidAt || order.createdAt || "") < range.end.getTime());
+      const feePaymentsToday = merchantFeePayments.filter(item => item.merchantType === "business" && String(item.merchantId) === String(business.id) && item.paymentDate === range.day);
+      const feePaymentsThroughDate = merchantFeePayments.filter(item => item.merchantType === "business" && String(item.merchantId) === String(business.id) && String(item.paymentDate || "") <= range.day);
+      return { id: business.id, name: business.name, orders: own.length,
+        cancelledOrders: cancelledOrders.filter(order => order.merchantType === "business" && String(order.businessId) === String(business.id)).length,
+        platformFeesDueToday: sum(paidToday, feesForOrder),
+        platformFeesCollectedToday: sum(feePaymentsToday, item => item.amount),
+        platformFeesOutstanding: Math.max(0, sum(paidThroughDate, feesForOrder) - sum(feePaymentsThroughDate, item => item.amount)) };
     }).sort((a,b) => b.orders - a.orders);
     const agentPayouts = readAgentPayments().filter(payment => inReportDay(payment.paidAt, range));
     const agentRows = agentRecords.map(agent => {
@@ -3473,24 +3579,58 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
       .map(entry => ({ student: student.name, type: entry.type, kind: entry.kind, amount: entry.amount, orderId: entry.orderId || null, description: entry.description || "" })));
     const outstandingFoodback = sum(students, student => student.foodbackBalance);
     const complaints = cases.filter(item => /complaint|dispute|refund/i.test(String(item.type || item.category || item.title || "")));
+    const refundedOrders = orders.filter(order => order.refundedAt && inReportDay(order.refundedAt, range));
+    const refundAdjustmentCases = cases.filter(item => /refund|adjustment/i.test(String(item.type || item.category || item.title || "")));
+    const refundedOrderIds = new Set(refundedOrders.map(order => String(order.id)));
+    const unlinkedRefundAdjustmentCases = refundAdjustmentCases.filter(item => !item.orderId || !refundedOrderIds.has(String(item.orderId)));
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
     res.json({
       date: range.day, timezone: "Africa/Lagos",
       generatedAt: new Date().toISOString(),
-      orders: { total: dayOrders.length, successful: completedOrders.length, cancelled: cancelledOrders.length, failed: failedOrders.length, pending: pendingOrders.length,
-        successfulFoodSales: sum(completedOrders, order => order.subtotal) },
-      payments: { paystackCount: paystackOrders.length, paystackGross: sum(paystackOrders, order => order.total),
+      orders: {
+        total: dayOrders.length,
+        successful: completedOrders.length,
+        paidAndDelivered: completedOrders.length,
+        cancelled: cancelledOrders.length,
+        paidButCancelled: cancelledOrders.filter(isPaid).length,
+        failed: failedOrders.length,
+        pending: pendingOrders.length,
+        pendingPayment: dayOrders.filter(order => !isPaid(order) && !["Cancelled", "Failed"].includes(order.status)).length,
+        rejectedPayment: dayOrders.filter(order => /rejected|declined/i.test(String(order.paymentStatus || ""))).length,
+        bankTransferRejectedNoCredit: dayOrders.filter(order => order.paymentMethod === "bank_transfer" && /rejected.*no bank credit/i.test(String(order.paymentStatus || ""))).length,
+        successfulFoodSales: sum(completedOrders, order => order.subtotal)
+      },
+      payments: {
         foodbackCount: foodbackOrders.length, foodbackValue: sum(foodbackOrders, order => order.total),
-        outstandingPaymentOrders: dayOrders.filter(order => !["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus) && !["Cancelled", "Failed"].includes(order.status)).length,
-        outstandingAmount: sum(dayOrders.filter(order => !["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus) && !["Cancelled", "Failed"].includes(order.status)), order => order.total) },
+        bankTransferCount: paidOrders.filter(order => order.paymentStatus === "Paid — bank transfer verified").length,
+        bankTransferValue: sum(paidOrders.filter(order => order.paymentStatus === "Paid — bank transfer verified"), order => order.total),
+        bankTransferPendingCount: dayOrders.filter(order => order.paymentMethod === "bank_transfer" && /awaiting|investigation/i.test(String(order.paymentStatus || ""))).length,
+        bankTransferRejectedCount: dayOrders.filter(order => order.paymentMethod === "bank_transfer" && /rejected/i.test(String(order.paymentStatus || ""))).length,
+        studentServiceFeeCollected: sum(paidOrders, order => order.paymentFee || 0),
+        outstandingPaymentOrders: dayOrders.filter(order => !isVerifiedOrderPayment(order) && !["Cancelled", "Failed"].includes(order.status)).length,
+        outstandingAmount: sum(dayOrders.filter(order => !isVerifiedOrderPayment(order) && !["Cancelled", "Failed"].includes(order.status)), order => order.total)
+      },
       restaurants: restaurantRows,
+      businesses: businessRows,
+      merchantFeeCollection: {
+        dueToday: sum([...restaurantRows, ...businessRows], item => item.platformFeesDueToday),
+        collectedToday: sum([...restaurantRows, ...businessRows], item => item.platformFeesCollectedToday),
+        outstanding: sum([...restaurantRows, ...businessRows], item => item.platformFeesOutstanding)
+      },
       restaurantRanking: restaurantRows.map((item,index) => ({ rank: index + 1, restaurant: item.name, orders: item.orders, averageRating: item.averageRating, ratingCount: item.ratingCount })),
       agents: agentRows,
       agentTotals: { completedDeliveries: sum(agentRows, item => item.completedDeliveries), earned: sum(agentRows, item => item.earningsRecorded),
         paid: sum(agentPayouts, item => item.amount), payoutsRecorded: agentPayouts.length },
       students: { newRegistrations: newStudents.length, activeCustomers: activeStudentIds.size },
       customerIssues: { casesOpened: cases.length, complaintsAndDisputes: complaints.length,
-        refundsMentionedInCases: cases.filter(item => /refund/i.test(String(item.type || item.category || item.title || ""))).length },
+        refundsMentionedInCases: cases.filter(item => /refund/i.test(String(item.type || item.category || item.title || ""))).length,
+        refundsAndAdjustments: {
+          count: refundedOrders.length + unlinkedRefundAdjustmentCases.length,
+          actualRefundOrders: refundedOrders.length,
+          adjustmentCases: unlinkedRefundAdjustmentCases.length,
+          recordedAmount: sum(refundedOrders, item => item.refundAmount || item.total || 0) +
+            sum(unlinkedRefundAdjustmentCases, item => item.amount || item.refundAmount || item.adjustmentAmount || 0)
+        } },
       foodback: { issued: sum(foodbackLedger.filter(item => Number(item.amount) > 0 && !/deduct/i.test(String(item.kind || item.type || ""))), item => item.amount),
         used: Math.abs(sum(foodbackLedger.filter(item => /redeem|order/i.test(String(item.kind || "")) && Number(item.amount) < 0), item => item.amount)),
         deducted: sum(foodbackLedger.filter(item => /deduct/i.test(String(item.kind || item.type || ""))), item => Math.abs(Number(item.amount) || 0)),
@@ -3510,6 +3650,55 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
     res.status(500).json({ error: "Could not generate the daily report." });
   }
 });
+app.get("/api/superadmin/merchant-fee-payments", requireSuperAdmin, (req, res) => {
+  const payments = readMerchantFeePayments().map(item => ({ ...item }));
+  const integrity = verifyMerchantFeeLedger(payments, readMerchantFeeLedgerMeta());
+  res.set("Cache-Control", "no-store, private");
+  res.json({ payments, integrity });
+});
+app.post("/api/superadmin/merchant-fee-payments", requireSuperAdmin, (req, res) => {
+  const merchantType = String(req.body.merchantType || "").trim();
+  const merchantId = String(req.body.merchantId || "").trim();
+  const paymentDate = String(req.body.paymentDate || "").trim();
+  const amount = Number(req.body.amount);
+  const reference = String(req.body.reference || "").trim().slice(0, 120);
+  const note = String(req.body.note || "").trim().slice(0, 300);
+  if (!["restaurant", "business"].includes(merchantType)) return res.status(400).json({ error: "Choose a restaurant or other business." });
+  if (!nigeriaDayRange(paymentDate)) return res.status(400).json({ error: "Choose a valid payment date." });
+  if (!Number.isSafeInteger(amount) || amount <= 0) return res.status(400).json({ error: "Enter a whole-number amount greater than ₦0." });
+  if (reference.length < 4) return res.status(400).json({ error: "Enter the bank transfer reference." });
+  const merchant = merchantType === "restaurant" ? restaurants.find(item => String(item.id) === merchantId) : readOtherBusinesses().find(item => String(item.id) === merchantId);
+  if (!merchant) return res.status(404).json({ error: "Merchant not found." });
+  const records = readMerchantFeePayments();
+  const integrity = verifyMerchantFeeLedger(records, readMerchantFeeLedgerMeta());
+  if (!integrity.valid) return res.status(409).json({ error: "The merchant fee ledger failed its integrity check. New entries are blocked until Ultimate Admin reviews the record history." });
+  if (records.some(item => String(item.reference || "").toLowerCase() === reference.toLowerCase())) return res.status(409).json({ error: "That payment reference has already been recorded." });
+  const cutoff = nigeriaDayRange(paymentDate).end.getTime();
+  const orders = readOrders();
+  const merchantOrders = orders.filter(order => (merchantType === "restaurant"
+    ? order.merchantType !== "business" && String(order.restaurantId) === merchantId
+    : order.merchantType === "business" && String(order.businessId) === merchantId) &&
+    isVerifiedOrderPayment(order) &&
+    Date.parse(order.paidAt || order.createdAt || "") < cutoff);
+  const feesDue = merchantOrders.reduce((total, order) => total + reportMoney(order.deliveryFee) + reportMoney(order.paymentFee), 0);
+  const feesAlreadyRecorded = records.filter(item => item.merchantType === merchantType && String(item.merchantId) === merchantId && String(item.paymentDate || "") <= paymentDate)
+    .reduce((total, item) => total + reportMoney(item.amount), 0);
+  const outstandingBeforePayment = Math.max(0, feesDue - feesAlreadyRecorded);
+  if (amount > outstandingBeforePayment) return res.status(409).json({ error: "This amount exceeds the merchant's recorded outstanding platform fees of ₦" + outstandingBeforePayment.toLocaleString("en-NG") + "." });
+  const record = {
+    id: "MFP-" + crypto.randomBytes(6).toString("hex").toUpperCase(),
+    merchantType, merchantId, merchantName: merchant.name, paymentDate, amount, reference, note,
+    createdAt: new Date().toISOString(), recordedBy: req.account.username, status: "recorded",
+    previousHash: records[0]?.recordHash || MERCHANT_FEE_LEDGER_GENESIS
+  };
+  record.recordHash = merchantFeeRecordHash(record);
+  records.unshift(record);
+  saveMerchantFeePayments(records);
+  saveMerchantFeeLedgerMeta({ headHash: record.recordHash, recordCount: records.length, updatedAt: record.createdAt, updatedBy: req.account.username });
+  recordOperationsEvent({ type: "merchant_platform_fee_payment_recorded", entityType: merchantType, entityId: merchantId, entityName: merchant.name, actorRole: "ultimate_admin", actorId: req.account.username, details: "Recorded ₦" + amount.toLocaleString("en-NG") + " platform-fee remittance. Reference: " + reference });
+  res.status(201).json({ ok: true, payment: record, message: "Merchant fee remittance recorded. This is a bookkeeping record, not an automatic bank transfer." });
+});
+
 app.post("/api/superadmin/restaurant-settlements", requireSuperAdmin, (req, res) => {
   try {
     const restaurantId = String(req.body.restaurantId || "").trim();
@@ -3543,135 +3732,8 @@ app.post("/api/superadmin/restaurant-settlements", requireSuperAdmin, (req, res)
   }
 });
 
-// Payout account changes are performed only against the existing Paystack subaccount.
-// The secondary approval code is configured as a Render secret and is never stored in app data.
-app.get("/api/superadmin/payout-banks", requireSuperAdmin, async (req, res) => {
-  if (!hasPaystackConfig()) return res.status(503).json({ error: "Live Paystack is not configured." });
-  try {
-    const data = await paystackRequest("/bank?country=nigeria&perPage=100");
-    res.setHeader("Cache-Control", "no-store, private");
-    res.json({ banks: (Array.isArray(data) ? data : []).map(bank => ({ name: bank.name, code: String(bank.code) })) });
-  } catch (error) {
-    res.status(502).json({ error: error.message || "Could not load supported banks." });
-  }
-});
-
-app.get("/api/superadmin/payout-accounts", requireSuperAdmin, async (req, res) => {
-  if (!hasPaystackConfig()) return res.status(503).json({ error: "Live Paystack is not configured." });
-  try {
-    const results = await Promise.all(restaurants.map(async restaurant => {
-      const code = getPaystackSubaccountCode(restaurant.id);
-      if (!code) return { restaurantId: restaurant.id, restaurantName: restaurant.name, configured: false };
-      try {
-        const data = await paystackRequest("/subaccount/" + encodeURIComponent(code));
-        return {
-          restaurantId: restaurant.id, restaurantName: restaurant.name, configured: true,
-          bankName: data.settlement_bank || "Unknown bank",
-          accountNumberMasked: maskBankAccount(data.account_number),
-          accountName: data.account_name || "Name not provided by Paystack"
-        };
-      } catch {
-        return { restaurantId: restaurant.id, restaurantName: restaurant.name, configured: true, lookupFailed: true };
-      }
-    }));
-    res.setHeader("Cache-Control", "no-store, private");
-    res.json({ accounts: results, secondaryVerificationConfigured: Boolean(process.env.PAYOUT_CHANGE_APPROVAL_CODE) });
-  } catch (error) {
-    res.status(502).json({ error: error.message || "Could not load payout accounts." });
-  }
-});
-
-app.post("/api/superadmin/payout-account/resolve", requireSuperAdmin, async (req, res) => {
-  if (!hasPaystackConfig()) return res.status(503).json({ error: "Live Paystack is not configured." });
-  const accountNumber = String(req.body.accountNumber || "").trim();
-  const bankCode = String(req.body.bankCode || "").trim();
-  if (!/^\d{10}$/.test(accountNumber)) return res.status(400).json({ error: "Enter a valid 10-digit Nigerian account number." });
-  if (!/^[A-Za-z0-9]{2,8}$/.test(bankCode)) return res.status(400).json({ error: "Choose a valid bank." });
-  const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
-  if (!resetRateLimit("payout-resolve:" + req.account.username + ":" + ip, 8, 15 * 60 * 1000)) {
-    return res.status(429).json({ error: "Too many account lookups. Wait 15 minutes and try again." });
-  }
-  try {
-    const data = await paystackRequest("/bank/resolve?account_number=" + encodeURIComponent(accountNumber) + "&bank_code=" + encodeURIComponent(bankCode));
-    if (String(data.account_number || "") !== accountNumber || !String(data.account_name || "").trim()) {
-      return res.status(422).json({ error: "Paystack could not confirm this account. Check the bank and account number." });
-    }
-    res.setHeader("Cache-Control", "no-store, private");
-    res.json({ verified: true, accountName: String(data.account_name).trim(), accountNumberMasked: maskBankAccount(accountNumber) });
-  } catch (error) {
-    res.status(422).json({ error: error.message || "Paystack could not verify this account." });
-  }
-});
-
-app.post("/api/superadmin/payout-account-change", requireSuperAdmin, async (req, res) => {
-  if (!IS_PRODUCTION || !hasPaystackConfig()) return res.status(503).json({ error: "Payout account changes are available only with live Paystack in production." });
-  const approvalCode = String(process.env.PAYOUT_CHANGE_APPROVAL_CODE || "");
-  if (approvalCode.length < 12) return res.status(503).json({ error: "Secondary verification is not configured. Set PAYOUT_CHANGE_APPROVAL_CODE in Render before changing any payout account." });
-  const restaurantId = String(req.body.restaurantId || "").trim();
-  const accountNumber = String(req.body.accountNumber || "").trim();
-  const bankCode = String(req.body.bankCode || "").trim();
-  const reason = String(req.body.reason || "").trim().slice(0, 300);
-  const expectedAccountName = String(req.body.expectedAccountName || "").trim();
-  const currentPassword = String(req.body.currentPassword || "");
-  const submittedApprovalCode = String(req.body.approvalCode || "");
-  if (!restaurants.some(item => item.id === restaurantId)) return res.status(404).json({ error: "Restaurant not found." });
-  if (!/^\d{10}$/.test(accountNumber) || !/^[A-Za-z0-9]{2,8}$/.test(bankCode)) return res.status(400).json({ error: "Enter a valid bank and 10-digit account number." });
-  if (!reason || reason.length < 10) return res.status(400).json({ error: "Enter a reason of at least 10 characters for the audit record." });
-  if (!expectedAccountName || expectedAccountName.length > 120) return res.status(400).json({ error: "Verify the account number first and confirm the bank account name." });
-  if (!currentPassword || !submittedApprovalCode) return res.status(400).json({ error: "Your current admin password and secondary approval code are required." });
-  const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
-  if (!resetRateLimit("payout-change:" + req.account.username + ":" + ip, 5, 15 * 60 * 1000)) {
-    return res.status(429).json({ error: "Too many payout change attempts. Wait 15 minutes and try again." });
-  }
-  if (!verifyUltimateAdminPassword(req.account.username, currentPassword) ||
-      !constantTimeTextMatch(submittedApprovalCode, approvalCode)) {
-    return res.status(403).json({ error: "The admin password or secondary approval code is incorrect." });
-  }
-  const subaccountCode = getPaystackSubaccountCode(restaurantId);
-  if (!subaccountCode) return res.status(409).json({ error: "This restaurant has no Paystack subaccount configured in Render." });
-  const restaurant = restaurants.find(item => item.id === restaurantId);
-  try {
-    const oldData = await paystackRequest("/subaccount/" + encodeURIComponent(subaccountCode));
-    const resolved = await paystackRequest("/bank/resolve?account_number=" + encodeURIComponent(accountNumber) + "&bank_code=" + encodeURIComponent(bankCode));
-    const resolvedName = String(resolved.account_name || "").trim();
-    if (String(resolved.account_number || "") !== accountNumber || !resolvedName ||
-        resolvedName.toLocaleUpperCase().replace(/\s+/g, " ") !== expectedAccountName.toLocaleUpperCase().replace(/\s+/g, " ")) {
-      return res.status(409).json({ error: "The account name no longer matches the verified details. Verify the account again before saving." });
-    }
-    const updated = await paystackRequest("/subaccount/" + encodeURIComponent(subaccountCode), {
-      method: "PUT",
-      body: JSON.stringify({ settlement_bank: bankCode, account_number: accountNumber })
-    });
-    if (String(updated.account_number || "") !== accountNumber) {
-      return res.status(502).json({ error: "Paystack did not confirm the new account number. Check the Paystack dashboard before retrying." });
-    }
-    recordOperationsEvent({
-      type: "restaurant_payout_account_changed", entityType: "restaurant",
-      entityId: restaurantId, entityName: restaurant.name,
-      actorRole: "admin", actorId: req.account.username,
-      details: "Paystack payout destination changed. Previous: " + String(oldData.settlement_bank || "Unknown bank") + " " + maskBankAccount(oldData.account_number) +
-        "; new: " + String(updated.settlement_bank || "Selected bank") + " " + maskBankAccount(updated.account_number) +
-        "; reason: " + reason
-    });
-    res.setHeader("Cache-Control", "no-store, private");
-    res.json({
-      ok: true,
-      restaurantId,
-      bankName: updated.settlement_bank || "Updated",
-      accountNumberMasked: maskBankAccount(updated.account_number),
-      accountName: updated.account_name || resolvedName,
-      message: "Paystack payout account updated and the change was recorded in the operations audit log."
-    });
-  } catch (error) {
-    console.error("Protected Paystack payout account update failed:", error.message);
-    res.status(502).json({ error: error.message || "Paystack could not update this payout account. Verify the current account in Paystack before retrying." });
-  }
-});
-
-
- 
 // Ultimate-admin operations archive. Refund decisions are logged here; approval does
-// not itself move money through Paystack or issue FoodBack credit.
+// not itself move money or issue FoodBack credit.
 app.get("/api/superadmin/operations-records", requireSuperAdmin, (req, res) => {
   try {
     const allOrders = readOrders().slice().sort((a,b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
@@ -4686,7 +4748,7 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
 
     if (role === "business") {
       const business = readOtherBusinesses().find(item => item.id === req.account.businessId);
-      if (!business || business.status !== "approved" || business.suspended || !getPaystackSubaccountCode(business.id)) return res.status(403).json({ error: "Your business is not approved and settlement-ready to manage paid orders." });
+      if (!business || business.status !== "approved" || business.suspended || (false)) return res.status(403).json({ error: "Your business is not approved or is not configured for the selected payment method." });
       if (order.merchantType !== "business" || order.businessId !== req.account.businessId) return res.status(403).json({ error: "This order belongs to another business." });
       if (!["Confirmed", "Preparing", "Ready for pickup", "Cancelled"].includes(newStatus)) return res.status(403).json({ error: "Businesses cannot set that status." });
     } else if (role === "restaurant") {
@@ -4767,7 +4829,7 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
     // Fulfilment requires a verified payment state.
     if (
       newStatus !== "Cancelled" &&
-      !["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)
+      !isVerifiedOrderPayment(order)
     ) {
       return res.status(400).json({
         error: "This order is unpaid. Complete and verify payment before fulfilment."

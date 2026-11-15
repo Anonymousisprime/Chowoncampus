@@ -158,6 +158,12 @@
           <form id="checkoutForm" class="form-card">
           <h3>Delivery details</h3>
           <p class="small-note">You must be signed in with a student account to place an order. Your account details will be used automatically.</p>
+          <label for="paymentMethod">Payment method</label>
+          <select id="paymentMethod" name="paymentMethod" required>
+            <option value="bank_transfer">Direct bank transfer to restaurant</option>
+            <option value="foodback">Pay with FoodBack credits</option>
+          </select>
+          <p class="small-note">For direct bank transfer, the restaurant's approved account details will appear after you place the order. Upload your receipt and press Verify Payment. The restaurant must confirm actual bank credit before preparing your order. A 1% service fee applies to your items subtotal, plus the fixed ₦300 delivery fee.</p>
           <label for="hostel">Hostel / residence <span class="muted">(required)</span></label>
           <input id="hostel" name="hostel" type="text" placeholder="e.g. Hall 2, campus" maxlength="150" required>
           <div class="delivery-location-grid">
@@ -206,7 +212,7 @@
         </div>
         <button type="button" id="logoutButton" class="secondary-button">Log out</button>
       </div>
-      <section class="coc-premium-panel"><div><span>CHOWONCAMPUS PREMIUM</span><h2 id="premiumHeading">Enjoy an ad-free campus experience</h2><p id="premiumDescription">Get the Premium badge and remove dashboard and pop-up advertisements for 30 days.</p></div><div class="coc-premium-actions"><strong>₦3,000 / 30 days</strong><button id="premiumBuyButton" type="button" class="primary-button">Get Premium</button><small id="premiumStatus" role="status">One-time payment. No automatic renewal.</small></div></section>
+      <section class="coc-premium-panel"><div><span>CHOWONCAMPUS PREMIUM</span><h2 id="premiumHeading">Enjoy an ad-free campus experience</h2><p id="premiumDescription">Get the Premium badge and remove dashboard and pop-up advertisements for 30 days.</p></div><div class="coc-premium-actions"><small id="premiumStatus" role="status">Premium access is activated by the Ultimate Admin. Contact support to request access.</small></div></section>
       <section class="coc-premium-benefits" aria-label="Premium membership benefits">
         <article class="coc-premium-benefit"><strong>✦ Premium badge</strong><p>A visible badge on your student account.</p></article>
         <article class="coc-premium-benefit"><strong>▣ Extra FoodBack</strong><p>Earn 1.5% FoodBack on eligible completed orders instead of the regular 1%.</p></article>

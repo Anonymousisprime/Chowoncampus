@@ -149,9 +149,11 @@ function updateNavigation() {
 
 const TAKEAWAY_FEE = 200;
 
+function cartItemsSubtotal() {
+  return state.cart.reduce((sum, item) => sum + item.price * item.qty, 0);
+}
 function cartSubtotal() {
-  const foodSubtotal = state.cart.reduce((sum, item) => sum + item.price * item.qty, 0);
-  return foodSubtotal + (state.cart.length ? TAKEAWAY_FEE : 0);
+  return cartItemsSubtotal() + (state.cart.length ? TAKEAWAY_FEE : 0);
 }
 
 function renderRestaurants() {
@@ -307,7 +309,7 @@ function renderCart() {
   const quoteMatchesCart = state.deliveryQuote &&
     state.cart.length && state.deliveryQuote.restaurantId === state.cart[0].restaurantId;
   const delivery = state.cart.length ? 300 : 0;
-  const paymentFee = state.cart.length ? Math.round((subtotal + delivery) * 0.01) : 0;
+  const paymentFee = state.cart.length ? Math.round(cartItemsSubtotal() * 0.01) : 0;
 
   const cartCountElement = $("#cartCount");
   if (cartCountElement) cartCountElement.textContent = count;
@@ -370,7 +372,7 @@ function updateDeliveryQuoteDisplay(quote) {
   }
   const fee = 300;
   const subtotal = cartSubtotal();
-  const paymentFee = Math.round((subtotal + fee) * 0.01);
+  const paymentFee = Math.round(cartItemsSubtotal() * 0.01);
   if (feeElement) feeElement.textContent = money(fee);
   if ($("#paymentFee")) $("#paymentFee").textContent = money(paymentFee);
   if (totalElement) totalElement.textContent = money(subtotal + fee + paymentFee);
@@ -521,7 +523,7 @@ async function placeOrder(event) {
   if (pinLat === "" || pinLon === "") return showMessage("#checkoutMessage", "Before payment, choose your exact delivery point using GPS or the map. We deliver only inside the approved campus delivery area.");
   const pinCheck = deliveryPinAllowed(Number(pinLat), Number(pinLon));
   if (!pinCheck.ok) return showMessage("#checkoutMessage", pinCheck.message);
-  const paymentMethod = $("#paymentMethod")?.value || "paystack";
+  const paymentMethod = $("#paymentMethod")?.value || "bank_transfer";
   if (!state.pendingOrderRequestId) {
     state.pendingOrderRequestId = window.crypto?.randomUUID
       ? window.crypto.randomUUID()
@@ -529,7 +531,7 @@ async function placeOrder(event) {
   }
   const button = $("#placeOrderButton");
   button.disabled = true;
-  button.textContent = isLocalDemo ? "Creating demo order…" : "Preparing secure checkout…";
+  button.textContent = "Creating order…";
   try {
     const result = await api("/api/orders", {
       method: "POST",
@@ -561,19 +563,21 @@ async function placeOrder(event) {
       $("#trackingSection")?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
-    if (!isLocalDemo) {
-      const payment = await api("/api/orders/" + encodeURIComponent(order.id) + "/paystack/initialize", {
-        method: "POST",
-        body: JSON.stringify({})
-      });
+    if (paymentMethod === "bank_transfer") {
       state.pendingOrderRequestId = null;
       state.lastOrderId = order.id;
       try { localStorage.setItem("coc_last_order_id", order.id); } catch {}
-      showMessage("#checkoutMessage", "Order " + order.id + " is ready. Redirecting you to Paystack to pay " + money(order.total) + ".", true);
-      location.href = payment.authorizationUrl;
+      state.cart = [];
+      renderCart();
+      const checkoutForm = $("#checkoutForm");
+      if (checkoutForm) checkoutForm.reset();
+      if ($("#trackId")) $("#trackId").value = order.id;
+      showMessage("#checkoutMessage", "Order " + order.id + " created. Transfer the exact amount to the merchant's approved bank account, then upload your receipt and press Verify Payment in the order card. The merchant must confirm actual bank credit before preparing your order.", true);
+      showToast("Order created. Awaiting your bank transfer receipt.");
+      await trackOrder(order.id);
+      $("#trackingSection")?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
-
     state.pendingOrderRequestId = null;
     state.lastOrderId = order.id;
     try { localStorage.setItem("coc_last_order_id", order.id); } catch {}
@@ -626,7 +630,7 @@ function renderTrackedOrder(order, resultSelector = "#trackResult") {
       <p>Food and packaging: <strong>${money(order.subtotal)}</strong></p><p>Delivery fee: <strong>${money(order.deliveryFee)}</strong></p><p>Payment fee (1%): <strong>${money(order.paymentFee || 0)}</strong></p><p>Total paid/payable: <strong>${money(order.total)}</strong></p>
       <p>Payment: <strong>${escapeHtml(order.paymentStatus || "Check with the restaurant")}</strong></p>
       <p class="tiny muted">Last updated: ${escapeHtml(new Date(order.updatedAt || order.createdAt).toLocaleString())}</p>
-      ${state.account?.role === "student" && !isLocalDemo && !["Paid — Paystack verified", "Paid — demo verified"].includes(order.paymentStatus) && order.status !== "Cancelled" ? `<button class="primary-button" data-pay-order="${escapeHtml(order.id)}">Continue secure payment</button>` : ""}
+      
       <p class="tiny muted">Tracking refreshes automatically every 15 seconds while this page is open.</p>
       ${state.account?.role === "student" && (["Ready for pickup", "Out for delivery"].includes(order.status) || (order.status === "Completed" && Date.now() - new Date(order.deliveredAt || order.completedAt || 0).getTime() < 120000)) ? '<section class="temporary-chat-preview"><div><h4>Temporary delivery chat</h4><p class="tiny muted">Chat with your assigned delivery agent. The chat closes two minutes after delivery.</p></div><button type="button" class="primary-button" data-open-temp-chat="${escapeHtml(order.id)}" data-chat-title="Delivery agent">Open full-page chat ↗</button></section>' : ""}
     </article>`;
@@ -780,7 +784,8 @@ function renderOrderCard(order) {
   const canAssign = state.account.role === "admin" && order.status !== "Completed" && !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval");
   const canReviewFoodBack = state.account.role === "admin" && state.account.isSuperAdmin && order.paymentMethod === "foodback" && order.status === "Awaiting admin approval";
   const canShowAvailableAgents = state.account.role === "restaurant" && order.status === "Ready for pickup" && !order.assignedAgentId;
-  const canChangeStatus = statuses.length > 0 && !(order.status === "Completed") && !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval") && !(state.account.role === "agent" && order.status === "Out for delivery");
+  const paymentIsVerified = String(order.paymentStatus || "").startsWith("Paid —") || order.paymentStatus === "Paid — demo verified";
+  const canChangeStatus = statuses.length > 0 && paymentIsVerified && !(order.status === "Completed") && !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval") && !(state.account.role === "agent" && order.status === "Out for delivery");
   const canContactAgent = state.account.role === "restaurant" && order.assignedAgentId && ["Ready for pickup", "Out for delivery"].includes(order.status);
   const canDeliveryChat = ["Ready for pickup", "Out for delivery"].includes(order.status) && ((state.account.role === "restaurant" && order.assignedAgentId) || (state.account.role === "agent" && state.account.agentId === order.assignedAgentId));
 
@@ -797,6 +802,9 @@ function renderOrderCard(order) {
       <p class="order-items">${order.items.map(item => `${item.qty} × ${escapeHtml(item.name)}`).join(", ")}</p>
       ${state.account.role === "student" && order.deliveryCode && !["Completed", "Cancelled"].includes(order.status) ? `<section class="tracking-alert" style="background:#eaf5ee;border:1px solid #b9dec5;border-radius:12px;padding:14px;margin:14px 0"><strong>🔐 Your delivery handover code</strong><div style="font-size:28px;font-weight:900;letter-spacing:7px;margin:8px 0;color:#176b45">${escapeHtml(order.deliveryCode)}</div><p class="tiny muted">Keep this code private. Share it only when the agent has your food. The agent needs it to confirm delivery.</p></section>` : ""}
       <p>Total: <strong>${money(order.total)}</strong> · Payment: ${escapeHtml(order.paymentStatus)}</p>
+      ${state.account.role === "student" && order.paymentMethod === "bank_transfer" && order.paymentBankAccount && !String(order.paymentStatus || "").startsWith("Paid — bank transfer") ? '<section class="tracking-alert" style="background:#f3f8f4;border:1px solid #c9dfd0;border-radius:12px;padding:14px;margin:14px 0"><strong>Direct bank transfer to ' + escapeHtml(order.restaurantName) + '</strong><p>Bank: <strong>' + escapeHtml(order.paymentBankAccount.bankName) + '</strong></p><p>Account name: <strong>' + escapeHtml(order.paymentBankAccount.accountName) + '</strong></p><p>Account number: <strong>' + escapeHtml(order.paymentBankAccount.accountNumber) + '</strong></p><p>Transfer exactly: <strong>' + money(order.total) + '</strong></p><label>Bank transaction reference<input type="text" maxlength="120" data-bank-reference="' + escapeHtml(order.id) + '" placeholder="Enter transaction reference"></label><label>Upload transfer receipt<input type="file" accept="image/jpeg,image/png,image/webp" data-bank-receipt="' + escapeHtml(order.id) + '"></label><button type="button" class="primary-button" data-bank-verify="' + escapeHtml(order.id) + '">Verify Payment</button>' + (order.merchantWhatsAppNumber ? '<a class="secondary-button" target="_blank" rel="noopener noreferrer" href="https://wa.me/' + encodeURIComponent(String(order.merchantWhatsAppNumber).replace(/\D/g, "")) + '?text=' + encodeURIComponent("Hello " + order.restaurantName + ", I have submitted the bank transfer receipt for order " + order.id + ". Please check your bank account and confirm receipt.") + '">Send receipt notice on WhatsApp</a>' : '') + '<p class="tiny muted">Upload the receipt here first. WhatsApp opens a chat with the business; attach the same receipt there if requested. A screenshot alone does not confirm payment.</p></section>' : ""}
+      ${state.account.role === "restaurant" && order.paymentMethod === "bank_transfer" && order.paymentReceiptDataUrl ? '<section class="tracking-alert" style="background:#f8faf8;border:1px solid #c9dfd0;border-radius:12px;padding:14px;margin:14px 0"><strong>Student transfer receipt</strong><p>Transaction reference: <strong>' + escapeHtml(order.transactionReference || "Not supplied") + '</strong></p><p>Uploaded: ' + escapeHtml(order.paymentReceiptUploadedAt ? new Date(order.paymentReceiptUploadedAt).toLocaleString() : "—") + '</p><img src="' + escapeHtml(order.paymentReceiptDataUrl) + '" alt="Student bank transfer receipt" style="display:block;max-width:100%;max-height:420px;object-fit:contain;border-radius:8px;margin:10px 0"><div class="order-actions"><button type="button" class="primary-button" data-bank-decision="received" data-bank-order="' + escapeHtml(order.id) + '">Confirm money received</button><button type="button" class="danger-button" data-bank-decision="not_received" data-bank-order="' + escapeHtml(order.id) + '">Reject — not received</button><button type="button" class="secondary-button" data-bank-decision="investigate" data-bank-order="' + escapeHtml(order.id) + '">Flag for investigation</button></div></section>' : ""}
+      ${state.account.role === "admin" && state.account.isSuperAdmin && order.paymentMethod === "bank_transfer" && order.paymentReceiptDataUrl ? '<section class="tracking-alert" style="background:#f8faf8;border:1px solid #c9dfd0;border-radius:12px;padding:14px;margin:14px 0"><strong>Bank transfer receipt · Ultimate Admin review</strong><p>Reference: ' + escapeHtml(order.transactionReference || "—") + '</p><img src="' + escapeHtml(order.paymentReceiptDataUrl) + '" alt="Bank transfer receipt" style="display:block;max-width:100%;max-height:360px;object-fit:contain;border-radius:8px;margin:10px 0"><div class="order-actions"><button type="button" class="primary-button" data-bank-override="received" data-bank-order="' + escapeHtml(order.id) + '">Admin confirm payment</button><button type="button" class="danger-button" data-bank-override="not_received" data-bank-order="' + escapeHtml(order.id) + '">Admin reject payment</button></div></section>' : ""}
       ${order.paymentMethod === "foodback" ? `<p><strong>FoodBack redemption</strong> · ${canReviewFoodBack ? "Needs ultimate admin review" : escapeHtml(order.approvedAt ? "Approved by ultimate admin" : order.refundedAt ? "Credits refunded" : "Under review")}</p>` : "" }
       ${canReviewFoodBack ? `<div class="order-actions"><button type="button" class="primary-button" data-foodback-review="approve" data-foodback-order="${escapeHtml(order.id)}">Approve FoodBack order</button><button type="button" class="danger-button" data-foodback-review="reject" data-foodback-order="${escapeHtml(order.id)}">Reject &amp; refund credits</button></div>` : ""}
       ${order.status === "Completed" ? `<p class="muted">Delivered: ${escapeHtml(order.deliveredAt || order.completedAt ? new Date(order.deliveredAt || order.completedAt).toLocaleString() : "Time not recorded")}</p>` : ""}
@@ -903,6 +911,48 @@ async function loadRestaurantRatings() {
     reviews.innerHTML = recent.length ? recent.map(review => '<article class="order-card"><strong>' + escapeHtml(review.restaurantName || 'Restaurant') + ' · ' + (review.restaurantRating ? '★ ' + review.restaurantRating + '/5' : 'No restaurant score') + '</strong><p class="muted">Student: ' + escapeHtml(review.studentName || 'Student') + ' · Order ' + escapeHtml(review.orderId || '—') + '</p>' + (review.agentRating ? '<p>Delivery agent rating: ★ ' + escapeHtml(review.agentRating) + '/5</p>' : '') + ((review.foodRatings || []).length ? '<p>Food: ' + review.foodRatings.map(food => escapeHtml(food.itemName) + ' ★ ' + escapeHtml(food.rating) + '/5').join(' · ') + '</p>' : '') + (review.restaurantComment ? '<p><strong>Restaurant/food feedback:</strong> ' + escapeHtml(review.restaurantComment) + '</p>' : '') + '<small class="muted">Delivered: ' + escapeHtml(review.deliveredAt ? new Date(review.deliveredAt).toLocaleString() : 'Time not recorded') + ' · Rated: ' + escapeHtml(review.ratedAt ? new Date(review.ratedAt).toLocaleString() : '—') + '</small></article>').join('') : '<div class="empty-state compact-empty">No student ratings yet. Ratings appear here after students review completed orders.</div>';
   } catch (error) { summary.innerHTML = '<p class="muted">' + escapeHtml(error.message || 'Could not load ratings.') + '</p>'; }
 }
+document.addEventListener("click", async event => {
+  const verifyButton = event.target instanceof Element ? event.target.closest("[data-bank-verify]") : null;
+  if (verifyButton) {
+    const orderId = verifyButton.dataset.bankVerify;
+    const card = verifyButton.closest(".order-card");
+    const reference = card?.querySelector("[data-bank-reference]")?.value?.trim() || "";
+    const file = card?.querySelector("[data-bank-receipt]")?.files?.[0];
+    if (!reference || !file) { showToast("Enter the transaction reference and choose the receipt image first."); return; }
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 2 * 1024 * 1024) { showToast("Use a JPG, PNG or WEBP receipt up to 2 MB."); return; }
+    verifyButton.disabled = true; verifyButton.textContent = "Uploading receipt…";
+    try {
+      const dataUrl = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(new Error("Could not read the receipt image.")); reader.readAsDataURL(file); });
+      const result = await api("/api/orders/" + encodeURIComponent(orderId) + "/bank-transfer/submit", { method: "POST", body: JSON.stringify({ transactionReference: reference, mimeType: file.type, fileName: file.name, receiptDataBase64: dataUrl.split(",")[1] || "" }) });
+      showToast(result.message || "Receipt submitted for verification."); await trackOrder(orderId);
+    } catch (error) { showToast(error.message || "Could not submit the receipt."); verifyButton.disabled = false; verifyButton.textContent = "Verify Payment"; }
+    return;
+  }
+  const merchantDecision = event.target instanceof Element ? event.target.closest("[data-bank-decision]") : null;
+  if (merchantDecision) {
+    const decision = merchantDecision.dataset.bankDecision;
+    const orderId = merchantDecision.dataset.bankOrder;
+    const reason = decision === "not_received" ? (prompt("Why was this transfer not received?") || "") : "";
+    if (decision === "not_received" && reason.trim().length < 5) return showToast("Enter a reason of at least 5 characters.");
+    if (!confirm(decision === "received" ? "Have you checked your bank account and confirmed the actual credit?" : decision === "not_received" ? "Reject this transfer because no credit arrived?" : "Flag this transfer for Ultimate Admin investigation?")) return;
+    merchantDecision.disabled = true;
+    try { const result = await api("/api/orders/" + encodeURIComponent(orderId) + "/bank-transfer/verify", { method: "POST", body: JSON.stringify({ decision, reason }) }); showToast(result.message); await loadDashboard(); }
+    catch (error) { showToast(error.message); merchantDecision.disabled = false; }
+    return;
+  }
+  const adminOverride = event.target instanceof Element ? event.target.closest("[data-bank-override]") : null;
+  if (adminOverride) {
+    const decision = adminOverride.dataset.bankOverride;
+    const orderId = adminOverride.dataset.bankOrder;
+    const reason = prompt("Enter the reason for this Ultimate Admin override (at least 10 characters):") || "";
+    if (reason.trim().length < 10) return showToast("A reason of at least 10 characters is required.");
+    if (!confirm("Record this admin payment override?")) return;
+    adminOverride.disabled = true;
+    try { const result = await api("/api/superadmin/orders/" + encodeURIComponent(orderId) + "/bank-transfer/override", { method: "POST", body: JSON.stringify({ decision, reason }) }); showToast(result.message); await loadDashboard(); }
+    catch (error) { showToast(error.message); adminOverride.disabled = false; }
+    return;
+  }
+});
 document.addEventListener("click", event => {
   const menuToggle = event.target.closest("#mobileMenuToggle");
   if (menuToggle) {
@@ -1163,6 +1213,36 @@ function renderRestaurantMenuManager() {
       </form>
     </div>`;
   $("#dashboardContent").prepend(container);
+}
+
+function renderRestaurantPaymentSettingsPanel() {
+  if (!state.account || state.account.role !== "restaurant" || document.getElementById("restaurantPaymentSettingsPanel")) return;
+  const panel = document.createElement("section");
+  panel.className = "order-card";
+  panel.id = "restaurantPaymentSettingsPanel";
+  panel.style.marginBottom = "18px";
+  panel.innerHTML = '<div class="dashboard-section-heading"><div><span class="eyebrow">DIRECTPAY</span><h2>Bank account &amp; WhatsApp contact</h2><p>Students transfer directly to your approved account. Ultimate Admin must approve bank details before they appear at checkout.</p></div></div><form id="restaurantPaymentSettingsForm"><label>Bank name<input name="bankName" maxlength="100" required></label><label>Account name<input name="accountName" maxlength="120" required></label><label>10-digit account number<input name="accountNumber" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" required></label><label>WhatsApp number<input name="whatsappNumber" placeholder="e.g. 08012345678 or +2348012345678"></label><div class="menu-editor-actions"><button type="submit" class="primary-button">Save payment details</button><span id="restaurantPaymentSettingsMessage" class="muted" role="status"></span></div></form>';
+  $("#dashboardContent").prepend(panel);
+  const form = panel.querySelector("#restaurantPaymentSettingsForm");
+  const message = panel.querySelector("#restaurantPaymentSettingsMessage");
+  api("/api/merchant/payment-settings").then(settings => {
+    form.elements.bankName.value = settings.bankName || "";
+    form.elements.accountName.value = settings.accountName || "";
+    form.elements.accountNumber.value = settings.accountNumber || "";
+    form.elements.whatsappNumber.value = settings.whatsappNumber || "";
+    message.textContent = "Bank account status: " + settings.bankAccountStatus + (settings.rejectionReason ? " · " + settings.rejectionReason : "");
+  }).catch(error => { message.textContent = error.message; });
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+    const button = form.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+      const result = await api("/api/merchant/payment-settings", { method: "PUT", body: JSON.stringify(Object.fromEntries(new FormData(form))) });
+      message.textContent = result.message + " Status: " + result.settings.bankAccountStatus;
+      showToast(result.message);
+    } catch (error) { message.textContent = error.message; }
+    finally { button.disabled = false; }
+  });
 }
 
 let agentLocationWatchId = null;
@@ -1449,6 +1529,7 @@ async function loadDashboard(automatic = false) {
       loadRestaurantRatings();
       loadRestaurantAdApplications();
       renderRestaurantMenuManager();
+      renderRestaurantPaymentSettingsPanel();
       document.querySelectorAll("[data-restaurant-chat-order]").forEach(form => loadRestaurantChat(form.dataset.restaurantChatOrder));
       document.querySelectorAll("[data-agent-chat-order]").forEach(form => loadAgentChat(form.dataset.agentChatOrder));
     } else if (account.role === "admin") {
@@ -1484,25 +1565,6 @@ async function loadDashboard(automatic = false) {
             ${account.isSuperAdmin ? "<a class=\"primary-button\" href=\"/superadmin-ads.html\" style=\"text-decoration:none;display:inline-flex;align-items:center\">📣 Post / Manage Advertisements</a>" : ""}
           </div>
         </section>
-        ${account.isSuperAdmin ? `
-        <section class="dashboard-order-section" id="adminPayoutSecurityPanel">
-          <div class="dashboard-section-heading"><div><span class="eyebrow">HIGH-SECURITY CONTROL</span><h2>Restaurant payout account protection</h2><p>Only the Ultimate Admin can change a restaurant's Paystack payout destination. Every change requires a fresh password, a separate Render approval code, account-name verification and an audit record.</p></div><button type="button" class="secondary-button" id="refreshPayoutAccounts">↻ Refresh accounts</button></div>
-          <div id="payoutAccountsList" class="muted">Loading protected payout account details…</div>
-          <form id="adminPayoutChangeForm" class="order-card">
-            <h3>Change a restaurant payout account</h3>
-            <label>Restaurant<select id="payoutRestaurantId" name="restaurantId" required><option value="">Loading restaurants…</option></select></label>
-            <label>Bank<select id="payoutBankCode" name="bankCode" required><option value="">Loading supported banks…</option></select></label>
-            <label>New 10-digit account number<input id="payoutAccountNumber" name="accountNumber" inputmode="numeric" pattern="[0-9]{10}" minlength="10" maxlength="10" required autocomplete="off"></label>
-            <button type="button" class="secondary-button" id="resolvePayoutAccount">Verify bank account name</button>
-            <p id="payoutResolveMessage" class="muted" role="status" aria-live="polite">Verify the account before submitting a change.</p>
-            <label>Reason for the change<textarea name="reason" minlength="10" maxlength="300" required placeholder="Explain why this restaurant's payout account must change."></textarea></label>
-            <label>Current Ultimate Admin password<input name="currentPassword" type="password" required autocomplete="current-password"></label>
-            <label>Separate payout approval code<input name="approvalCode" type="password" required autocomplete="off"></label>
-            <button type="submit" class="danger-button">Confirm and update Paystack payout account</button>
-            <p id="payoutChangeMessage" class="muted" role="status" aria-live="polite"></p>
-          </form>
-          <p class="tiny muted">Before this control can be used, configure a unique secret named PAYOUT_CHANGE_APPROVAL_CODE in Render. Use a long, private code that is not the admin password. Never put it in website code or share it with restaurant staff.</p>
-        </section>` : ""}
         ${account.isSuperAdmin ? `
         <section class="dashboard-order-section" id="adminDailyReportsPanel">
           <div class="dashboard-section-heading"><div><span class="eyebrow">BUSINESS INTELLIGENCE</span><h2>Daily operations & earnings reports</h2><p>Generate date-based reports in Nigeria time. Reports use recorded platform data and clearly separate sales from confirmed bank credits.</p></div></div>
@@ -1623,7 +1685,7 @@ async function loadDashboard(automatic = false) {
           const cards = [
             ["Orders", data.orders.total], ["Successful", data.orders.successful], ["Cancelled", data.orders.cancelled],
             ["Failed", data.orders.failed], ["Pending", data.orders.pending], ["Food sales", money(data.orders.successfulFoodSales)],
-            ["Paystack collected", money(data.payments.paystackGross)], ["FoodBack orders", data.payments.foodbackCount],
+            ["Bank transfers", money(data.payments.bankTransferValue)], ["FoodBack orders", data.payments.foodbackCount],
             ["New students", data.students.newRegistrations], ["Active customers", data.students.activeCustomers],
             ["Agent earnings recorded", money(data.agentTotals.earned)], ["Agent payouts recorded", money(data.agentTotals.paid)]
           ];
@@ -1637,7 +1699,7 @@ async function loadDashboard(automatic = false) {
             '<section class="order-card"><h3>Restaurant performance & bank credits</h3>' + restaurantsHtml + '<h4>Confirmed bank settlement entries</h4>' + settlementsHtml + '<p class="muted">Bank credits are based only on settlement entries confirmed by the Ultimate Admin. They are not fetched or independently verified against bank statements.</p></section>' +
             '<section class="order-card"><h3>Restaurant rankings</h3>' + rankingsHtml + '</section>' +
             '<section class="order-card"><h3>Delivery agent performance</h3>' + agentsHtml + '<p class="muted">Agent earnings use completed-delivery bookkeeping; recorded payouts do not independently prove a bank transfer.</p></section>' +
-            '<section class="order-card"><h3>Students, payments & customer issues</h3><p>Paystack: ' + data.payments.paystackCount + ' · ' + money(data.payments.paystackGross) + '</p><p>FoodBack: ' + data.payments.foodbackCount + ' · ' + money(data.payments.foodbackValue) + '</p><p>Orders with outstanding/unconfirmed payment: ' + data.payments.outstandingPaymentOrders + '</p><p>Cases opened: ' + data.customerIssues.casesOpened + ' · Complaints/disputes: ' + data.customerIssues.complaintsAndDisputes + ' · Refund cases: ' + data.customerIssues.refundsMentionedInCases + '</p><p>Outstanding payment orders: ' + data.payments.outstandingPaymentOrders + ' · Amount: ' + money(data.payments.outstandingAmount) + '</p><p>FoodBack issued: ' + money(data.foodback.issued) + ' · used: ' + money(data.foodback.used) + ' · deducted: ' + money(data.foodback.deducted) + ' · outstanding wallet balance: ' + money(data.foodback.outstandingWalletBalance) + '</p></section>' +
+            '<section class="order-card"><h3>Students, payments & customer issues</h3><p>Bank transfers: ' + data.payments.bankTransferCount + ' · ' + money(data.payments.bankTransferValue) + '</p><p>FoodBack: ' + data.payments.foodbackCount + ' · ' + money(data.payments.foodbackValue) + '</p><p>Orders with outstanding/unconfirmed payment: ' + data.payments.outstandingPaymentOrders + '</p><p>Cases opened: ' + data.customerIssues.casesOpened + ' · Complaints/disputes: ' + data.customerIssues.complaintsAndDisputes + ' · Refund cases: ' + data.customerIssues.refundsMentionedInCases + '</p><p>Outstanding payment orders: ' + data.payments.outstandingPaymentOrders + ' · Amount: ' + money(data.payments.outstandingAmount) + '</p><p>FoodBack issued: ' + money(data.foodback.issued) + ' · used: ' + money(data.foodback.used) + ' · deducted: ' + money(data.foodback.deducted) + ' · outstanding wallet balance: ' + money(data.foodback.outstandingWalletBalance) + '</p></section>' +
             '<section class="order-card"><h3>System errors & suspicious activity</h3><p>Recorded system events: ' + data.system.events.length + ' · Errors: ' + data.system.errors.length + ' · Suspicious/security events: ' + data.system.suspiciousActivity.length + '</p>' + reportTable(["Event","Type","Date"], data.system.errors.concat(data.system.suspiciousActivity).map(x => [x.message || x.description || x.action || "Event",x.type || x.event || x.action || "—",x.createdAt || x.at || "—"])) + '</section>' +
             '<section class="order-card"><h3>Individual order ratings</h3>' + orderRatingsHtml + '</section>' + '<section class="order-card"><h3>Student remarks</h3>' + remarksHtml + '</section>';
         };
@@ -1717,83 +1779,6 @@ async function loadDashboard(automatic = false) {
         } finally { button.disabled = false; }
       });
 
-      if (account.isSuperAdmin) {
-        let verifiedPayoutAccount = null;
-        const payoutStatus = $("#payoutChangeMessage");
-        const payoutResolveStatus = $("#payoutResolveMessage");
-        const refreshPayoutAccounts = async () => {
-          const list = $("#payoutAccountsList");
-          const restaurantSelect = $("#payoutRestaurantId");
-          const bankSelect = $("#payoutBankCode");
-          if (!list || !restaurantSelect || !bankSelect) return;
-          try {
-            const [accountsData, banksData] = await Promise.all([
-              api("/api/superadmin/payout-accounts"),
-              api("/api/superadmin/payout-banks")
-            ]);
-            list.innerHTML = (accountsData.accounts || []).map(item =>
-              '<article class="order-card"><strong>' + escapeHtml(item.restaurantName) + '</strong><p>' +
-              (item.configured ? item.lookupFailed ? 'Paystack subaccount lookup failed.' : escapeHtml(item.bankName) + ' · ' + escapeHtml(item.accountNumberMasked) + ' · ' + escapeHtml(item.accountName) : 'No Paystack subaccount configured') +
-              '</p></article>'
-            ).join("") || '<p class="muted">No restaurant accounts found.</p>';
-            restaurantSelect.innerHTML = '<option value="">Choose restaurant</option>' + (accountsData.accounts || []).map(item =>
-              '<option value="' + escapeHtml(item.restaurantId) + '"' + (item.configured ? '' : ' disabled') + '>' + escapeHtml(item.restaurantName) + (item.configured ? '' : ' — Paystack not configured') + '</option>'
-            ).join("");
-            bankSelect.innerHTML = '<option value="">Choose bank</option>' + (banksData.banks || []).map(bank =>
-              '<option value="' + escapeHtml(bank.code) + '">' + escapeHtml(bank.name) + '</option>'
-            ).join("");
-            if (!accountsData.secondaryVerificationConfigured && payoutStatus) {
-              payoutStatus.textContent = "Payout changes are locked until PAYOUT_CHANGE_APPROVAL_CODE is configured in Render.";
-            }
-          } catch (error) {
-            list.textContent = error.message;
-          }
-        };
-        $("#refreshPayoutAccounts")?.addEventListener("click", refreshPayoutAccounts);
-        $("#payoutRestaurantId")?.addEventListener("change", () => { verifiedPayoutAccount = null; if (payoutResolveStatus) payoutResolveStatus.textContent = "Verify the account before submitting a change."; });
-        $("#payoutBankCode")?.addEventListener("change", () => { verifiedPayoutAccount = null; if (payoutResolveStatus) payoutResolveStatus.textContent = "Verify the account before submitting a change."; });
-        $("#payoutAccountNumber")?.addEventListener("input", () => { verifiedPayoutAccount = null; if (payoutResolveStatus) payoutResolveStatus.textContent = "Account details changed. Verify the account again."; });
-        $("#resolvePayoutAccount")?.addEventListener("click", async event => {
-          const button = event.currentTarget;
-          const accountNumber = $("#payoutAccountNumber")?.value.trim() || "";
-          const bankCode = $("#payoutBankCode")?.value || "";
-          verifiedPayoutAccount = null;
-          button.disabled = true;
-          if (payoutResolveStatus) payoutResolveStatus.textContent = "Checking account details with Paystack…";
-          try {
-            const result = await api("/api/superadmin/payout-account/resolve", { method: "POST", body: JSON.stringify({ accountNumber, bankCode }) });
-            verifiedPayoutAccount = { accountNumber, bankCode, accountName: result.accountName };
-            if (payoutResolveStatus) payoutResolveStatus.textContent = "Verified account name: " + result.accountName + " · " + result.accountNumberMasked + ". Confirm this is the correct restaurant account.";
-          } catch (error) {
-            if (payoutResolveStatus) payoutResolveStatus.textContent = error.message;
-          } finally { button.disabled = false; }
-        });
-        $("#adminPayoutChangeForm")?.addEventListener("submit", async event => {
-          event.preventDefault();
-          const form = event.currentTarget;
-          const values = Object.fromEntries(new FormData(form).entries());
-          const button = form.querySelector('button[type="submit"]');
-          if (!verifiedPayoutAccount || verifiedPayoutAccount.accountNumber !== String(values.accountNumber).trim() || verifiedPayoutAccount.bankCode !== values.bankCode) {
-            if (payoutStatus) payoutStatus.textContent = "Verify the current bank and account number first.";
-            return;
-          }
-          if (!window.confirm("Update this restaurant's real Paystack payout destination to " + verifiedPayoutAccount.accountName + "? This affects future split-payment settlements.")) return;
-          values.expectedAccountName = verifiedPayoutAccount.accountName;
-          button.disabled = true;
-          if (payoutStatus) payoutStatus.textContent = "Submitting protected payout change to Paystack…";
-          try {
-            const result = await api("/api/superadmin/payout-account-change", { method: "POST", body: JSON.stringify(values) });
-            if (payoutStatus) payoutStatus.textContent = result.message + " New destination: " + result.bankName + " " + result.accountNumberMasked + " (" + result.accountName + ").";
-            form.reset();
-            verifiedPayoutAccount = null;
-            if (payoutResolveStatus) payoutResolveStatus.textContent = "Verify the account before submitting a change.";
-            await refreshPayoutAccounts();
-          } catch (error) {
-            if (payoutStatus) payoutStatus.textContent = error.message;
-          } finally { button.disabled = false; }
-        });
-        refreshPayoutAccounts();
-      }
       } else if (account.role === "agent") {
       const activeDeliveryOrders = orders.filter(order =>
         order.assignedAgentId === account.agentId && ["Ready for pickup", "Out for delivery"].includes(order.status)
@@ -2055,11 +2040,7 @@ async function assignAgent(orderId) {
 
 async function initialize() {
   const initialParams = new URLSearchParams(location.search);
-  if (location.pathname === "/" && initialParams.get("payment") === "paystack") {
-    location.replace("/checkout.html" + location.search);
-    return;
-  }
-  if ($("#year")) $("#year").textContent = new Date().getFullYear();
+    if ($("#year")) $("#year").textContent = new Date().getFullYear();
   try { const savedCart = JSON.parse(localStorage.getItem("coc_cart") || "[]"); if (Array.isArray(savedCart)) state.cart = savedCart.filter(item => item && item.id && item.restaurantId && Number(item.qty) > 0); } catch { state.cart = []; }
 
   try {
@@ -2393,24 +2374,6 @@ async function initialize() {
 
     const assignButton = event.target.closest("[data-save-agent]");
     if (assignButton) await assignAgent(assignButton.dataset.saveAgent);
-
-    const payOrderButton = event.target.closest("[data-pay-order]");
-    if (payOrderButton) {
-      payOrderButton.disabled = true;
-      payOrderButton.textContent = "Opening secure checkout…";
-      try {
-        const payment = await api("/api/orders/" + encodeURIComponent(payOrderButton.dataset.payOrder) + "/paystack/initialize", {
-          method: "POST",
-          body: JSON.stringify({})
-        });
-        location.href = payment.authorizationUrl;
-      } catch (error) {
-        showToast(error.message);
-        payOrderButton.disabled = false;
-        payOrderButton.textContent = "Continue secure payment";
-      }
-      return;
-    }
 
     if (event.target.closest("#brandHome")) {
       state.selectedRestaurantId = null;
@@ -2794,35 +2757,6 @@ async function initialize() {
     } catch (error) { $("#customerChatStatus").textContent = error.message; }
     finally { button.disabled = false; }
   });
-  const paymentParams = new URLSearchParams(location.search);
-  if (paymentParams.get("payment") === "paystack") {
-    const callbackOrderId = paymentParams.get("orderId") || "";
-    const paymentReference = paymentParams.get("reference") || paymentParams.get("trxref") || "";
-    history.replaceState({}, document.title, location.pathname + location.hash);
-    if (!callbackOrderId || !paymentReference) {
-      showMessage("#checkoutMessage", "Payment was not confirmed. If you were charged, contact support with your Paystack receipt.");
-    } else {
-      showMessage("#checkoutMessage", "Verifying your payment securely…");
-      try {
-        const verification = await api("/api/payments/paystack/verify", {
-          method: "POST",
-          body: JSON.stringify({ orderId: callbackOrderId, reference: paymentReference })
-        });
-        state.lastOrderId = callbackOrderId;
-        try { localStorage.setItem("coc_last_order_id", callbackOrderId); } catch {}
-        if ($("#trackId")) $("#trackId").value = callbackOrderId;
-        showMessage("#checkoutMessage", (verification.message || "Payment verified and order confirmed.") + " Your order ID is " + callbackOrderId + ". Save this ID for tracking and support.", true);
-        showToast("Payment verified. Your order is confirmed.");
-        await trackOrder(callbackOrderId);
-        $("#trackingSection").scrollIntoView({ behavior: "smooth", block: "start" });
-      } catch (error) {
-        showMessage("#checkoutMessage", error.message + " If you were charged, keep your payment reference and contact support.");
-        $("#trackId").value = callbackOrderId;
-        await trackOrder(callbackOrderId);
-        $("#trackingSection").scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    }
-  }
   try {
     const savedOrderId = localStorage.getItem("coc_last_order_id");
     if (savedOrderId && $("#trackId")) {

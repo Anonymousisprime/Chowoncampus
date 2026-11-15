@@ -3698,7 +3698,7 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
     const cancelledOrders = orders.filter(order => order.status === "Cancelled" && inReportDay(statusEventAt(order, "Cancelled"), range));
     const failedOrders = dayOrders.filter(order => /failed|declined|rejected/i.test(String(order.paymentStatus || "")) || order.status === "Failed");
     const pendingOrders = dayOrders.filter(order => !["Completed", "Cancelled", "Failed"].includes(order.status));
-    const paidOrders = dayOrders.filter(order => ["Paid — Paystack verified", "Paid — FoodBack approved", "Paid — bank transfer verified"].includes(order.paymentStatus));
+    const paidOrders = orders.filter(order => isPaid(order) && inReportDay(order.paidAt || order.createdAt, range));
     const paystackOrders = paidOrders.filter(order => order.paymentStatus === "Paid — Paystack verified");
     const foodbackOrders = paidOrders.filter(order => order.paymentStatus === "Paid — FoodBack approved");
     const sum = (items, selector) => items.reduce((total, item) => total + reportMoney(selector(item)), 0);

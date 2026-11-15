@@ -2504,18 +2504,18 @@ app.get("/api/orders", requireLogin, (req, res) => {
 
     if (req.account.role === "business") {
       orders = orders.filter(order => order.merchantType === "business" && order.businessId === req.account.businessId &&
-        (["Paid — Paystack verified", "Paid — FoodBack approved", "Paid — bank transfer verified"].includes(order.paymentStatus) ||
+        (isVerifiedOrderPayment(order) ||
          (order.paymentMethod === "bank_transfer" && Boolean(order.paymentReceiptEncrypted))));
     } else if (req.account.role === "restaurant") {
       orders = vendorIsApproved(req.account.restaurantId) ? orders.filter(
         order => order.restaurantId === req.account.restaurantId &&
-          (["Paid — Paystack verified", "Paid — FoodBack approved", "Paid — bank transfer verified"].includes(order.paymentStatus) ||
+          (isVerifiedOrderPayment(order) ||
            (order.paymentMethod === "bank_transfer" && Boolean(order.paymentReceiptEncrypted)))
       ) : [];
     } else if (req.account.role === "agent") {
       orders = orders.filter(
         order => order.assignedAgentId === req.account.agentId &&
-          ["Paid — Paystack verified", "Paid — FoodBack approved", "Paid — bank transfer verified"].includes(order.paymentStatus)
+          isVerifiedOrderPayment(order)
       );
     } else if (req.account.role === "admin" && !req.account.isSuperAdmin) {
       orders = orders.filter(order => !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval"));
@@ -3488,7 +3488,7 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
     const businessesList = readOtherBusinesses().filter(item => item.status === "approved");
     const settlements = readRestaurantSettlements().filter(item => item.status === "confirmed" && item.settlementDate === range.day);
     const merchantFeePayments = readMerchantFeePayments();
-    const isPaid = order => ["Paid — Paystack verified", "Paid — FoodBack approved", "Paid — bank transfer verified"].includes(order.paymentStatus);
+    const isPaid = order => isVerifiedOrderPayment(order);
     const feesForOrder = order => reportMoney(order.deliveryFee) + reportMoney(order.paymentFee);
     const dayOrders = orders.filter(order => inReportDay(order.createdAt, range));
     const statusEventAt = (order, status) => {
@@ -3496,7 +3496,7 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
       const event = [...history].reverse().find(item => item.status === status);
       return event?.at || (status === "Completed" ? order.completedAt || order.deliveredAt : order.cancelledAt) || order.updatedAt || order.createdAt;
     };
-    const completedOrders = orders.filter(order => order.status === "Completed" && ["Paid — Paystack verified", "Paid — FoodBack approved", "Paid — bank transfer verified"].includes(order.paymentStatus) && inReportDay(statusEventAt(order, "Completed"), range));
+    const completedOrders = orders.filter(order => order.status === "Completed" && isVerifiedOrderPayment(order) && inReportDay(statusEventAt(order, "Completed"), range));
     const cancelledOrders = orders.filter(order => order.status === "Cancelled" && inReportDay(statusEventAt(order, "Cancelled"), range));
     const failedOrders = dayOrders.filter(order => /failed|declined|rejected/i.test(String(order.paymentStatus || "")) || order.status === "Failed");
     const pendingOrders = dayOrders.filter(order => !["Completed", "Cancelled", "Failed"].includes(order.status));
@@ -3607,8 +3607,8 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
         bankTransferPendingCount: dayOrders.filter(order => order.paymentMethod === "bank_transfer" && /awaiting|investigation/i.test(String(order.paymentStatus || ""))).length,
         bankTransferRejectedCount: dayOrders.filter(order => order.paymentMethod === "bank_transfer" && /rejected/i.test(String(order.paymentStatus || ""))).length,
         studentServiceFeeCollected: sum(paidOrders, order => order.paymentFee || 0),
-        outstandingPaymentOrders: dayOrders.filter(order => !["Paid — Paystack verified", "Paid — FoodBack approved", "Paid — bank transfer verified"].includes(order.paymentStatus) && !["Cancelled", "Failed"].includes(order.status)).length,
-        outstandingAmount: sum(dayOrders.filter(order => !["Paid — Paystack verified", "Paid — FoodBack approved", "Paid — bank transfer verified"].includes(order.paymentStatus) && !["Cancelled", "Failed"].includes(order.status)), order => order.total)
+        outstandingPaymentOrders: dayOrders.filter(order => !isVerifiedOrderPayment(order) && !["Cancelled", "Failed"].includes(order.status)).length,
+        outstandingAmount: sum(dayOrders.filter(order => !isVerifiedOrderPayment(order) && !["Cancelled", "Failed"].includes(order.status)), order => order.total)
       },
       restaurants: restaurantRows,
       businesses: businessRows,
@@ -3678,7 +3678,7 @@ app.post("/api/superadmin/merchant-fee-payments", requireSuperAdmin, (req, res) 
   const merchantOrders = orders.filter(order => (merchantType === "restaurant"
     ? order.merchantType !== "business" && String(order.restaurantId) === merchantId
     : order.merchantType === "business" && String(order.businessId) === merchantId) &&
-    ["Paid — Paystack verified", "Paid — FoodBack approved", "Paid — bank transfer verified"].includes(order.paymentStatus) &&
+    isVerifiedOrderPayment(order) &&
     Date.parse(order.paidAt || order.createdAt || "") < cutoff);
   const feesDue = merchantOrders.reduce((total, order) => total + reportMoney(order.deliveryFee) + reportMoney(order.paymentFee), 0);
   const feesAlreadyRecorded = records.filter(item => item.merchantType === merchantType && String(item.merchantId) === merchantId && String(item.paymentDate || "") <= paymentDate)
@@ -4829,7 +4829,7 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
     // Fulfilment requires a verified payment state.
     if (
       newStatus !== "Cancelled" &&
-      !["Paid — Paystack verified", "Paid — FoodBack approved", "Paid — bank transfer verified"].includes(order.paymentStatus)
+      !isVerifiedOrderPayment(order)
     ) {
       return res.status(400).json({
         error: "This order is unpaid. Complete and verify payment before fulfilment."

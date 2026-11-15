@@ -175,6 +175,7 @@ test("DirectPay merchant onboarding, receipts, verification and reconciliation",
     const studentView = await api(studentCookie, "/api/orders/" + encodeURIComponent(restaurantOrder1.id));
     assert.equal(studentView.response.status, 200);
     assert.equal("paymentReceiptDataUrl" in studentView.data.order, false);
+    assert.equal("transactionReference" in studentView.data.order, false);
 
     const restaurantView = await api(restaurantCookie, "/api/orders/" + encodeURIComponent(restaurantOrder1.id));
     assert.equal(restaurantView.response.status, 200);
@@ -183,6 +184,7 @@ test("DirectPay merchant onboarding, receipts, verification and reconciliation",
     const ordinaryAdmin = await login("/api/login", { username: "testadmin", password: "Ultimate-DirectPay-Password" });
     const restrictedView = await api(ordinaryAdmin, "/api/orders/" + encodeURIComponent(restaurantOrder1.id));
     assert.equal("paymentReceiptDataUrl" in restrictedView.data.order, false);
+    assert.equal("transactionReference" in restrictedView.data.order, false);
 
     const duplicateOrder = await createOrder(studentCookie, { type: "restaurant", id: "CB", itemId: "cb1" }, "directpay-restaurant-2");
     assert.equal(duplicateOrder.response.status, 201);

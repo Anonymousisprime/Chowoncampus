@@ -580,7 +580,7 @@ function createSmartNotificationOnce(target, key, title, message) {
 function smartNotificationEligibleOrders(orders) {
   const accepted = new Set(["Confirmed", "Preparing", "Ready for pickup", "Out for delivery", "Completed"]);
   return orders.filter(order => accepted.has(order.status) &&
-    ["Paid — Paystack verified", "Paid — FoodBack approved", "Paid — bank transfer verified"].includes(order.paymentStatus));
+    isVerifiedOrderPayment(order));
 }
 
 function smartDistanceMeters(lat1, lon1, lat2, lon2) {
@@ -785,6 +785,8 @@ function requireRole(...roles) {
   };
 }
 
+function isVerifiedOrderPayment(order) { return String(order?.paymentStatus || "").startsWith("Paid —") || order?.paymentStatus === "Paid — demo verified"; }
+
 function publicOrder(order, includeReceipt = false) {
   const { chatMessages, paymentEmail, paystackAuthorizationUrl, paystackSubaccountCode, deliveryCode, deliveryCodeAttempts, deliveryCodeLocked, paymentReceiptEncrypted, paymentReceiptHistory, paymentReferenceHistory, paymentReceiptMimeType, paymentReceiptFileName, paymentReceiptUploadedAt, transactionReference, paymentVerification, paymentBankAccountEncrypted, ...safeOrder } = order;
   if (includeReceipt && paymentReceiptEncrypted) {
@@ -831,10 +833,8 @@ function saveStudents(students) {
 const PREMIUM_PRICE_NAIRA=3000, PREMIUM_DURATION_DAYS=30;
 function getStudentPremium(s){const t=s?.premiumExpiresAt?new Date(s.premiumExpiresAt).getTime():0;const active=Number.isFinite(t)&&t>Date.now()&&!s?.premiumRevokedAt;return{active,endsAt:s?.premiumExpiresAt||null,source:s?.premiumSource||null};}
 function findStudentByPhone(phone){return readStudents().find(s=>String(s.phone)===String(phone))||null;}
-function premiumPaymentEmail(phone){return String(phone||"").replace(/\D/g,"")+"@payments.chowoncampus.com";}
 function isStudentPremiumAt(s,at=Date.now()){const time=Number(at),expires=Date.parse(s?.premiumExpiresAt||"");if(!Number.isFinite(time)||!Number.isFinite(expires)||expires<=time)return false;const revoked=s?.premiumRevokedAt?Date.parse(s.premiumRevokedAt):NaN;if(Number.isFinite(revoked)&&revoked<=time)return false;let started=s?.premiumStartedAt||s?.premiumGrantedAt||s?.premiumLastPaymentAt||null;if(!started&&Array.isArray(s?.premiumPayments)&&s.premiumPayments.length){const dates=s.premiumPayments.map(x=>Date.parse(x.paidAt||"")).filter(Number.isFinite);if(dates.length)started=new Date(Math.min(...dates)).toISOString();}if(!started)started=new Date(expires-PREMIUM_DURATION_DAYS*86400000).toISOString();const start=Date.parse(started);return !Number.isFinite(start)||start<=time;}
 function extendStudentPremium(s,ref,source,actor){const p=getStudentPremium(s),base=p.active?new Date(p.endsAt).getTime():Date.now(),endsAt=new Date(base+PREMIUM_DURATION_DAYS*86400000).toISOString();if(!p.active)s.premiumStartedAt=new Date().toISOString();s.premiumExpiresAt=endsAt;s.premiumSource=source;s.premiumGrantedBy=actor||null;s.premiumRevokedAt=null;s.premiumRevokedBy=null;s.premiumPayments=Array.isArray(s.premiumPayments)?s.premiumPayments:[];if(ref&&!s.premiumPayments.some(x=>x.reference===ref)){s.premiumPayments.unshift({reference:ref,amount:PREMIUM_PRICE_NAIRA,currency:"NGN",paidAt:new Date().toISOString(),endsAt});s.premiumPayments=s.premiumPayments.slice(0,100);}return endsAt;}
-function activatePremiumFromPayment(s,ref){s.premiumPendingPayments=(s.premiumPendingPayments||[]).filter(x=>x.reference!==ref);if((s.premiumPayments||[]).some(x=>x.reference===ref))return false;extendStudentPremium(s,ref,"paystack",null);s.premiumLastPaymentAt=new Date().toISOString();return true;}
 
 const FOODBACK_CONFIG_FILE = path.join(__dirname, "foodback-config.json");
 function readFoodBackConfig() {
@@ -1785,7 +1785,7 @@ app.get("/api/business/me", requireLogin, (req, res) => {
   const business = readOtherBusinesses().find(item => item.id === req.account.businessId);
   if (!business) return res.status(404).json({ error: "Business account not found." });
   res.set("Cache-Control", "no-store, private");
-  res.json({ business: { ...publicOtherBusiness(business), status: business.status, paused: business.paused === true, settlementConfigured: Boolean(getPaystackSubaccountCode(business.id)) } });
+  res.json({ business: { ...publicOtherBusiness(business), status: business.status, paused: business.paused === true, paymentAccountConfigured: Boolean(business.paymentAccountEncrypted && business.paymentAccountStatus === "approved") } });
 });
 
 function merchantForSession(account) {
@@ -1965,14 +1965,14 @@ app.post("/api/admin/other-businesses", requireSuperAdmin, (req, res) => {
   businesses.unshift(business);
   saveOtherBusinesses(businesses);
   createNotification({ role: "admin" }, "Other business account created", name + " was created by Ultimate Admin and is awaiting verification.");
-  res.status(201).json({ ok: true, message: "Business account created. It remains pending until all documents are verified and its own Paystack subaccount is configured.", business: { id: business.id, name: business.name, username: business.username, status: business.status } });
+  res.status(201).json({ ok: true, message: "Business account created. It remains pending until all required documents and the merchant bank account are verified.", business: { id: business.id, name: business.name, username: business.username, status: business.status } });
 });
 app.get("/api/admin/other-businesses", requireSuperAdmin, (req, res) => {
   const businesses = readOtherBusinesses().map(item => ({
     id: item.id, name: item.name, category: item.category, description: item.description, location: item.location,
     ownerName: item.ownerName, phone: item.phone, username: item.username, status: item.status,
     suspended: item.suspended === true, online: item.online === true, productCount: (item.products || []).length,
-    settlementConfigured: Boolean(getPaystackSubaccountCode(item.id)), paystackEnvKey: "PAYSTACK_SUBACCOUNT_" + String(item.id).replace(/[^a-zA-Z0-9]/g, "_").toUpperCase(), documents: (item.documents || []).filter(doc => !doc.supersededAt).map(doc => ({ id: doc.id, type: doc.type, filename: doc.filename, reviewStatus: doc.reviewStatus || "pending", rejectionReason: doc.rejectionReason || "" })), identityVerified: item.identityVerified === true, businessVerified: item.businessVerified === true, settlementVerified: item.settlementVerified === true, createdAt: item.createdAt
+    paymentAccountConfigured: Boolean(item.paymentAccountEncrypted && item.paymentAccountStatus === "approved"), documents: (item.documents || []).filter(doc => !doc.supersededAt).map(doc => ({ id: doc.id, type: doc.type, filename: doc.filename, reviewStatus: doc.reviewStatus || "pending", rejectionReason: doc.rejectionReason || "" })), identityVerified: item.identityVerified === true, businessVerified: item.businessVerified === true, settlementVerified: item.settlementVerified === true, createdAt: item.createdAt
   }));
   res.set("Cache-Control", "no-store, private");
   res.json({ businesses });
@@ -1985,7 +1985,7 @@ app.patch("/api/admin/other-businesses/:id", requireSuperAdmin, (req, res) => {
   if (!business) return res.status(404).json({ error: "Business application not found." });
   if (action === "approve") {
     if (!business.identityVerified || !business.businessVerified || !business.settlementVerified) return res.status(409).json({ error: "Verify the owner identity, business proof and settlement document before approval." });
-    if (!getPaystackSubaccountCode(business.id)) return res.status(409).json({ error: "Configure this business own Paystack subaccount in Render before approval. Required environment variable: PAYSTACK_SUBACCOUNT_" + String(business.id).replace(/[^a-zA-Z0-9]/g, "_").toUpperCase() });
+    if (!business.paymentAccountEncrypted || business.paymentAccountStatus !== "approved") return res.status(409).json({ error: "Approve this business bank account in the merchant payment settings before approving the business." });
     business.status = "approved"; business.reviewedAt = new Date().toISOString(); business.reviewedBy = req.account.username;
   }
   if (action === "reject") { business.status = "rejected"; business.rejectionReason = String(req.body.reason || "").trim().slice(0, 300); business.online = false; }
@@ -2141,9 +2141,9 @@ app.post("/api/logout", (req, res) => {
 app.post("/api/orders", requireRole("student"), (req, res) => {
   const { hostel, block, room, landmark, latitude, longitude, restaurantId, businessId, items, requestId } = req.body;
   const requestedMerchantId = String(businessId || restaurantId || "").trim();
-  const paymentMethod = String(req.body.paymentMethod || "paystack").trim().toLowerCase();
-  if (!["paystack", "foodback", "bank_transfer"].includes(paymentMethod)) return res.status(400).json({ error: "Choose Paystack, bank transfer or FoodBack as your payment method." });
-  if (businessId && paymentMethod === "foodback") return res.status(400).json({ error: "FoodBack is not enabled for Other Businesses yet. Choose direct bank transfer or Paystack." });
+  const paymentMethod = String(req.body.paymentMethod || "bank_transfer").trim().toLowerCase();
+  if (!["foodback", "bank_transfer"].includes(paymentMethod)) return res.status(400).json({ error: "Choose direct bank transfer or FoodBack as your payment method." });
+  if (businessId && paymentMethod === "foodback") return res.status(400).json({ error: "FoodBack is not enabled for Other Businesses yet. Choose direct bank transfer." });
   let student;
   try {
     student = readStudents().find(item => item.phone === req.account.username);
@@ -2206,7 +2206,6 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
   if (restaurant && !vendorIsApproved(restaurant.id)) return res.status(403).json({ error: "This restaurant is not yet approved to accept orders. Please choose an approved restaurant." });
   if (restaurant && !restaurantAcceptsOrders(restaurant)) return res.status(409).json({ error: "This restaurant is currently offline or has paused incoming orders. Please choose another restaurant or try again later." });
   if (business && (!business.online || business.paused)) return res.status(409).json({ error: "This business is currently offline or has paused incoming orders. Please choose another shop or try again later." });
-  if (business && paymentMethod === "paystack" && !getPaystackSubaccountCode(business.id)) return res.status(503).json({ error: "This shop is not yet enabled for Paystack checkout. Use bank transfer or contact ChowOnCampus support." });
   if (paymentMethod === "bank_transfer" && (!merchant.paymentAccountEncrypted || merchant.paymentAccountStatus !== "approved")) {
     return res.status(409).json({ error: "This business has not yet had its bank account approved by ChowOnCampus. Choose another payment method or try again later." });
   }
@@ -2267,7 +2266,7 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
   if (paymentMethod === "foodback") {
     expireFoodBackCredits(student);
     if ((Number(student.foodbackBalance) || 0) < orderTotal) {
-      return res.status(400).json({ error: "Your FoodBack balance is not enough to cover the full order. Choose Paystack or earn more FoodBack first." });
+      return res.status(400).json({ error: "Your FoodBack balance is not enough to cover the full order. Choose direct bank transfer or earn more FoodBack first." });
     }
   }
 
@@ -2354,248 +2353,9 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
   }
 });
 
-// Paystack checkout is initialized server-side; the secret key is never sent to the browser.
-function hasPaystackConfig() {
-  const key = String(process.env.PAYSTACK_SECRET_KEY || "").trim();
-  // Production checkout must never silently run with a test key.
-  return IS_PRODUCTION ? /^sk_live_/.test(key) : /^sk_test_/.test(key);
-}
-
-// Each restaurant has its own Paystack subaccount. Keep these codes in Render environment
-// variables, never in browser code or committed source. Example: PAYSTACK_SUBACCOUNT_CB=ACCT_...
-function getPaystackSubaccountCode(restaurantId) {
-  const suffix = String(restaurantId || "").replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
-  const code = String(process.env["PAYSTACK_SUBACCOUNT_" + suffix] || "").trim();
-  return /^ACCT_[A-Za-z0-9]+$/.test(code) ? code : null;
-}
-
-async function paystackRequest(url, options = {}) {
-  const response = await fetch("https://api.paystack.co" + url, {
-    ...options,
-    headers: {
-      Authorization: "Bearer " + process.env.PAYSTACK_SECRET_KEY,
-      "Content-Type": "application/json",
-      ...(options.headers || {})
-    }
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok || result.status !== true) {
-    console.error("Paystack request failed:", response.status, result.message || "unknown error");
-    throw new Error("Payment provider could not complete the request. Please try again.");
-  }
-  return result.data;
-}
-
-
-app.post("/api/premium/paystack/initialize",requireRole("student"),async(req,res)=>{
- if(!hasPaystackConfig())return res.status(503).json({error:"Premium payments are not configured yet."});
- const students=readStudents(),s=students.find(x=>x.phone===req.account.username);if(!s)return res.status(404).json({error:"Student account not found."});
- if(getStudentPremium(s).active)return res.status(409).json({error:"Premium is already active until "+s.premiumExpiresAt+"."});
- const reference="COCPREM-"+crypto.randomBytes(12).toString("hex").toUpperCase();
- try{const p=await paystackRequest("/transaction/initialize",{method:"POST",body:JSON.stringify({email:premiumPaymentEmail(s.phone),amount:300000,currency:"NGN",reference,callback_url:"https://chowoncampus.onrender.com/student-dashboard.html?premium=success",metadata:{type:"chowoncampus_premium",student_phone:s.phone,plan:"premium_30_days",duration_days:30}})});
- s.premiumPendingPayments=Array.isArray(s.premiumPendingPayments)?s.premiumPendingPayments:[];s.premiumPendingPayments.push({reference,initializedAt:new Date().toISOString()});s.premiumPendingPayments=s.premiumPendingPayments.slice(-10);saveStudents(students);res.json({authorizationUrl:p.authorization_url,reference});
- }catch(e){console.error("Premium payment init:",e.message);res.status(502).json({error:"Could not start Premium payment. Please try again."});}
-});
-app.post("/api/premium/paystack/verify",requireRole("student"),async(req,res)=>{
- if(!hasPaystackConfig())return res.status(503).json({error:"Premium payments are not configured yet."});
- const ref=String(req.body.reference||"").trim();if(!/^COCPREM-[A-F0-9]{24}$/.test(ref))return res.status(400).json({error:"Invalid Premium payment reference."});
- const students=readStudents(),s=students.find(x=>x.phone===req.account.username);if(!s)return res.status(404).json({error:"Student account not found."});
- if((s.premiumPayments||[]).some(x=>x.reference===ref))return res.json({ok:true,premium:getStudentPremium(s),message:"Payment was already verified."});
- if(!(s.premiumPendingPayments||[]).some(x=>x.reference===ref))return res.status(400).json({error:"This payment was not started for your account."});
- try{const p=await paystackRequest("/transaction/verify/"+encodeURIComponent(ref));if(p.status!=="success"||p.reference!==ref||Number(p.amount)!==300000||p.currency!=="NGN"||String(p.metadata?.type||"")!=="chowoncampus_premium"||String(p.metadata?.student_phone||"")!==String(s.phone)||String(p.customer?.email||"").toLowerCase()!==premiumPaymentEmail(s.phone).toLowerCase())return res.status(400).json({error:"Payment could not be verified for this account. If charged, contact support with your reference."});
- activatePremiumFromPayment(s,ref);saveStudents(students);res.setHeader("Cache-Control","no-store, private");res.json({ok:true,premium:getStudentPremium(s),message:"Premium activated for 30 days. Your badge and ad-free access are active."});
- }catch(e){console.error("Premium verification:",e.message);res.status(502).json({error:"Could not verify payment right now. Please try again shortly."});}
-});
 app.get("/api/superadmin/premium/students",requireSuperAdmin,(req,res)=>{const students=readStudents().map(s=>({id:s.id,name:s.name,phone:s.phone,premium:getStudentPremium(s),source:s.premiumSource||null,paymentCount:(s.premiumPayments||[]).length}));res.setHeader("Cache-Control","no-store, private");res.json({students,price:3000,durationDays:30});});
 app.post("/api/superadmin/premium/:id/grant",requireSuperAdmin,(req,res)=>{const raw=String(req.body.endsAt||"");if(!/^\d{4}-\d{2}-\d{2}$/.test(raw))return res.status(400).json({error:"Choose a valid expiry date."});const expiry=new Date(raw+"T23:59:59.999+01:00");if(!Number.isFinite(expiry.getTime())||expiry.getTime()<=Date.now())return res.status(400).json({error:"Expiry must be in the future."});const students=readStudents(),s=students.find(x=>x.id===req.params.id);if(!s)return res.status(404).json({error:"Student account not found."});const wasPremiumActive=getStudentPremium(s).active;if(!wasPremiumActive)s.premiumStartedAt=new Date().toISOString();s.premiumExpiresAt=expiry.toISOString();s.premiumSource="admin";s.premiumGrantedBy=req.account.username;s.premiumGrantedAt=new Date().toISOString();s.premiumRevokedAt=null;s.premiumRevokedBy=null;saveStudents(students);res.json({ok:true,premium:getStudentPremium(s),message:"Premium granted or extended."});});
 app.post("/api/superadmin/premium/:id/revoke",requireSuperAdmin,(req,res)=>{const students=readStudents(),s=students.find(x=>x.id===req.params.id);if(!s)return res.status(404).json({error:"Student account not found."});s.premiumExpiresAt=new Date().toISOString();s.premiumRevokedAt=s.premiumExpiresAt;s.premiumRevokedBy=req.account.username;saveStudents(students);res.json({ok:true,message:"Premium revoked. Badge and ad-free access stop immediately."});});
-
-app.post("/api/orders/:id/paystack/initialize", requireRole("student"), async (req, res) => {
-  if (!IS_PRODUCTION) return res.status(400).json({ error: "Use the local demo payment flow outside production." });
-  if (!hasPaystackConfig()) return res.status(503).json({ error: "Online payments are not configured yet. Please contact support." });
-  const orders = readOrders();
-  const order = orders.find(item => item.id === req.params.id);
-  if (!order) return res.status(404).json({ error: "Order not found." });
-  if (order.customerPhone !== req.account.username) return res.status(403).json({ error: "You can only pay for your own order." });
-  const savedLocation = order.deliveryLocation || {};
-  const deliveryAreaCheck = getDeliveryAreaCheck(savedLocation.latitude, savedLocation.longitude);
-  if (!deliveryAreaCheck.ok) return res.status(400).json({ error: deliveryAreaCheck.error });
-  const subaccountCode = getPaystackSubaccountCode(order.restaurantId);
-  if (!subaccountCode) return res.status(503).json({ error: order.merchantType === "business" ? "This shop does not yet have its own Paystack subaccount configured. Payment is disabled until the shop settlement account is verified." : "This restaurant is not configured for secure split payments yet. Please contact ChowOnCampus support." });
-  if (["Paid — Paystack verified", "Paid — demo verified"].includes(order.paymentStatus)) {
-    return res.status(409).json({ error: "This order has already been paid." });
-  }
-  if (order.paymentStatus === "Payment pending" && order.paystackReference && order.paystackAuthorizationUrl &&
-      order.paystackSplitConfigured === true && order.paystackSubaccountCode === subaccountCode) {
-    return res.json({ authorizationUrl: order.paystackAuthorizationUrl, reference: order.paystackReference, orderId: order.id });
-  }
-  // Do not reuse a checkout link initialized before split payments were enabled or for another subaccount.
-  if (order.paymentStatus === "Payment pending") {
-    order.paymentStatus = "Unpaid";
-    order.paystackReference = null;
-    order.paystackAuthorizationUrl = null;
-    order.paystackSplitConfigured = false;
-  }
-  // Paystack requires an email field, but ChowOnCampus does not collect one at checkout.
-  // Use a deterministic phone-based alias so students are not blocked by an extra email field.
-  const email = String(order.customerPhone || "").replace(/\D/g, "") + "@payments.chowoncampus.com";
-  if (order.status === "Cancelled") return res.status(400).json({ error: "This order has been cancelled." });
-  if (!Number.isSafeInteger(Number(order.total)) || Number(order.total) <= 0) {
-    return res.status(400).json({ error: "The order total is invalid. Please contact support." });
-  }
-  const reference = "COC-" + crypto.randomBytes(16).toString("hex");
-  const baseUrl = String(process.env.PUBLIC_APP_URL || ((req.headers["x-forwarded-proto"] || req.protocol) + "://" + req.get("host"))).replace(/\/$/, "");
-  const amountKobo = Math.round(Number(order.total) * 100);
-  const restaurantShareKobo = Math.round(Number(order.subtotal) * 100);
-  const platformShareKobo = Math.round((Number(order.deliveryFee) + Number(order.paymentFee || 0)) * 100);
-  if (!Number.isSafeInteger(amountKobo) || amountKobo <= 0 ||
-      !Number.isSafeInteger(restaurantShareKobo) || restaurantShareKobo < 0 ||
-      !Number.isSafeInteger(platformShareKobo) || platformShareKobo < 0 ||
-      restaurantShareKobo + platformShareKobo !== amountKobo) {
-    return res.status(400).json({ error: "The order payment split does not balance. Please recreate the order or contact support." });
-  }
-  try {
-    const payment = await paystackRequest("/transaction/initialize", {
-      method: "POST",
-      body: JSON.stringify({
-        email,
-        amount: amountKobo,
-        currency: "NGN",
-        reference,
-        subaccount: subaccountCode,
-        transaction_charge: platformShareKobo,
-        bearer: "account",
-        callback_url: baseUrl + "/?payment=paystack&orderId=" + encodeURIComponent(order.id),
-        metadata: {
-          order_id: order.id,
-          customer_phone: order.customerPhone,
-          merchant_type: order.merchantType || "restaurant",
-          business_id: order.businessId || "",
-          restaurant_id: order.restaurantId,
-          restaurant_share_kobo: restaurantShareKobo,
-          platform_share_kobo: platformShareKobo,
-          payment_fee_kobo: Math.round(Number(order.paymentFee || 0) * 100)
-        }
-      })
-    });
-    order.paymentEmail = email;
-    order.paystackReference = reference;
-    order.paystackAuthorizationUrl = payment.authorization_url;
-    order.paystackSubaccountCode = subaccountCode;
-    order.paystackSplitConfigured = true;
-    order.restaurantShare = Number(order.subtotal);
-    order.platformShare = Number(order.deliveryFee) + Number(order.paymentFee || 0);
-    order.paymentInitializationAt = new Date().toISOString();
-    order.paymentStatus = "Payment pending";
-    order.updatedAt = order.paymentInitializationAt;
-    saveOrders(orders);
-    return res.json({ authorizationUrl: payment.authorization_url, reference, orderId: order.id });
-  } catch (error) {
-    console.error("Paystack initialization failed for order:", order.id, error.message);
-    return res.status(502).json({ error: error.message || "Could not start payment. Please try again." });
-  }
-});
-
-app.post("/api/payments/paystack/webhook", async (req, res) => {
-  if (!hasPaystackConfig()) return res.sendStatus(503);
-  const signature = String(req.headers["x-paystack-signature"] || "");
-  const rawBody = req.rawBody;
-  if (!signature || !rawBody) return res.sendStatus(400);
-  const expected = crypto.createHmac("sha512", process.env.PAYSTACK_SECRET_KEY).update(rawBody).digest();
-  let received;
-  try { received = Buffer.from(signature, "hex"); } catch { return res.sendStatus(401); }
-  if (received.length !== expected.length || !crypto.timingSafeEqual(received, expected)) return res.sendStatus(401);
-
-  const event = req.body || {};
-  if (event.event !== "charge.success" || !event.data) return res.sendStatus(200);
-  const payment = event.data;
-  const reference = String(payment.reference || "");
-  if(String(payment.metadata?.type||"")==="chowoncampus_premium"){
-    try{const students=readStudents(),s=students.find(x=>x.phone===String(payment.metadata?.student_phone||""));const pending=s&&(s.premiumPendingPayments||[]).some(x=>x.reference===reference);const valid=s&&pending&&payment.status==="success"&&Number(payment.amount)===300000&&payment.currency==="NGN"&&String(payment.metadata?.plan||"")==="premium_30_days"&&String(payment.customer?.email||"").toLowerCase()===premiumPaymentEmail(s.phone).toLowerCase();if(valid){activatePremiumFromPayment(s,reference);saveStudents(students);}else console.warn("Premium webhook mismatch:",reference);return res.sendStatus(200);}catch(e){console.error("Premium webhook:",e.message);return res.sendStatus(500);}
-  }
-  const orderId = String(payment.metadata?.order_id || "");
-  if (!orderId || !reference) return res.sendStatus(200);
-  try {
-    const orders = readOrders();
-    const order = orders.find(item => item.id === orderId);
-    if (!order || order.paystackReference !== reference) return res.sendStatus(200);
-    const validPayment = payment.status === "success" &&
-      Number(payment.amount) === Math.round(Number(order.total) * 100) &&
-      payment.currency === "NGN" &&
-      String(payment.metadata?.restaurant_id || "") === String(order.restaurantId) &&
-      String(payment.metadata?.merchant_type || "restaurant") === String(order.merchantType || "restaurant") &&
-      String(payment.metadata?.business_id || "") === String(order.businessId || "") &&
-      Number(payment.metadata?.restaurant_share_kobo) === Math.round(Number(order.subtotal) * 100) &&
-      Number(payment.metadata?.platform_share_kobo) === Math.round((Number(order.deliveryFee) + Number(order.paymentFee || 0)) * 100) &&
-      String(payment.customer?.email || "").toLowerCase() === String(order.paymentEmail || "").toLowerCase();
-    if (!validPayment) {
-      console.warn("Paystack webhook did not match order amount or customer:", order.id);
-      return res.sendStatus(200);
-    }
-    if (order.paymentStatus !== "Paid — Paystack verified" && order.status !== "Cancelled") {
-      const changedAt = new Date().toISOString();
-      order.paymentStatus = "Paid — Paystack verified";
-      order.paidAt = changedAt;
-      order.paymentChannel = String(payment.channel || "");
-      order.status = "Confirmed";
-      order.updatedAt = changedAt;
-      order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
-      order.statusHistory.push({ status: "Confirmed", at: changedAt, by: "Paystack webhook" });
-      saveOrders(orders);
-      notifyOrderParties(order, "Payment verified — new order", order.customerName + " paid for an order at " + order.restaurantName + ".");
-      return res.json({ received: true });
-    }
-    return res.sendStatus(200);
-  } catch (error) {
-    console.error("Paystack webhook processing failed:", error.message);
-    return res.sendStatus(500);
-  }
-});
-
-app.post("/api/payments/paystack/verify", requireRole("student"), async (req, res) => {
-  if (!hasPaystackConfig()) return res.status(503).json({ error: "Online payments are not configured yet." });
-  const orderId = String(req.body.orderId || "").trim();
-  const reference = String(req.body.reference || "").trim();
-  if (!orderId || !reference || reference.length > 100) return res.status(400).json({ error: "Order ID and payment reference are required." });
-  const orders = readOrders();
-  const order = orders.find(item => item.id === orderId);
-  if (!order) return res.status(404).json({ error: "Order not found." });
-  if (order.customerPhone !== req.account.username) return res.status(403).json({ error: "You can only verify your own order." });
-  if (order.paymentStatus === "Paid — Paystack verified" && order.paystackReference === reference) {
-    return res.json({ ok: true, order: publicOrder(order), message: "Payment was already verified." });
-  }
-  if (order.paystackReference !== reference) return res.status(400).json({ error: "This payment reference does not match the order." });
-  if (order.status === "Cancelled") return res.status(400).json({ error: "This order has been cancelled." });
-  try {
-    const payment = await paystackRequest("/transaction/verify/" + encodeURIComponent(reference));
-    const expectedAmount = Math.round(Number(order.total) * 100);
-    if (payment.status !== "success" || payment.reference !== reference ||
-        Number(payment.amount) !== expectedAmount || payment.currency !== "NGN" ||
-        String(payment.metadata?.order_id || "") !== order.id ||
-        String(payment.metadata?.restaurant_id || "") !== String(order.restaurantId) ||
-        String(payment.metadata?.merchant_type || "restaurant") !== String(order.merchantType || "restaurant") ||
-        String(payment.metadata?.business_id || "") !== String(order.businessId || "") ||
-        Number(payment.metadata?.restaurant_share_kobo) !== Math.round(Number(order.subtotal) * 100) ||
-        Number(payment.metadata?.platform_share_kobo) !== Math.round((Number(order.deliveryFee) + Number(order.paymentFee || 0)) * 100) ||
-        String(payment.customer?.email || "").toLowerCase() !== String(order.paymentEmail || "").toLowerCase()) {
-      return res.status(400).json({ error: "Payment could not be verified against this order. If you were charged, contact support with your payment reference." });
-    }
-    const changedAt = new Date().toISOString();
-    order.paymentStatus = "Paid — Paystack verified";
-    order.paidAt = changedAt;
-    order.paymentChannel = String(payment.channel || "");
-    order.status = "Confirmed";
-    order.updatedAt = changedAt;
-    order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
-    order.statusHistory.push({ status: "Confirmed", at: changedAt, by: "Paystack verification" });
-    saveOrders(orders);
-    notifyOrderParties(order, "Payment verified — new order", order.customerName + " paid for an order at " + order.restaurantName + ".");
-    return res.json({ ok: true, order: publicOrder(order), message: "Payment verified successfully. Your order is confirmed." });
-  } catch (error) {
-    console.error("Paystack verification failed for order:", order.id, error.message);
-    return res.status(502).json({ error: "We could not verify the payment right now. If you were charged, contact support with your payment reference." });
-  }
-});
 
 // Local testing only: simulates payment without charging money.
 // View orders: restaurants see their orders, agents see assigned orders.
@@ -2605,7 +2365,7 @@ app.post("/api/orders/:id/bank-transfer/submit", requireRole("student"), (req, r
   if (!order) return res.status(404).json({ error: "Order not found." });
   if (order.customerPhone !== req.account.username) return res.status(403).json({ error: "You can only submit payment for your own order." });
   if (order.paymentMethod !== "bank_transfer") return res.status(400).json({ error: "This order does not use bank transfer." });
-  if (["Paid — bank transfer verified", "Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)) return res.status(409).json({ error: "This order is already marked as paid." });
+  if (isVerifiedOrderPayment(order)) return res.status(409).json({ error: "This order is already marked as paid." });
   if (order.status === "Cancelled") return res.status(409).json({ error: "This order has been cancelled." });
   const transactionReference = String(req.body.transactionReference || "").trim().slice(0, 120);
   const mimeType = String(req.body.mimeType || "").toLowerCase();
@@ -3974,133 +3734,6 @@ app.post("/api/superadmin/restaurant-settlements", requireSuperAdmin, (req, res)
   }
 });
 
-// Payout account changes are performed only against the existing Paystack subaccount.
-// The secondary approval code is configured as a Render secret and is never stored in app data.
-app.get("/api/superadmin/payout-banks", requireSuperAdmin, async (req, res) => {
-  if (!hasPaystackConfig()) return res.status(503).json({ error: "Live Paystack is not configured." });
-  try {
-    const data = await paystackRequest("/bank?country=nigeria&perPage=100");
-    res.setHeader("Cache-Control", "no-store, private");
-    res.json({ banks: (Array.isArray(data) ? data : []).map(bank => ({ name: bank.name, code: String(bank.code) })) });
-  } catch (error) {
-    res.status(502).json({ error: error.message || "Could not load supported banks." });
-  }
-});
-
-app.get("/api/superadmin/payout-accounts", requireSuperAdmin, async (req, res) => {
-  if (!hasPaystackConfig()) return res.status(503).json({ error: "Live Paystack is not configured." });
-  try {
-    const results = await Promise.all(restaurants.map(async restaurant => {
-      const code = getPaystackSubaccountCode(restaurant.id);
-      if (!code) return { restaurantId: restaurant.id, restaurantName: restaurant.name, configured: false };
-      try {
-        const data = await paystackRequest("/subaccount/" + encodeURIComponent(code));
-        return {
-          restaurantId: restaurant.id, restaurantName: restaurant.name, configured: true,
-          bankName: data.settlement_bank || "Unknown bank",
-          accountNumberMasked: maskBankAccount(data.account_number),
-          accountName: data.account_name || "Name not provided by Paystack"
-        };
-      } catch {
-        return { restaurantId: restaurant.id, restaurantName: restaurant.name, configured: true, lookupFailed: true };
-      }
-    }));
-    res.setHeader("Cache-Control", "no-store, private");
-    res.json({ accounts: results, secondaryVerificationConfigured: Boolean(process.env.PAYOUT_CHANGE_APPROVAL_CODE) });
-  } catch (error) {
-    res.status(502).json({ error: error.message || "Could not load payout accounts." });
-  }
-});
-
-app.post("/api/superadmin/payout-account/resolve", requireSuperAdmin, async (req, res) => {
-  if (!hasPaystackConfig()) return res.status(503).json({ error: "Live Paystack is not configured." });
-  const accountNumber = String(req.body.accountNumber || "").trim();
-  const bankCode = String(req.body.bankCode || "").trim();
-  if (!/^\d{10}$/.test(accountNumber)) return res.status(400).json({ error: "Enter a valid 10-digit Nigerian account number." });
-  if (!/^[A-Za-z0-9]{2,8}$/.test(bankCode)) return res.status(400).json({ error: "Choose a valid bank." });
-  const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
-  if (!resetRateLimit("payout-resolve:" + req.account.username + ":" + ip, 8, 15 * 60 * 1000)) {
-    return res.status(429).json({ error: "Too many account lookups. Wait 15 minutes and try again." });
-  }
-  try {
-    const data = await paystackRequest("/bank/resolve?account_number=" + encodeURIComponent(accountNumber) + "&bank_code=" + encodeURIComponent(bankCode));
-    if (String(data.account_number || "") !== accountNumber || !String(data.account_name || "").trim()) {
-      return res.status(422).json({ error: "Paystack could not confirm this account. Check the bank and account number." });
-    }
-    res.setHeader("Cache-Control", "no-store, private");
-    res.json({ verified: true, accountName: String(data.account_name).trim(), accountNumberMasked: maskBankAccount(accountNumber) });
-  } catch (error) {
-    res.status(422).json({ error: error.message || "Paystack could not verify this account." });
-  }
-});
-
-app.post("/api/superadmin/payout-account-change", requireSuperAdmin, async (req, res) => {
-  if (!IS_PRODUCTION || !hasPaystackConfig()) return res.status(503).json({ error: "Payout account changes are available only with live Paystack in production." });
-  const approvalCode = String(process.env.PAYOUT_CHANGE_APPROVAL_CODE || "");
-  if (approvalCode.length < 12) return res.status(503).json({ error: "Secondary verification is not configured. Set PAYOUT_CHANGE_APPROVAL_CODE in Render before changing any payout account." });
-  const restaurantId = String(req.body.restaurantId || "").trim();
-  const accountNumber = String(req.body.accountNumber || "").trim();
-  const bankCode = String(req.body.bankCode || "").trim();
-  const reason = String(req.body.reason || "").trim().slice(0, 300);
-  const expectedAccountName = String(req.body.expectedAccountName || "").trim();
-  const currentPassword = String(req.body.currentPassword || "");
-  const submittedApprovalCode = String(req.body.approvalCode || "");
-  if (!restaurants.some(item => item.id === restaurantId)) return res.status(404).json({ error: "Restaurant not found." });
-  if (!/^\d{10}$/.test(accountNumber) || !/^[A-Za-z0-9]{2,8}$/.test(bankCode)) return res.status(400).json({ error: "Enter a valid bank and 10-digit account number." });
-  if (!reason || reason.length < 10) return res.status(400).json({ error: "Enter a reason of at least 10 characters for the audit record." });
-  if (!expectedAccountName || expectedAccountName.length > 120) return res.status(400).json({ error: "Verify the account number first and confirm the bank account name." });
-  if (!currentPassword || !submittedApprovalCode) return res.status(400).json({ error: "Your current admin password and secondary approval code are required." });
-  const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
-  if (!resetRateLimit("payout-change:" + req.account.username + ":" + ip, 5, 15 * 60 * 1000)) {
-    return res.status(429).json({ error: "Too many payout change attempts. Wait 15 minutes and try again." });
-  }
-  if (!verifyUltimateAdminPassword(req.account.username, currentPassword) ||
-      !constantTimeTextMatch(submittedApprovalCode, approvalCode)) {
-    return res.status(403).json({ error: "The admin password or secondary approval code is incorrect." });
-  }
-  const subaccountCode = getPaystackSubaccountCode(restaurantId);
-  if (!subaccountCode) return res.status(409).json({ error: "This restaurant has no Paystack subaccount configured in Render." });
-  const restaurant = restaurants.find(item => item.id === restaurantId);
-  try {
-    const oldData = await paystackRequest("/subaccount/" + encodeURIComponent(subaccountCode));
-    const resolved = await paystackRequest("/bank/resolve?account_number=" + encodeURIComponent(accountNumber) + "&bank_code=" + encodeURIComponent(bankCode));
-    const resolvedName = String(resolved.account_name || "").trim();
-    if (String(resolved.account_number || "") !== accountNumber || !resolvedName ||
-        resolvedName.toLocaleUpperCase().replace(/\s+/g, " ") !== expectedAccountName.toLocaleUpperCase().replace(/\s+/g, " ")) {
-      return res.status(409).json({ error: "The account name no longer matches the verified details. Verify the account again before saving." });
-    }
-    const updated = await paystackRequest("/subaccount/" + encodeURIComponent(subaccountCode), {
-      method: "PUT",
-      body: JSON.stringify({ settlement_bank: bankCode, account_number: accountNumber })
-    });
-    if (String(updated.account_number || "") !== accountNumber) {
-      return res.status(502).json({ error: "Paystack did not confirm the new account number. Check the Paystack dashboard before retrying." });
-    }
-    recordOperationsEvent({
-      type: "restaurant_payout_account_changed", entityType: "restaurant",
-      entityId: restaurantId, entityName: restaurant.name,
-      actorRole: "admin", actorId: req.account.username,
-      details: "Paystack payout destination changed. Previous: " + String(oldData.settlement_bank || "Unknown bank") + " " + maskBankAccount(oldData.account_number) +
-        "; new: " + String(updated.settlement_bank || "Selected bank") + " " + maskBankAccount(updated.account_number) +
-        "; reason: " + reason
-    });
-    res.setHeader("Cache-Control", "no-store, private");
-    res.json({
-      ok: true,
-      restaurantId,
-      bankName: updated.settlement_bank || "Updated",
-      accountNumberMasked: maskBankAccount(updated.account_number),
-      accountName: updated.account_name || resolvedName,
-      message: "Paystack payout account updated and the change was recorded in the operations audit log."
-    });
-  } catch (error) {
-    console.error("Protected Paystack payout account update failed:", error.message);
-    res.status(502).json({ error: error.message || "Paystack could not update this payout account. Verify the current account in Paystack before retrying." });
-  }
-});
-
-
- 
 // Ultimate-admin operations archive. Refund decisions are logged here; approval does
 // not itself move money through Paystack or issue FoodBack credit.
 app.get("/api/superadmin/operations-records", requireSuperAdmin, (req, res) => {
@@ -5117,7 +4750,7 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
 
     if (role === "business") {
       const business = readOtherBusinesses().find(item => item.id === req.account.businessId);
-      if (!business || business.status !== "approved" || business.suspended || (order.paymentMethod === "paystack" && !getPaystackSubaccountCode(business.id))) return res.status(403).json({ error: "Your business is not approved or is not configured for the selected payment method." });
+      if (!business || business.status !== "approved" || business.suspended || (false)) return res.status(403).json({ error: "Your business is not approved or is not configured for the selected payment method." });
       if (order.merchantType !== "business" || order.businessId !== req.account.businessId) return res.status(403).json({ error: "This order belongs to another business." });
       if (!["Confirmed", "Preparing", "Ready for pickup", "Cancelled"].includes(newStatus)) return res.status(403).json({ error: "Businesses cannot set that status." });
     } else if (role === "restaurant") {

@@ -487,6 +487,7 @@ function pushSubscriptionBelongsToTarget(subscription, target) {
   if (target.role === "admin") return true;
   if (target.role === "student") return Boolean(target.username && subscription.username === target.username);
   if (target.role === "restaurant") return Boolean(target.restaurantId && subscription.restaurantId === target.restaurantId);
+  if (target.role === "business") return Boolean(target.businessId && subscription.businessId === target.businessId);
   if (target.role === "agent") return Boolean(target.agentId && subscription.agentId === target.agentId);
   return false;
 }
@@ -509,7 +510,8 @@ function createNotification(target, title, message, orderId = null) {
 }
 function notifyOrderParties(order, title, message) {
   createNotification({ role: "student", username: order.customerPhone }, title, message, order.id);
-  createNotification({ role: "restaurant", restaurantId: order.restaurantId }, title, `${order.id}: ${message}`, order.id);
+  if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, title, `${order.id}: ${message}`, order.id);
+  else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, title, `${order.id}: ${message}`, order.id);
   createNotification({ role: "admin" }, title, `${order.id}: ${message}`, order.id);
 
   // Let every delivery agent know a paid order has arrived, even if they are not
@@ -1705,7 +1707,7 @@ app.get("/api/admin/other-businesses", requireSuperAdmin, (req, res) => {
     id: item.id, name: item.name, category: item.category, description: item.description, location: item.location,
     ownerName: item.ownerName, phone: item.phone, username: item.username, status: item.status,
     suspended: item.suspended === true, online: item.online === true, productCount: (item.products || []).length,
-    settlementConfigured: item.settlementConfigured === true, createdAt: item.createdAt
+    settlementConfigured: Boolean(getPaystackSubaccountCode(item.id)), createdAt: item.createdAt
   }));
   res.set("Cache-Control", "no-store, private");
   res.json({ businesses });
@@ -1934,7 +1936,7 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
   if (restaurant && !vendorIsApproved(restaurant.id)) return res.status(403).json({ error: "This restaurant is not yet approved to accept orders. Please choose an approved restaurant." });
   if (restaurant && !restaurantAcceptsOrders(restaurant)) return res.status(409).json({ error: "This restaurant is currently offline or has paused incoming orders. Please choose another restaurant or try again later." });
   if (business && (!business.online || business.paused)) return res.status(409).json({ error: "This business is currently offline or has paused incoming orders. Please choose another shop or try again later." });
-  if (business && business.settlementConfigured !== true) return res.status(503).json({ error: "This shop is not yet enabled for checkout. Its own Paystack settlement account must be verified first." });
+  if (business && !getPaystackSubaccountCode(business.id)) return res.status(503).json({ error: "This shop is not yet enabled for checkout. Its own Paystack subaccount must be configured in Render and verified first." });
 
   if (
     !merchant ||
@@ -2291,7 +2293,9 @@ app.get("/api/orders", requireLogin, (req, res) => {
   try {
     let orders = readOrders();
 
-    if (req.account.role === "restaurant") {
+    if (req.account.role === "business") {
+      orders = orders.filter(order => order.merchantType === "business" && order.businessId === req.account.businessId && ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus));
+    } else if (req.account.role === "restaurant") {
       orders = vendorIsApproved(req.account.restaurantId) ? orders.filter(
         order => order.restaurantId === req.account.restaurantId &&
           ["Paid — Paystack verified", "Paid — FoodBack approved"].includes(order.paymentStatus)
@@ -4382,8 +4386,8 @@ app.post("/api/agent/assignments/:id/accept", requireRole("agent"), (req, res) =
     order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
     order.statusHistory.push({ status: "Delivery assignment accepted", at: order.assignmentAcceptedAt, by: "agent" });
     saveOrders(orders);
-    createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Delivery agent accepted",
-      `The delivery agent accepted pickup for ${order.id} and is heading to collect it.`, order.id);
+    if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, "Delivery agent accepted", `The delivery agent accepted pickup for ${order.id} and is heading to collect it.`, order.id);
+    else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Delivery agent accepted", `The delivery agent accepted pickup for ${order.id} and is heading to collect it.`, order.id);
     createNotification({ role: "student", username: order.customerPhone }, "Delivery agent accepted",
       `Your delivery agent accepted order ${order.id} and is heading to the restaurant.`, order.id);
     res.json({ ok: true, message: "Pickup accepted. Head to the restaurant." });
@@ -4512,7 +4516,7 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
 
     if (role === "business") {
       const business = readOtherBusinesses().find(item => item.id === req.account.businessId);
-      if (!business || business.status !== "approved" || business.suspended || business.settlementConfigured !== true) return res.status(403).json({ error: "Your business is not approved and settlement-ready to manage paid orders." });
+      if (!business || business.status !== "approved" || business.suspended || !getPaystackSubaccountCode(business.id)) return res.status(403).json({ error: "Your business is not approved and settlement-ready to manage paid orders." });
       if (order.merchantType !== "business" || order.businessId !== req.account.businessId) return res.status(403).json({ error: "This order belongs to another business." });
       if (!["Confirmed", "Preparing", "Ready for pickup", "Cancelled"].includes(newStatus)) return res.status(403).json({ error: "Businesses cannot set that status." });
     } else if (role === "restaurant") {

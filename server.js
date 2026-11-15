@@ -4946,10 +4946,12 @@ const CAMPUS_POPUP_AD_PACKAGES = Object.freeze({
 function campusAdIsPremiumAccount(account) {
   if (!account || account.role !== "student") return false;
   const premium = account.premium || account.subscription || {};
-  return account.premiumActive === true || account.isPremium === true ||
+  const endsAt = premium.endsAt || account.premiumEndsAt || "";
+  const inDate = !endsAt || (Number.isFinite(new Date(endsAt).getTime()) && new Date(endsAt).getTime() > Date.now());
+  const entitled = account.premiumActive === true || account.isPremium === true ||
     premium.active === true || premium.status === "active" ||
-    (String(premium.tier || premium.plan || "").toLowerCase() === "premium" &&
-      (!premium.endsAt || new Date(premium.endsAt).getTime() > Date.now()));
+    String(premium.tier || premium.plan || "").toLowerCase() === "premium";
+  return entitled && inDate;
 }
 function campusAdPublic(item) {
   return {

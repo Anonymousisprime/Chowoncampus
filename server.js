@@ -36,6 +36,8 @@ const storageFiles = {
   "operations-cases.json": "operationsCases",
   "restaurant-suspensions.json": "restaurantSuspensions",
   "restaurant-settlements.json": "restaurantSettlements",
+  "restaurant-payment-settings.json": "restaurantPaymentSettings",
+  "merchant-fee-payments.json": "merchantFeePayments",
   "campus-ads.json": "campusAds",
   "academy-data.json": "academyData",
   "other-businesses.json": "otherBusinesses"
@@ -75,6 +77,8 @@ async function initializePersistentStorage() {
     ["operations-cases.json", []],
     ["restaurant-suspensions.json", {}],
     ["restaurant-settlements.json", []],
+    ["restaurant-payment-settings.json", {}],
+    ["merchant-fee-payments.json", []],
     ["campus-ads.json", []],
     ["academy-data.json", { version: 1, lessons: [], faqs: [], quizzes: {}, progress: [], quizResults: [] }],
     ["other-businesses.json", []]
@@ -2120,7 +2124,7 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
   const requestedMerchantId = String(businessId || restaurantId || "").trim();
   const paymentMethod = String(req.body.paymentMethod || "paystack").trim().toLowerCase();
   if (!["paystack", "foodback", "bank_transfer"].includes(paymentMethod)) return res.status(400).json({ error: "Choose Paystack, bank transfer or FoodBack as your payment method." });
-  if (businessId && paymentMethod !== "paystack") return res.status(400).json({ error: "FoodBack is not enabled for Other Businesses yet. Use Paystack for this shop order." });
+  if (businessId && paymentMethod === "foodback") return res.status(400).json({ error: "FoodBack is not enabled for Other Businesses yet. Choose direct bank transfer or Paystack." });
   let student;
   try {
     student = readStudents().find(item => item.phone === req.account.username);
@@ -2657,8 +2661,11 @@ app.post("/api/orders/:id/bank-transfer/verify", requireLogin, (req, res) => {
     notifyOrderParties(order, "Bank transfer verified — new order", order.customerName + "'s payment for " + order.id + " has been confirmed.");
   } else if (decision === "not_received") {
     order.paymentStatus = "Bank transfer rejected — no bank credit";
+    createNotification({ role: "student", username: order.customerPhone }, "Payment not confirmed", "The merchant could not confirm bank credit for order " + order.id + ". Check the transfer details or contact ChowOnCampus support.", order.id);
+    createNotification({ role: "admin" }, "Bank transfer rejected", order.id + " was rejected by its merchant because no bank credit was found.", order.id);
   } else {
     order.paymentStatus = "Bank transfer — under investigation";
+    createNotification({ role: "student", username: order.customerPhone }, "Payment under review", "The merchant has flagged the transfer for order " + order.id + " for investigation. Do not submit another transfer until you receive an update.", order.id);
     createNotification({ role: "admin" }, "Bank transfer requires investigation", order.id + " was flagged for payment investigation.", order.id);
   }
   order.updatedAt = now;
@@ -2688,6 +2695,7 @@ app.post("/api/superadmin/orders/:id/bank-transfer/override", requireSuperAdmin,
     notifyOrderParties(order, "Payment verified by ChowOnCampus", "Ultimate Admin confirmed payment for " + order.id + ".");
   } else {
     order.paymentStatus = "Bank transfer rejected — admin override";
+    createNotification({ role: "student", username: order.customerPhone }, "Payment decision updated", "Ultimate Admin rejected the bank-transfer verification for order " + order.id + ". Review the reason with ChowOnCampus support before taking further action.", order.id);
   }
   order.updatedAt = now;
   saveOrders(orders);

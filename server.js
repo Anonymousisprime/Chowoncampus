@@ -2681,10 +2681,12 @@ app.post("/api/superadmin/orders/:id/bank-transfer/override", requireSuperAdmin,
   if (order.paymentMethod !== "bank_transfer" || !order.paymentReceiptEncrypted) return res.status(409).json({ error: "A bank-transfer receipt is required before an admin override." });
   const decision = String(req.body.decision || "").trim().toLowerCase();
   const reason = String(req.body.reason || "").trim().slice(0, 300);
-  if (!["received", "not_received"].includes(decision) || reason.length < 10)
+  if (!["received", "not_received"].includes(decision) || reason.length < 10) {
+    return res.status(400).json({ error: "Choose a valid decision and provide an override reason of at least 10 characters." });
+  }
   if (decision === "not_received" && ["Preparing", "Ready for pickup", "Out for delivery", "Completed", "Cancelled"].includes(order.status)) {
     return res.status(409).json({ error: "This order has already entered fulfilment or is closed. Open a dispute case instead of reversing its payment status." });
-  } return res.status(400).json({ error: "Choose a valid decision and provide an override reason of at least 10 characters." });
+  }
   const now = new Date().toISOString();
   const history = Array.isArray(order.paymentVerification?.history) ? order.paymentVerification.history : [];
   order.paymentVerification = { status: decision === "received" ? "verified" : "rejected", decision, reason, overridden: true, verifiedAt: now, verifiedBy: req.account.username, verifiedRole: "ultimate_admin", history: [...history, { action: "admin_override_" + decision, at: now, by: req.account.username, role: "ultimate_admin", reason }].slice(-30) };

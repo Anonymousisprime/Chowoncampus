@@ -808,7 +808,8 @@ const PREMIUM_PRICE_NAIRA=3000, PREMIUM_DURATION_DAYS=30;
 function getStudentPremium(s){const t=s?.premiumExpiresAt?new Date(s.premiumExpiresAt).getTime():0;const active=Number.isFinite(t)&&t>Date.now()&&!s?.premiumRevokedAt;return{active,endsAt:s?.premiumExpiresAt||null,source:s?.premiumSource||null};}
 function findStudentByPhone(phone){return readStudents().find(s=>String(s.phone)===String(phone))||null;}
 function premiumPaymentEmail(phone){return String(phone||"").replace(/\D/g,"")+"@payments.chowoncampus.com";}
-function extendStudentPremium(s,ref,source,actor){const p=getStudentPremium(s),base=p.active?new Date(p.endsAt).getTime():Date.now(),endsAt=new Date(base+PREMIUM_DURATION_DAYS*86400000).toISOString();s.premiumExpiresAt=endsAt;s.premiumSource=source;s.premiumGrantedBy=actor||null;s.premiumRevokedAt=null;s.premiumRevokedBy=null;s.premiumPayments=Array.isArray(s.premiumPayments)?s.premiumPayments:[];if(ref&&!s.premiumPayments.some(x=>x.reference===ref)){s.premiumPayments.unshift({reference:ref,amount:PREMIUM_PRICE_NAIRA,currency:"NGN",paidAt:new Date().toISOString(),endsAt});s.premiumPayments=s.premiumPayments.slice(0,100);}return endsAt;}
+function isStudentPremiumAt(s,at=Date.now()){const time=Number(at),expires=Date.parse(s?.premiumExpiresAt||"");if(!Number.isFinite(time)||!Number.isFinite(expires)||expires<=time)return false;const revoked=s?.premiumRevokedAt?Date.parse(s.premiumRevokedAt):NaN;if(Number.isFinite(revoked)&&revoked<=time)return false;let started=s?.premiumStartedAt||s?.premiumGrantedAt||s?.premiumLastPaymentAt||null;if(!started&&Array.isArray(s?.premiumPayments)&&s.premiumPayments.length){const dates=s.premiumPayments.map(x=>Date.parse(x.paidAt||"")).filter(Number.isFinite);if(dates.length)started=new Date(Math.min(...dates)).toISOString();}if(!started)started=new Date(expires-PREMIUM_DURATION_DAYS*86400000).toISOString();const start=Date.parse(started);return !Number.isFinite(start)||start<=time;}
+function extendStudentPremium(s,ref,source,actor){const p=getStudentPremium(s),base=p.active?new Date(p.endsAt).getTime():Date.now(),endsAt=new Date(base+PREMIUM_DURATION_DAYS*86400000).toISOString();if(!p.active)s.premiumStartedAt=new Date().toISOString();s.premiumExpiresAt=endsAt;s.premiumSource=source;s.premiumGrantedBy=actor||null;s.premiumRevokedAt=null;s.premiumRevokedBy=null;s.premiumPayments=Array.isArray(s.premiumPayments)?s.premiumPayments:[];if(ref&&!s.premiumPayments.some(x=>x.reference===ref)){s.premiumPayments.unshift({reference:ref,amount:PREMIUM_PRICE_NAIRA,currency:"NGN",paidAt:new Date().toISOString(),endsAt});s.premiumPayments=s.premiumPayments.slice(0,100);}return endsAt;}
 function activatePremiumFromPayment(s,ref){s.premiumPendingPayments=(s.premiumPendingPayments||[]).filter(x=>x.reference!==ref);if((s.premiumPayments||[]).some(x=>x.reference===ref))return false;extendStudentPremium(s,ref,"paystack",null);s.premiumLastPaymentAt=new Date().toISOString();return true;}
 
 const FOODBACK_CONFIG_FILE = path.join(__dirname, "foodback-config.json");
@@ -908,8 +909,10 @@ function awardFoodBackForCompletedOrder(order) {
   const eligibleFoodSubtotal = Math.max(0, Number(order.foodSubtotal ?? (Number(order.subtotal || 0) - Number(order.takeawayFee || 200))) || 0);
   expireFoodBackCredits(customer, now.getTime());
 
-  const ownReward = order.paymentMethod === "foodback" ? 0 : Math.floor(eligibleFoodSubtotal * 0.01);
-  if (ownReward > 0) addFoodBackCredit(customer, ownReward, "1% cashback on your order", order.id, "own-order");
+  const premiumAtOrder = isStudentPremiumAt(customer, now.getTime());
+  const ownRewardRate = premiumAtOrder ? 0.015 : 0.01;
+  const ownReward = order.paymentMethod === "foodback" ? 0 : Math.floor(eligibleFoodSubtotal * ownRewardRate);
+  if (ownReward > 0) addFoodBackCredit(customer, ownReward, premiumAtOrder ? "1.5% FoodBack on your order (includes 0.5% Premium bonus)" : "1% FoodBack on your order", order.id, "own-order");
 
   let referralReward = 0;
   if (order.paymentMethod !== "foodback" && customer.referredByPhone && !(customer.referralRewardOrderIds || []).includes(order.id)) {
@@ -968,6 +971,8 @@ function awardFoodBackForCompletedOrder(order) {
   }
   order.foodbackRewardsProcessedAt = now.toISOString();
   order.foodbackOwnReward = ownReward;
+  order.foodbackOwnRewardRate = premiumAtOrder ? 1.5 : 1;
+  order.foodbackPremiumBonus = premiumAtOrder ? Math.max(0, ownReward - Math.floor(eligibleFoodSubtotal * 0.01)) : 0;
   order.foodbackReferralReward = referralReward;
   saveStudents(students);
 }
@@ -1064,6 +1069,9 @@ app.get("/api/foodback", requireRole("student"), (req, res) => {
       totalUsed: used,
       referralQualifyingOrderCount: (student.referralQualifyingOrderIds || []).length,
       launchRate: launchActive ? 4 : 2,
+      ownOrderRate: isStudentPremiumAt(student) ? 1.5 : 1,
+      premiumActive: getStudentPremium(student).active,
+      premiumEndsAt: getStudentPremium(student).endsAt,
       launchActive,
       launchStartAt: config.launchStartAt || null,
       ledger: (student.foodbackLedger || []).slice(0, 100)
@@ -2258,7 +2266,7 @@ app.post("/api/premium/paystack/verify",requireRole("student"),async(req,res)=>{
  }catch(e){console.error("Premium verification:",e.message);res.status(502).json({error:"Could not verify payment right now. Please try again shortly."});}
 });
 app.get("/api/superadmin/premium/students",requireSuperAdmin,(req,res)=>{const students=readStudents().map(s=>({id:s.id,name:s.name,phone:s.phone,premium:getStudentPremium(s),source:s.premiumSource||null,paymentCount:(s.premiumPayments||[]).length}));res.setHeader("Cache-Control","no-store, private");res.json({students,price:3000,durationDays:30});});
-app.post("/api/superadmin/premium/:id/grant",requireSuperAdmin,(req,res)=>{const raw=String(req.body.endsAt||"");if(!/^\d{4}-\d{2}-\d{2}$/.test(raw))return res.status(400).json({error:"Choose a valid expiry date."});const expiry=new Date(raw+"T23:59:59.999+01:00");if(!Number.isFinite(expiry.getTime())||expiry.getTime()<=Date.now())return res.status(400).json({error:"Expiry must be in the future."});const students=readStudents(),s=students.find(x=>x.id===req.params.id);if(!s)return res.status(404).json({error:"Student account not found."});s.premiumExpiresAt=expiry.toISOString();s.premiumSource="admin";s.premiumGrantedBy=req.account.username;s.premiumGrantedAt=new Date().toISOString();s.premiumRevokedAt=null;s.premiumRevokedBy=null;saveStudents(students);res.json({ok:true,premium:getStudentPremium(s),message:"Premium granted or extended."});});
+app.post("/api/superadmin/premium/:id/grant",requireSuperAdmin,(req,res)=>{const raw=String(req.body.endsAt||"");if(!/^\d{4}-\d{2}-\d{2}$/.test(raw))return res.status(400).json({error:"Choose a valid expiry date."});const expiry=new Date(raw+"T23:59:59.999+01:00");if(!Number.isFinite(expiry.getTime())||expiry.getTime()<=Date.now())return res.status(400).json({error:"Expiry must be in the future."});const students=readStudents(),s=students.find(x=>x.id===req.params.id);if(!s)return res.status(404).json({error:"Student account not found."});const wasPremiumActive=getStudentPremium(s).active;if(!wasPremiumActive)s.premiumStartedAt=new Date().toISOString();s.premiumExpiresAt=expiry.toISOString();s.premiumSource="admin";s.premiumGrantedBy=req.account.username;s.premiumGrantedAt=new Date().toISOString();s.premiumRevokedAt=null;s.premiumRevokedBy=null;saveStudents(students);res.json({ok:true,premium:getStudentPremium(s),message:"Premium granted or extended."});});
 app.post("/api/superadmin/premium/:id/revoke",requireSuperAdmin,(req,res)=>{const students=readStudents(),s=students.find(x=>x.id===req.params.id);if(!s)return res.status(404).json({error:"Student account not found."});s.premiumExpiresAt=new Date().toISOString();s.premiumRevokedAt=s.premiumExpiresAt;s.premiumRevokedBy=req.account.username;saveStudents(students);res.json({ok:true,message:"Premium revoked. Badge and ad-free access stop immediately."});});
 
 app.post("/api/orders/:id/paystack/initialize", requireRole("student"), async (req, res) => {

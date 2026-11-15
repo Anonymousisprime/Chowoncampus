@@ -1945,6 +1945,7 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
   const requestedMerchantId = String(businessId || restaurantId || "").trim();
   const paymentMethod = String(req.body.paymentMethod || "paystack").trim().toLowerCase();
   if (!["paystack", "foodback"].includes(paymentMethod)) return res.status(400).json({ error: "Choose Paystack or FoodBack as your payment method." });
+  if (businessId && paymentMethod !== "paystack") return res.status(400).json({ error: "FoodBack is not enabled for Other Businesses yet. Use Paystack for this shop order." });
   let student;
   try {
     student = readStudents().find(item => item.phone === req.account.username);
@@ -2239,6 +2240,8 @@ app.post("/api/orders/:id/paystack/initialize", requireRole("student"), async (r
         metadata: {
           order_id: order.id,
           customer_phone: order.customerPhone,
+          merchant_type: order.merchantType || "restaurant",
+          business_id: order.businessId || "",
           restaurant_id: order.restaurantId,
           restaurant_share_kobo: restaurantShareKobo,
           platform_share_kobo: platformShareKobo,

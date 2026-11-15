@@ -235,6 +235,10 @@ test("DirectPay merchant onboarding, receipts, verification and reconciliation",
     });
     assert.equal(verified.response.status, 200, JSON.stringify(verified.data));
     assert.equal(verified.data.order.paymentStatus, "Paid — bank transfer verified");
+    const preparing = await api(businessCookie, "/api/orders/" + encodeURIComponent(businessOrder.id) + "/status", {
+      method: "PATCH", body: JSON.stringify({ status: "Preparing" })
+    });
+    assert.equal(preparing.response.status, 200, JSON.stringify(preparing.data));
   });
 
   await t.test("Ultimate Admin can override a merchant rejection with a reason", async () => {

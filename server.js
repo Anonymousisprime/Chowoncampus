@@ -1801,7 +1801,8 @@ function maskedMerchantPaymentSettings(merchant) {
     accountName: account?.accountName || "",
     accountNumber: account?.accountNumber || "",
     reviewedAt: merchant?.paymentAccountReviewedAt || null,
-    rejectionReason: merchant?.paymentAccountRejectionReason || ""
+    rejectionReason: merchant?.paymentAccountRejectionReason || "",
+    reviewHistory: Array.isArray(merchant?.paymentAccountHistory) ? merchant.paymentAccountHistory : []
   };
 }
 function saveMerchantPaymentSettings(type, merchant, settings) {
@@ -1842,8 +1843,14 @@ app.put("/api/merchant/payment-settings", requireLogin, (req, res) => {
       return res.status(503).json({ error: "Secure bank-account storage is not configured. Contact ChowOnCampus support." });
     }
     updates.paymentAccountStatus = "pending";
-    updates.paymentAccountSubmittedAt = new Date().toISOString();
+    const submittedAt = new Date().toISOString();
+    updates.paymentAccountSubmittedAt = submittedAt;
     updates.paymentAccountSubmittedBy = req.account.username;
+    const priorAccountHistory = Array.isArray(merchant.paymentAccountHistory) ? merchant.paymentAccountHistory : [];
+    updates.paymentAccountHistory = [...priorAccountHistory, {
+      action: "submitted", at: submittedAt, by: req.account.username,
+      bankName, accountName, accountLast4: accountNumber.slice(-4), status: "pending"
+    }];
     updates.paymentAccountReviewedAt = null;
     updates.paymentAccountReviewedBy = null;
     updates.paymentAccountRejectionReason = "";
@@ -1869,7 +1876,17 @@ app.post("/api/superadmin/merchant-payment-accounts/:type/:id/review", requireSu
   const merchant = type === "restaurant" ? restaurants.find(item => item.id === req.params.id) : readOtherBusinesses().find(item => item.id === req.params.id);
   if (!merchant || !merchant.paymentAccountEncrypted) return res.status(404).json({ error: "Submitted bank account not found." });
   const now = new Date().toISOString();
-  const settings = { paymentAccountStatus: decision, paymentAccountReviewedAt: now, paymentAccountReviewedBy: req.account.username, paymentAccountRejectionReason: decision === "rejected" ? reason : "" };
+  const priorHistory = Array.isArray(merchant.paymentAccountHistory) ? merchant.paymentAccountHistory : [];
+  const settings = {
+    paymentAccountStatus: decision, paymentAccountReviewedAt: now,
+    paymentAccountReviewedBy: req.account.username,
+    paymentAccountRejectionReason: decision === "rejected" ? reason : "",
+    paymentAccountHistory: [...priorHistory, {
+      action: decision, at: now, by: req.account.username,
+      reason: decision === "rejected" ? reason : "",
+      accountLast4: (() => { try { return JSON.parse(decryptVendorDocument(merchant.paymentAccountEncrypted).toString("utf8")).accountNumber.slice(-4); } catch { return ""; } })()
+    }]
+  };
   saveMerchantPaymentSettings(type, merchant, settings);
   recordOperationsEvent({ type: "merchant_bank_account_" + decision, entityType: type, entityId: merchant.id, entityName: merchant.name, actorRole: "ultimate_admin", actorId: req.account.username, details: "Bank account " + decision + (reason ? ": " + reason : ".") });
   res.json({ ok: true, message: "Merchant bank account " + decision + "." });
@@ -2614,7 +2631,7 @@ app.post("/api/orders/:id/bank-transfer/submit", requireRole("student"), (req, r
     order.paymentReceiptUploadedAt = now;
     order.transactionReference = transactionReference;
     const history = Array.isArray(order.paymentVerification?.history) ? order.paymentVerification.history : [];
-    order.paymentVerification = { status: "pending", submittedAt: now, submittedBy: req.account.username, history: [...history, { action: "receipt_submitted", at: now, by: req.account.username, role: "student" }].slice(-30) };
+    order.paymentVerification = { status: "pending", submittedAt: now, submittedBy: req.account.username, history: [...history, { action: "receipt_submitted", at: now, by: req.account.username, role: "student" }] };
     order.paymentStatus = "Bank transfer — awaiting restaurant verification";
     order.updatedAt = now;
     saveOrders(orders);
@@ -2650,7 +2667,7 @@ app.post("/api/orders/:id/bank-transfer/verify", requireLogin, (req, res) => {
   const now = new Date().toISOString();
   const history = Array.isArray(order.paymentVerification?.history) ? order.paymentVerification.history : [];
   const status = decision === "received" ? "verified" : decision === "not_received" ? "rejected" : "investigating";
-  order.paymentVerification = { status, decision, reason, verifiedAt: now, verifiedBy: req.account.username, verifiedRole: role, history: [...history, { action: decision, at: now, by: req.account.username, role, reason }].slice(-30) };
+  order.paymentVerification = { status, decision, reason, verifiedAt: now, verifiedBy: req.account.username, verifiedRole: role, history: [...history, { action: decision, at: now, by: req.account.username, role, reason }] };
   if (decision === "received") {
     order.paymentStatus = "Paid — bank transfer verified";
     order.paidAt = now;
@@ -2689,7 +2706,7 @@ app.post("/api/superadmin/orders/:id/bank-transfer/override", requireSuperAdmin,
   }
   const now = new Date().toISOString();
   const history = Array.isArray(order.paymentVerification?.history) ? order.paymentVerification.history : [];
-  order.paymentVerification = { status: decision === "received" ? "verified" : "rejected", decision, reason, overridden: true, verifiedAt: now, verifiedBy: req.account.username, verifiedRole: "ultimate_admin", history: [...history, { action: "admin_override_" + decision, at: now, by: req.account.username, role: "ultimate_admin", reason }].slice(-30) };
+  order.paymentVerification = { status: decision === "received" ? "verified" : "rejected", decision, reason, overridden: true, verifiedAt: now, verifiedBy: req.account.username, verifiedRole: "ultimate_admin", history: [...history, { action: "admin_override_" + decision, at: now, by: req.account.username, role: "ultimate_admin", reason }] };
   if (decision === "received") {
     order.paymentStatus = "Paid — bank transfer verified";
     order.paidAt = now;

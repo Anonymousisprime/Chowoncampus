@@ -3689,8 +3689,13 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
     const isPaid = order => ["Paid — Paystack verified", "Paid — FoodBack approved", "Paid — bank transfer verified"].includes(order.paymentStatus);
     const feesForOrder = order => reportMoney(order.deliveryFee) + reportMoney(order.paymentFee);
     const dayOrders = orders.filter(order => inReportDay(order.createdAt, range));
-    const completedOrders = orders.filter(order => order.status === "Completed" && ["Paid — Paystack verified", "Paid — FoodBack approved", "Paid — bank transfer verified"].includes(order.paymentStatus) && inReportDay(order.completedAt || order.updatedAt, range));
-    const cancelledOrders = dayOrders.filter(order => order.status === "Cancelled");
+    const statusEventAt = (order, status) => {
+      const history = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+      const event = [...history].reverse().find(item => item.status === status);
+      return event?.at || (status === "Completed" ? order.completedAt || order.deliveredAt : order.cancelledAt) || order.updatedAt || order.createdAt;
+    };
+    const completedOrders = orders.filter(order => order.status === "Completed" && ["Paid — Paystack verified", "Paid — FoodBack approved", "Paid — bank transfer verified"].includes(order.paymentStatus) && inReportDay(statusEventAt(order, "Completed"), range));
+    const cancelledOrders = orders.filter(order => order.status === "Cancelled" && inReportDay(statusEventAt(order, "Cancelled"), range));
     const failedOrders = dayOrders.filter(order => /failed|declined|rejected/i.test(String(order.paymentStatus || "")) || order.status === "Failed");
     const pendingOrders = dayOrders.filter(order => !["Completed", "Cancelled", "Failed"].includes(order.status));
     const paidOrders = dayOrders.filter(order => ["Paid — Paystack verified", "Paid — FoodBack approved", "Paid — bank transfer verified"].includes(order.paymentStatus));
@@ -3709,7 +3714,7 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
       const feePaymentsThroughDate = merchantFeePayments.filter(item => item.merchantType === "restaurant" && String(item.merchantId) === String(restaurant.id) && String(item.paymentDate || "") <= range.day);
       return {
         id: restaurant.id, name: restaurant.name, orders: own.length, completedOrders: successful.length,
-        cancelledOrders: own.filter(order => order.status === "Cancelled").length,
+        cancelledOrders: cancelledOrders.filter(order => String(order.restaurantId) === String(restaurant.id)).length,
         foodSales: sum(successful, order => order.subtotal),
         platformFeesDueToday: sum(paidToday, feesForOrder),
         platformFeesCollectedToday: sum(feePaymentsToday, item => item.amount),
@@ -3728,6 +3733,7 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
       const feePaymentsToday = merchantFeePayments.filter(item => item.merchantType === "business" && String(item.merchantId) === String(business.id) && item.paymentDate === range.day);
       const feePaymentsThroughDate = merchantFeePayments.filter(item => item.merchantType === "business" && String(item.merchantId) === String(business.id) && String(item.paymentDate || "") <= range.day);
       return { id: business.id, name: business.name, orders: own.length,
+        cancelledOrders: cancelledOrders.filter(order => order.merchantType === "business" && String(order.businessId) === String(business.id)).length,
         platformFeesDueToday: sum(paidToday, feesForOrder),
         platformFeesCollectedToday: sum(feePaymentsToday, item => item.amount),
         platformFeesOutstanding: Math.max(0, sum(paidThroughDate, feesForOrder) - sum(feePaymentsThroughDate, item => item.amount)) };
@@ -3772,6 +3778,10 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
       .map(entry => ({ student: student.name, type: entry.type, kind: entry.kind, amount: entry.amount, orderId: entry.orderId || null, description: entry.description || "" })));
     const outstandingFoodback = sum(students, student => student.foodbackBalance);
     const complaints = cases.filter(item => /complaint|dispute|refund/i.test(String(item.type || item.category || item.title || "")));
+    const refundedOrders = orders.filter(order => order.refundedAt && inReportDay(order.refundedAt, range));
+    const refundAdjustmentCases = cases.filter(item => /refund|adjustment/i.test(String(item.type || item.category || item.title || "")));
+    const refundedOrderIds = new Set(refundedOrders.map(order => String(order.id)));
+    const unlinkedRefundAdjustmentCases = refundAdjustmentCases.filter(item => !item.orderId || !refundedOrderIds.has(String(item.orderId)));
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
     res.json({
       date: range.day, timezone: "Africa/Lagos",
@@ -3781,7 +3791,7 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
         successful: completedOrders.length,
         paidAndDelivered: completedOrders.length,
         cancelled: cancelledOrders.length,
-        paidButCancelled: dayOrders.filter(order => order.status === "Cancelled" && isPaid(order)).length,
+        paidButCancelled: cancelledOrders.filter(isPaid).length,
         failed: failedOrders.length,
         pending: pendingOrders.length,
         pendingPayment: dayOrders.filter(order => !isPaid(order) && !["Cancelled", "Failed"].includes(order.status)).length,
@@ -3815,8 +3825,11 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
       customerIssues: { casesOpened: cases.length, complaintsAndDisputes: complaints.length,
         refundsMentionedInCases: cases.filter(item => /refund/i.test(String(item.type || item.category || item.title || ""))).length,
         refundsAndAdjustments: {
-          count: cases.filter(item => /refund|adjustment/i.test(String(item.type || item.category || item.title || ""))).length,
-          recordedAmount: sum(cases.filter(item => /refund|adjustment/i.test(String(item.type || item.category || item.title || ""))), item => item.amount || item.refundAmount || item.adjustmentAmount || 0)
+          count: refundedOrders.length + unlinkedRefundAdjustmentCases.length,
+          actualRefundOrders: refundedOrders.length,
+          adjustmentCases: unlinkedRefundAdjustmentCases.length,
+          recordedAmount: sum(refundedOrders, item => item.refundAmount || item.total || 0) +
+            sum(unlinkedRefundAdjustmentCases, item => item.amount || item.refundAmount || item.adjustmentAmount || 0)
         } },
       foodback: { issued: sum(foodbackLedger.filter(item => Number(item.amount) > 0 && !/deduct/i.test(String(item.kind || item.type || ""))), item => item.amount),
         used: Math.abs(sum(foodbackLedger.filter(item => /redeem|order/i.test(String(item.kind || "")) && Number(item.amount) < 0), item => item.amount)),

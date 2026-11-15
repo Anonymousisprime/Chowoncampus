@@ -538,8 +538,8 @@ function notifyOrderStatusChanged(order, previousStatus, newStatus) {
   }
 
   createNotification({ role: "student", username: order.customerPhone }, title, studentMessage, order.id);
-  createNotification({ role: "restaurant", restaurantId: order.restaurantId }, title,
-    `Order ${order.id}: status changed from ${previousStatus} to ${newStatus}.`, order.id);
+  if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, title, `Order ${order.id}: status changed from ${previousStatus} to ${newStatus}.`, order.id);
+  else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, title, `Order ${order.id}: status changed from ${previousStatus} to ${newStatus}.`, order.id);
   createNotification({ role: "admin" }, title,
     `Order ${order.id}: status changed from ${previousStatus} to ${newStatus}.`, order.id);
   if (order.assignedAgentId) createNotification({ role: "agent", agentId: order.assignedAgentId }, title,
@@ -1661,13 +1661,79 @@ app.post("/api/business/apply", (req, res) => {
   createNotification({ role: "admin" }, "New business application", name + " submitted an Other Businesses application for review.");
   res.status(201).json({ ok: true, message: "Application submitted. You can log in after Ultimate Admin approval.", applicationId: business.id });
 });
+app.get("/api/business/verification", requireLogin, (req, res) => {
+  if (req.account.role !== "business") return res.status(403).json({ error: "Business account required." });
+  const business = readOtherBusinesses().find(item => item.id === req.account.businessId);
+  if (!business) return res.status(404).json({ error: "Business account not found." });
+  res.set("Cache-Control", "no-store, private");
+  res.json({ status: business.status, documents: (business.documents || []).map(doc => ({ id: doc.id, type: doc.type, filename: doc.filename, mimeType: doc.mimeType, uploadedAt: doc.uploadedAt, reviewStatus: doc.reviewStatus || "pending", rejectionReason: doc.rejectionReason || "" })) });
+});
+app.post("/api/business/documents", requireLogin, (req, res) => {
+  if (req.account.role !== "business") return res.status(403).json({ error: "Business account required." });
+  const type = String(req.body.type || "");
+  const filename = String(req.body.filename || "").trim().slice(0, 160);
+  const mimeType = String(req.body.mimeType || "").toLowerCase();
+  const data = String(req.body.dataBase64 || "");
+  if (!["identity", "business-proof", "settlement-proof"].includes(type) || !filename || !["application/pdf", "image/jpeg", "image/png"].includes(mimeType) || !/^[A-Za-z0-9+/]+=*$/.test(data)) return res.status(400).json({ error: "Upload a PDF, JPEG or PNG and choose a valid document category." });
+  const buffer = Buffer.from(data, "base64");
+  if (!buffer.length || buffer.length > 4 * 1024 * 1024) return res.status(413).json({ error: "Each document must be 4 MB or smaller." });
+  try {
+    const businesses = readOtherBusinesses();
+    const business = businesses.find(item => item.id === req.account.businessId);
+    if (!business || !["pending", "rejected"].includes(business.status)) return res.status(409).json({ error: "Documents can only be uploaded while an application is pending or requires resubmission." });
+    const encrypted = encryptVendorDocument(buffer);
+    business.documents = Array.isArray(business.documents) ? business.documents : [];
+    const now = new Date().toISOString();
+    business.documents.filter(doc => doc.type === type && !doc.supersededAt).forEach(doc => { doc.supersededAt = now; });
+    business.documents.push({ id: crypto.randomUUID(), type, filename: filename.replace(/[\\/]/g, "_"), mimeType, size: buffer.length, ...encrypted, uploadedAt: now, reviewStatus: "pending" });
+    business.status = "pending";
+    business.identityVerified = false; business.businessVerified = false; business.settlementVerified = false;
+    business.online = false; business.updatedAt = now;
+    saveOtherBusinesses(businesses);
+    res.status(201).json({ ok: true, message: "Document uploaded securely and is awaiting Ultimate Admin review." });
+  } catch (error) {
+    res.status(503).json({ error: "Secure document storage is unavailable. Contact support before sending documents again." });
+  }
+});
+app.get("/api/admin/other-businesses/:id/documents/:docId", requireSuperAdmin, (req, res) => {
+  const business = readOtherBusinesses().find(item => item.id === req.params.id);
+  const doc = business?.documents?.find(item => item.id === req.params.docId && !item.supersededAt);
+  if (!doc) return res.status(404).json({ error: "Current verification document not found." });
+  try {
+    const buffer = decryptVendorDocument(doc);
+    res.set("Cache-Control", "no-store, private");
+    res.set("Content-Disposition", 'inline; filename="' + String(doc.filename).replace(/["\\\\]/g, "_") + '"');
+    res.type(doc.mimeType).send(buffer);
+  } catch (error) { res.status(503).json({ error: "Could not decrypt the verification document. Check the document encryption key." }); }
+});
+app.patch("/api/admin/other-businesses/:id/documents/:docId", requireSuperAdmin, (req, res) => {
+  const action = String(req.body.action || "");
+  if (!["approve", "reject"].includes(action)) return res.status(400).json({ error: "Choose approve or reject." });
+  const businesses = readOtherBusinesses();
+  const business = businesses.find(item => item.id === req.params.id);
+  const doc = business?.documents?.find(item => item.id === req.params.docId && !item.supersededAt);
+  if (!doc) return res.status(404).json({ error: "Current verification document not found." });
+  doc.reviewStatus = action === "approve" ? "approved" : "rejected";
+  doc.rejectionReason = action === "reject" ? String(req.body.reason || "").trim().slice(0, 300) : "";
+  doc.reviewedAt = new Date().toISOString(); doc.reviewedBy = req.account.username;
+  const current = (business.documents || []).filter(item => !item.supersededAt);
+  const allApproved = type => current.some(item => item.type === type && item.reviewStatus === "approved");
+  business.identityVerified = allApproved("identity");
+  business.businessVerified = allApproved("business-proof");
+  business.settlementVerified = allApproved("settlement-proof");
+  business.updatedAt = doc.reviewedAt;
+  if (action === "reject") business.status = "rejected";
+  saveOtherBusinesses(businesses);
+  res.json({ ok: true, message: "Document review saved.", verification: { identity: business.identityVerified, business: business.businessVerified, settlement: business.settlementVerified } });
+});
 app.get("/api/business/orders", requireRole("business"), (req, res) => {
   const orders = readOrders().filter(order => order.merchantType === "business" && order.businessId === req.account.businessId)
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).map(publicOrder);
   res.set("Cache-Control", "no-store, private");
   res.json({ orders });
 });
-app.get("/api/business/me", requireRole("business"), (req, res) => {
+app.get("/api/business/me", requireLogin, (req, res) => {
+  if (req.account.role !== "business") return res.status(403).json({ error: "Business account required." });
   const business = readOtherBusinesses().find(item => item.id === req.account.businessId);
   if (!business) return res.status(404).json({ error: "Business account not found." });
   res.set("Cache-Control", "no-store");
@@ -1719,6 +1785,7 @@ app.patch("/api/admin/other-businesses/:id", requireSuperAdmin, (req, res) => {
   const business = businesses.find(item => item.id === req.params.id);
   if (!business) return res.status(404).json({ error: "Business application not found." });
   if (action === "approve") {
+    if (!business.identityVerified || !business.businessVerified || !business.settlementVerified) return res.status(409).json({ error: "Verify the owner identity, business proof and settlement document before approval." });
     if (!getPaystackSubaccountCode(business.id)) return res.status(409).json({ error: "Configure this business own Paystack subaccount in Render before approval. Required environment variable: PAYSTACK_SUBACCOUNT_" + String(business.id).replace(/[^a-zA-Z0-9]/g, "_").toUpperCase() });
     business.status = "approved"; business.reviewedAt = new Date().toISOString(); business.reviewedBy = req.account.username;
   }
@@ -1751,7 +1818,7 @@ app.post("/api/login", (req, res) => {
     }
   }
   const businessAccount = readOtherBusinesses().find(item =>
-    item.username === username && item.status === "approved" &&
+    item.username === username && ["approved", "pending"].includes(item.status) &&
     item.passwordSalt && item.passwordHash && passwordMatches(password, item)
   );
   const account = accounts.find(a => {

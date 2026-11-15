@@ -297,5 +297,16 @@ test("DirectPay merchant onboarding, receipts, verification and reconciliation",
     const finalReport = await api(adminCookie, "/api/superadmin/daily-report?date=" + date);
     assert.equal(finalReport.data.merchantFeeCollection.collectedToday, 960);
     assert.equal(finalReport.data.merchantFeeCollection.outstanding, 0);
+    const ledger = await api(adminCookie, "/api/superadmin/merchant-fee-payments");
+    assert.equal(ledger.response.status, 200);
+    assert.equal(ledger.data.integrity.valid, true);
+    assert.equal(ledger.data.integrity.checkedRecords, 2);
+    const overpayment = await api(adminCookie, "/api/superadmin/merchant-fee-payments", {
+      method: "POST", body: JSON.stringify({
+        merchantType: "restaurant", merchantId: "CB", paymentDate: date,
+        amount: 1, reference: "COC-REMIT-003"
+      })
+    });
+    assert.equal(overpayment.response.status, 409);
   });
 });

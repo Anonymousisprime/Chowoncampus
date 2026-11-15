@@ -1221,7 +1221,7 @@ function renderRestaurantPaymentSettingsPanel() {
   panel.className = "order-card";
   panel.id = "restaurantPaymentSettingsPanel";
   panel.style.marginBottom = "18px";
-  panel.innerHTML = '<div class="dashboard-section-heading"><div><span class="eyebrow">DIRECTPAY</span><h2>Bank account &amp; WhatsApp contact</h2><p>Students transfer directly to your approved account. Ultimate Admin must approve bank details before they appear at checkout.</p></div></div><form id="restaurantPaymentSettingsForm"><label>Bank name<input name="bankName" maxlength="100" required></label><label>Account name<input name="accountName" maxlength="120" required></label><label>10-digit account number<input name="accountNumber" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" required></label><label>WhatsApp number<input name="whatsappNumber" placeholder="e.g. 08012345678 or +2348012345678"></label><div class="menu-editor-actions"><button type="submit" class="primary-button">Save payment details</button><span id="restaurantPaymentSettingsMessage" class="muted" role="status"></span></div></form>';
+  panel.innerHTML = '<div class="dashboard-section-heading"><div><span class="eyebrow">DIRECTPAY · PAYMENT SETTINGS</span><h2>Add / Update Bank Account</h2><p>Submit your restaurant bank details here. Ultimate Admin must approve them before students can see and use the account.</p></div></div><form id="restaurantPaymentSettingsForm"><label>Bank name<input name="bankName" maxlength="100" required></label><label>Account name<input name="accountName" maxlength="120" required></label><label>10-digit account number<input name="accountNumber" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" required></label><label>WhatsApp number<input name="whatsappNumber" placeholder="e.g. 08012345678 or +2348012345678"></label><div class="menu-editor-actions"><button type="submit" class="primary-button">Save payment details</button><span id="restaurantPaymentSettingsMessage" class="muted" role="status"></span></div></form>';
   $("#dashboardContent").prepend(panel);
   const form = panel.querySelector("#restaurantPaymentSettingsForm");
   const message = panel.querySelector("#restaurantPaymentSettingsMessage");
@@ -1451,6 +1451,7 @@ async function loadDashboard(automatic = false) {
             ${vendor.status === "rejected" || missingLabels.length === 0 || rejectedCurrentDocuments.length ? `<form id="vendorResubmitForm" style="margin-top:18px"><button type="submit" class="primary-button" ${(missingLabels.length || rejectedCurrentDocuments.length) ? "disabled" : ""}>Resubmit for review</button><p class="muted">${rejectedCurrentDocuments.length ? "Replace every rejected document before resubmitting." : missingLabels.length ? "Upload all required document categories before resubmitting." : "Your documents are ready to resubmit."}</p><p id="vendorResubmitMessage" class="muted" role="status"></p></form>` : ""}
             <p class="muted" style="margin-top:18px">You can use your account to access this page and submit documents. Order receiving and order processing remain disabled until the Ultimate Admin approves your restaurant.</p>
           </section>`;
+        renderRestaurantPaymentSettingsPanel();
         return;
       }
       state.restaurantOperations = (await api("/api/restaurant/operations")).operations;
@@ -1496,6 +1497,7 @@ async function loadDashboard(automatic = false) {
           <button type="button" class="secondary-button" data-restaurant-jump="restaurant-section-completed">📋 Order history</button>
           <button type="button" class="secondary-button" data-show-menu-editor>➕ Add / Edit food items</button>
           <button type="button" class="secondary-button" data-restaurant-jump="restaurantMenuManager">📍 Manage menu & location</button>
+          <button type="button" class="secondary-button" data-restaurant-jump="restaurantPaymentSettingsPanel">🏦 Payment Settings · Add bank account</button>
           <button type="button" class="secondary-button" data-restaurant-jump="restaurantRatingsPanel">⭐ Customer ratings</button>
           <button type="button" class="secondary-button" data-show-password-form>🔐 Change password</button>
         </nav>
@@ -1812,6 +1814,10 @@ async function loadDashboard(automatic = false) {
           <div><span class="eyebrow">STUDENT WORKSPACE</span><h2>Welcome, ${escapeHtml(account.name)}!</h2><p>Track your current orders here. Completed orders remain visible briefly for feedback, then move out of your dashboard. Past orders are available to admins only.</p></div>
           <div class="student-dashboard-actions"><a class="secondary-button" href="/restaurants.html" style="display:inline-flex;align-items:center;text-decoration:none">🍽️ Browse food</a><button class="secondary-button" type="button" data-show-password-form>🔐 Change password</button></div>
         </div>
+        <section class="dashboard-order-section" id="studentRestaurantBankAccounts" aria-label="Approved restaurant bank accounts">
+          <div class="dashboard-section-heading"><div><span class="eyebrow">DIRECT BANK TRANSFER</span><h2>Restaurant Bank Accounts</h2><p>Use these approved account details when paying a restaurant directly. Always transfer the exact amount shown on your order.</p></div><button class="secondary-button" type="button" id="refreshStudentBankAccounts">↻ Refresh accounts</button></div>
+          <div id="studentRestaurantBankAccountsList"><p class="muted">Loading approved restaurant accounts…</p></div>
+        </section>
         <section class="dashboard-order-section student-foodback-summary" aria-label="FoodBack rewards">
           <div class="dashboard-section-heading"><div><span class="eyebrow">FOODBACK REWARDS</span><h2>Your FoodBack wallet</h2><p id="studentFoodBackEarnRate">Earn 1% on your own eligible orders and 2% referral rewards when friends order.</p></div><a class="secondary-button" href="/foodback.html" style="display:inline-flex;align-items:center;text-decoration:none">Open wallet →</a></div>
           <div class="student-foodback-metrics"><article><span>Available balance</span><strong id="studentFoodBackBalance">Loading…</strong></article><article><span>Friends referred</span><strong id="studentFoodBackReferrals">—</strong></article><article><span>Referral reward now</span><strong id="studentFoodBackRate">—</strong></article></div>
@@ -1822,6 +1828,26 @@ async function loadDashboard(automatic = false) {
         ${studentOrders.length
           ? `<div class="order-list">${studentOrders.map(renderOrderCard).join("")}</div>`
           : `<div class="empty-state">You have no active orders. Browse the menu and place your next order!</div>`}</section>`;
+      const loadStudentBankAccounts = async () => {
+        const list = $("#studentRestaurantBankAccountsList");
+        if (!list) return;
+        list.innerHTML = '<p class="muted">Loading approved restaurant accounts…</p>';
+        try {
+          const result = await api("/api/student/restaurant-bank-accounts", { cache: "no-store" });
+          const accounts = Array.isArray(result.accounts) ? result.accounts : [];
+          list.innerHTML = accounts.length ? '<div class="order-list">' + accounts.map(item =>
+            '<article class="order-card"><div class="order-top"><div><span class="eyebrow">APPROVED MERCHANT ACCOUNT</span><h3>' + escapeHtml(item.restaurantName) + '</h3></div><span class="status">APPROVED</span></div>' +
+            '<p>Bank: <strong>' + escapeHtml(item.bankName) + '</strong></p>' +
+            '<p>Account name: <strong>' + escapeHtml(item.accountName) + '</strong></p>' +
+            '<p style="font-size:1.2rem">Account number: <strong style="letter-spacing:1px">' + escapeHtml(item.accountNumber) + '</strong></p>' +
+            '<p class="tiny muted">Only transfer after placing an order and checking the exact amount on that order.</p></article>'
+          ).join("") + '</div>' : '<div class="empty-state compact-empty">No restaurant bank accounts have been approved yet. Approved accounts will appear here.</div>';
+        } catch (error) {
+          list.innerHTML = '<p class="error">Could not load restaurant bank accounts: ' + escapeHtml(error.message) + '</p>';
+        }
+      };
+      loadStudentBankAccounts();
+      $("#refreshStudentBankAccounts")?.addEventListener("click", loadStudentBankAccounts);
       api("/api/foodback").then(foodback => {
         const balance = $("#studentFoodBackBalance");
         const referrals = $("#studentFoodBackReferrals");

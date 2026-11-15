@@ -264,6 +264,8 @@ test("DirectPay merchant onboarding, receipts, verification and reconciliation",
     assert.equal(history.data.order.paymentStatus, "Paid — bank transfer verified");
     assert.equal(history.data.order.paymentVerification.overridden, true);
     assert.equal(history.data.order.paymentVerification.verifiedRole, "ultimate_admin");
+    assert.deepEqual(history.data.order.paymentVerification.history.map(item => item.action), ["receipt_submitted", "not_received", "admin_override_received"]);
+    assert.ok(history.data.order.paymentVerification.history.every(item => item.at && item.by));
   });
 
   await t.test("daily fee records reconcile delivery plus 1% service fees without duplicate references", async () => {

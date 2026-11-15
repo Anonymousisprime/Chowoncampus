@@ -811,7 +811,7 @@ function premiumPaymentEmail(phone){return String(phone||"").replace(/\D/g,"")+"
 function extendStudentPremium(s,ref,source,actor){const p=getStudentPremium(s),base=p.active?new Date(p.endsAt).getTime():Date.now(),endsAt=new Date(base+PREMIUM_DURATION_DAYS*86400000).toISOString();s.premiumExpiresAt=endsAt;s.premiumSource=source;s.premiumGrantedBy=actor||null;s.premiumRevokedAt=null;s.premiumRevokedBy=null;s.premiumPayments=Array.isArray(s.premiumPayments)?s.premiumPayments:[];if(ref&&!s.premiumPayments.some(x=>x.reference===ref)){s.premiumPayments.unshift({reference:ref,amount:PREMIUM_PRICE_NAIRA,currency:"NGN",paidAt:new Date().toISOString(),endsAt});s.premiumPayments=s.premiumPayments.slice(0,100);}return endsAt;}
 function activatePremiumFromPayment(s,ref){s.premiumPendingPayments=(s.premiumPendingPayments||[]).filter(x=>x.reference!==ref);if((s.premiumPayments||[]).some(x=>x.reference===ref))return false;extendStudentPremium(s,ref,"paystack",null);s.premiumLastPaymentAt=new Date().toISOString();return true;}
 
-const FOODBACK_CONFIG_FILE = path.join(__dirname, "foodback-config.json");const FOODBACK_CONFIG_FILE = path.join(__dirname, "foodback-config.json");
+const FOODBACK_CONFIG_FILE = path.join(__dirname, "foodback-config.json");
 function readFoodBackConfig() {
   const config = readStoredJson(FOODBACK_CONFIG_FILE, { launchStartAt: null });
   if (!config.launchStartAt && process.env.FOODBACK_LAUNCH_START) return { ...config, launchStartAt: process.env.FOODBACK_LAUNCH_START };

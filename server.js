@@ -1851,8 +1851,8 @@ app.put("/api/merchant/payment-settings", requireLogin, (req, res) => {
 });
 app.get("/api/superadmin/merchant-payment-accounts", requireSuperAdmin, (req, res) => {
   const rows = [];
-  for (const merchant of restaurants) rows.push({ type: "restaurant", id: merchant.id, name: merchant.name, ...maskedMerchantPaymentSettings(merchant), accountNumber: undefined });
-  for (const merchant of readOtherBusinesses()) rows.push({ type: "business", id: merchant.id, name: merchant.name, ...maskedMerchantPaymentSettings(merchant), accountNumber: undefined });
+  for (const merchant of restaurants) rows.push({ type: "restaurant", id: merchant.id, name: merchant.name, ...maskedMerchantPaymentSettings(merchant) });
+  for (const merchant of readOtherBusinesses()) rows.push({ type: "business", id: merchant.id, name: merchant.name, ...maskedMerchantPaymentSettings(merchant) });
   res.set("Cache-Control", "no-store, private");
   res.json({ accounts: rows });
 });

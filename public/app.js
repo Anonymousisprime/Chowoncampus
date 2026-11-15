@@ -1200,16 +1200,6 @@ function renderRestaurantMenuManager() {
   container.hidden = true;
   container.id = "restaurantMenuManager";
   container.innerHTML = `
-    <section class="order-card" style="margin-bottom:18px">
-      <div class="dashboard-section-heading"><div><span class="eyebrow">DIRECTPAY</span><h2>Bank account &amp; WhatsApp contact</h2><p>Students transfer directly to your approved account. Ultimate Admin must approve bank details before they appear at checkout.</p></div></div>
-      <form id="restaurantPaymentSettingsForm">
-        <label>Bank name<input name="bankName" maxlength="100" required></label>
-        <label>Account name<input name="accountName" maxlength="120" required></label>
-        <label>10-digit account number<input name="accountNumber" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" required></label>
-        <label>WhatsApp number<input name="whatsappNumber" placeholder="e.g. 08012345678 or +2348012345678"></label>
-        <div class="menu-editor-actions"><button type="submit" class="primary-button">Save payment details</button><span id="restaurantPaymentSettingsMessage" class="muted" role="status"></span></div>
-      </form>
-    </section>
     <section class="restaurant-location-manager">
       <div class="dashboard-section-heading"><div><span class="eyebrow">PICKUP POINT</span><h2>Restaurant location</h2><p>Save written pickup instructions and set the exact GPS pin so the nearest available agent can find your restaurant.</p></div></div>
       <form id="restaurantLocationForm">
@@ -1255,6 +1245,36 @@ function renderRestaurantMenuManager() {
       paymentMessage.textContent = result.message + " Status: " + result.settings.bankAccountStatus;
       showToast(result.message);
     } catch (error) { paymentMessage.textContent = error.message; }
+    finally { button.disabled = false; }
+  });
+}
+
+function renderRestaurantPaymentSettingsPanel() {
+  if (!state.account || state.account.role !== "restaurant" || document.getElementById("restaurantPaymentSettingsPanel")) return;
+  const panel = document.createElement("section");
+  panel.className = "order-card";
+  panel.id = "restaurantPaymentSettingsPanel";
+  panel.style.marginBottom = "18px";
+  panel.innerHTML = '<div class="dashboard-section-heading"><div><span class="eyebrow">DIRECTPAY</span><h2>Bank account &amp; WhatsApp contact</h2><p>Students transfer directly to your approved account. Ultimate Admin must approve bank details before they appear at checkout.</p></div></div><form id="restaurantPaymentSettingsForm"><label>Bank name<input name="bankName" maxlength="100" required></label><label>Account name<input name="accountName" maxlength="120" required></label><label>10-digit account number<input name="accountNumber" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" required></label><label>WhatsApp number<input name="whatsappNumber" placeholder="e.g. 08012345678 or +2348012345678"></label><div class="menu-editor-actions"><button type="submit" class="primary-button">Save payment details</button><span id="restaurantPaymentSettingsMessage" class="muted" role="status"></span></div></form>';
+  $("#dashboardContent").prepend(panel);
+  const form = panel.querySelector("#restaurantPaymentSettingsForm");
+  const message = panel.querySelector("#restaurantPaymentSettingsMessage");
+  api("/api/merchant/payment-settings").then(settings => {
+    form.elements.bankName.value = settings.bankName || "";
+    form.elements.accountName.value = settings.accountName || "";
+    form.elements.accountNumber.value = settings.accountNumber || "";
+    form.elements.whatsappNumber.value = settings.whatsappNumber || "";
+    message.textContent = "Bank account status: " + settings.bankAccountStatus + (settings.rejectionReason ? " · " + settings.rejectionReason : "");
+  }).catch(error => { message.textContent = error.message; });
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+    const button = form.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+      const result = await api("/api/merchant/payment-settings", { method: "PUT", body: JSON.stringify(Object.fromEntries(new FormData(form))) });
+      message.textContent = result.message + " Status: " + result.settings.bankAccountStatus;
+      showToast(result.message);
+    } catch (error) { message.textContent = error.message; }
     finally { button.disabled = false; }
   });
 }
@@ -1543,6 +1563,7 @@ async function loadDashboard(automatic = false) {
       loadRestaurantRatings();
       loadRestaurantAdApplications();
       renderRestaurantMenuManager();
+      renderRestaurantPaymentSettingsPanel();
       document.querySelectorAll("[data-restaurant-chat-order]").forEach(form => loadRestaurantChat(form.dataset.restaurantChatOrder));
       document.querySelectorAll("[data-agent-chat-order]").forEach(form => loadAgentChat(form.dataset.agentChatOrder));
     } else if (account.role === "admin") {

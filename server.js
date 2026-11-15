@@ -803,6 +803,14 @@ function saveStudents(students) {
   saveStoredJson(STUDENTS_FILE, students);
 }
 
+
+const PREMIUM_PRICE_NAIRA=3000, PREMIUM_DURATION_DAYS=30;
+function getStudentPremium(s){const t=s?.premiumExpiresAt?new Date(s.premiumExpiresAt).getTime():0;const active=Number.isFinite(t)&&t>Date.now()&&!s?.premiumRevokedAt;return{active,endsAt:s?.premiumExpiresAt||null,source:s?.premiumSource||null};}
+function findStudentByPhone(phone){return readStudents().find(s=>String(s.phone)===String(phone))||null;}
+function premiumPaymentEmail(phone){return String(phone||"").replace(/\D/g,"")+"@payments.chowoncampus.com";}
+function extendStudentPremium(s,ref,source,actor){const p=getStudentPremium(s),base=p.active?new Date(p.endsAt).getTime():Date.now(),endsAt=new Date(base+PREMIUM_DURATION_DAYS*86400000).toISOString();s.premiumExpiresAt=endsAt;s.premiumSource=source;s.premiumGrantedBy=actor||null;s.premiumRevokedAt=null;s.premiumRevokedBy=null;s.premiumPayments=Array.isArray(s.premiumPayments)?s.premiumPayments:[];if(ref&&!s.premiumPayments.some(x=>x.reference===ref)){s.premiumPayments.unshift({reference:ref,amount:PREMIUM_PRICE_NAIRA,currency:"NGN",paidAt:new Date().toISOString(),endsAt});s.premiumPayments=s.premiumPayments.slice(0,100);}return endsAt;}
+function activatePremiumFromPayment(s,ref){s.premiumPendingPayments=(s.premiumPendingPayments||[]).filter(x=>x.reference!==ref);if((s.premiumPayments||[]).some(x=>x.reference===ref))return false;extendStudentPremium(s,ref,"paystack",null);s.premiumLastPaymentAt=new Date().toISOString();return true;}
+
 const FOODBACK_CONFIG_FILE = path.join(__dirname, "foodback-config.json");
 function readFoodBackConfig() {
   const config = readStoredJson(FOODBACK_CONFIG_FILE, { launchStartAt: null });
@@ -1514,9 +1522,11 @@ app.put("/api/restaurant/menu", requireRole("restaurant"), (req, res) => {
 
 // Current login
 
-app.get("/api/me", (req, res) => {
-  const session = getSession(req);
-  res.json({ account: session || null });
+app.get("/api/me", (req,res)=>{
+ const session=getSession(req);if(!session)return res.json({account:null});
+ if(session.role!=="student")return res.json({account:session});
+ const premium=getStudentPremium(findStudentByPhone(session.username));res.setHeader("Cache-Control","no-store, private");
+ res.json({account:{...session,isPremium:premium.active,premium}});
 });
 
 // ChowOnCampus Academy: role-scoped lessons, FAQs, quizzes and learner progress.
@@ -2227,6 +2237,30 @@ async function paystackRequest(url, options = {}) {
   return result.data;
 }
 
+
+app.post("/api/premium/paystack/initialize",requireRole("student"),async(req,res)=>{
+ if(!hasPaystackConfig())return res.status(503).json({error:"Premium payments are not configured yet."});
+ const students=readStudents(),s=students.find(x=>x.phone===req.account.username);if(!s)return res.status(404).json({error:"Student account not found."});
+ if(getStudentPremium(s).active)return res.status(409).json({error:"Premium is already active until "+s.premiumExpiresAt+"."});
+ const reference="COCPREM-"+crypto.randomBytes(12).toString("hex").toUpperCase();
+ try{const p=await paystackRequest("/transaction/initialize",{method:"POST",body:JSON.stringify({email:premiumPaymentEmail(s.phone),amount:300000,currency:"NGN",reference,callback_url:"https://chowoncampus.onrender.com/student-dashboard.html?premium=success",metadata:{type:"chowoncampus_premium",student_phone:s.phone,plan:"premium_30_days",duration_days:30}})});
+ s.premiumPendingPayments=Array.isArray(s.premiumPendingPayments)?s.premiumPendingPayments:[];s.premiumPendingPayments.push({reference,initializedAt:new Date().toISOString()});s.premiumPendingPayments=s.premiumPendingPayments.slice(-10);saveStudents(students);res.json({authorizationUrl:p.authorization_url,reference});
+ }catch(e){console.error("Premium payment init:",e.message);res.status(502).json({error:"Could not start Premium payment. Please try again."});}
+});
+app.post("/api/premium/paystack/verify",requireRole("student"),async(req,res)=>{
+ if(!hasPaystackConfig())return res.status(503).json({error:"Premium payments are not configured yet."});
+ const ref=String(req.body.reference||"").trim();if(!/^COCPREM-[A-F0-9]{24}$/.test(ref))return res.status(400).json({error:"Invalid Premium payment reference."});
+ const students=readStudents(),s=students.find(x=>x.phone===req.account.username);if(!s)return res.status(404).json({error:"Student account not found."});
+ if((s.premiumPayments||[]).some(x=>x.reference===ref))return res.json({ok:true,premium:getStudentPremium(s),message:"Payment was already verified."});
+ if(!(s.premiumPendingPayments||[]).some(x=>x.reference===ref))return res.status(400).json({error:"This payment was not started for your account."});
+ try{const p=await paystackRequest("/transaction/verify/"+encodeURIComponent(ref));if(p.status!=="success"||p.reference!==ref||Number(p.amount)!==300000||p.currency!=="NGN"||String(p.metadata?.type||"")!=="chowoncampus_premium"||String(p.metadata?.student_phone||"")!==String(s.phone)||String(p.customer?.email||"").toLowerCase()!==premiumPaymentEmail(s.phone).toLowerCase())return res.status(400).json({error:"Payment could not be verified for this account. If charged, contact support with your reference."});
+ activatePremiumFromPayment(s,ref);saveStudents(students);res.setHeader("Cache-Control","no-store, private");res.json({ok:true,premium:getStudentPremium(s),message:"Premium activated for 30 days. Your badge and ad-free access are active."});
+ }catch(e){console.error("Premium verification:",e.message);res.status(502).json({error:"Could not verify payment right now. Please try again shortly."});}
+});
+app.get("/api/superadmin/premium/students",requireSuperAdmin,(req,res)=>{const students=readStudents().map(s=>({id:s.id,name:s.name,phone:s.phone,premium:getStudentPremium(s),source:s.premiumSource||null,paymentCount:(s.premiumPayments||[]).length}));res.setHeader("Cache-Control","no-store, private");res.json({students,price:3000,durationDays:30});});
+app.post("/api/superadmin/premium/:id/grant",requireSuperAdmin,(req,res)=>{const raw=String(req.body.endsAt||"");if(!/^\d{4}-\d{2}-\d{2}$/.test(raw))return res.status(400).json({error:"Choose a valid expiry date."});const expiry=new Date(raw+"T23:59:59.999+01:00");if(!Number.isFinite(expiry.getTime())||expiry.getTime()<=Date.now())return res.status(400).json({error:"Expiry must be in the future."});const students=readStudents(),s=students.find(x=>x.id===req.params.id);if(!s)return res.status(404).json({error:"Student account not found."});s.premiumExpiresAt=expiry.toISOString();s.premiumSource="admin";s.premiumGrantedBy=req.account.username;s.premiumGrantedAt=new Date().toISOString();s.premiumRevokedAt=null;s.premiumRevokedBy=null;saveStudents(students);res.json({ok:true,premium:getStudentPremium(s),message:"Premium granted or extended."});});
+app.post("/api/superadmin/premium/:id/revoke",requireSuperAdmin,(req,res)=>{const students=readStudents(),s=students.find(x=>x.id===req.params.id);if(!s)return res.status(404).json({error:"Student account not found."});s.premiumExpiresAt=new Date().toISOString();s.premiumRevokedAt=s.premiumExpiresAt;s.premiumRevokedBy=req.account.username;saveStudents(students);res.json({ok:true,message:"Premium revoked. Badge and ad-free access stop immediately."});});
+
 app.post("/api/orders/:id/paystack/initialize", requireRole("student"), async (req, res) => {
   if (!IS_PRODUCTION) return res.status(400).json({ error: "Use the local demo payment flow outside production." });
   if (!hasPaystackConfig()) return res.status(503).json({ error: "Online payments are not configured yet. Please contact support." });
@@ -2326,8 +2360,11 @@ app.post("/api/payments/paystack/webhook", async (req, res) => {
   const event = req.body || {};
   if (event.event !== "charge.success" || !event.data) return res.sendStatus(200);
   const payment = event.data;
-  const orderId = String(payment.metadata?.order_id || "");
   const reference = String(payment.reference || "");
+  if(String(payment.metadata?.type||"")==="chowoncampus_premium"){
+    try{const students=readStudents(),s=students.find(x=>x.phone===String(payment.metadata?.student_phone||""));const pending=s&&(s.premiumPendingPayments||[]).some(x=>x.reference===reference);const valid=s&&pending&&payment.status==="success"&&Number(payment.amount)===300000&&payment.currency==="NGN"&&String(payment.metadata?.plan||"")==="premium_30_days"&&String(payment.customer?.email||"").toLowerCase()===premiumPaymentEmail(s.phone).toLowerCase();if(valid){activatePremiumFromPayment(s,reference);saveStudents(students);}else console.warn("Premium webhook mismatch:",reference);return res.sendStatus(200);}catch(e){console.error("Premium webhook:",e.message);return res.sendStatus(500);}
+  }
+  const orderId = String(payment.metadata?.order_id || "");
   if (!orderId || !reference) return res.sendStatus(200);
   try {
     const orders = readOrders();
@@ -4944,14 +4981,8 @@ const CAMPUS_POPUP_AD_PACKAGES = Object.freeze({
   premium: { days: 30, price: 40000 }
 });
 function campusAdIsPremiumAccount(account) {
-  if (!account || account.role !== "student") return false;
-  const premium = account.premium || account.subscription || {};
-  const endsAt = premium.endsAt || account.premiumEndsAt || "";
-  const inDate = !endsAt || (Number.isFinite(new Date(endsAt).getTime()) && new Date(endsAt).getTime() > Date.now());
-  const entitled = account.premiumActive === true || account.isPremium === true ||
-    premium.active === true || premium.status === "active" ||
-    String(premium.tier || premium.plan || "").toLowerCase() === "premium";
-  return entitled && inDate;
+ if(!account||account.role!=="student")return false;
+ const s=findStudentByPhone(account.username);return Boolean(s&&getStudentPremium(s).active);
 }
 function campusAdPublic(item) {
   return {

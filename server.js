@@ -793,6 +793,7 @@ function publicOrder(order, includeReceipt = false) {
     try {
       safeOrder.paymentReceiptDataUrl = "data:" + String(order.paymentReceiptMimeType || "image/jpeg") + ";base64," + decryptVendorDocument(paymentReceiptEncrypted).toString("base64");
       safeOrder.paymentReceiptFileName = order.paymentReceiptFileName || "payment-receipt";
+      safeOrder.paymentReceiptMimeType = order.paymentReceiptMimeType || "image/jpeg";
       safeOrder.paymentReceiptUploadedAt = order.paymentReceiptUploadedAt || null;
       safeOrder.transactionReference = order.transactionReference || "";
       safeOrder.paymentVerification = order.paymentVerification || null;
@@ -3729,7 +3730,7 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
         outstandingWalletBalance: outstandingFoodback, transactions: foodbackLedger },
       system: { events: events.length, errors: events.filter(item => /error|fail/i.test(String(item.type || item.event || item.action || ""))),
         suspiciousActivity: events.filter(item => /suspicious|security|unauthori[sz]ed|blocked/i.test(String(item.type || item.event || item.action || ""))) },
-      bankTransferReceipts: dayOrders.filter(order => order.paymentMethod === "bank_transfer" && order.paymentReceiptEncrypted && inReportDay(order.paymentReceiptUploadedAt, range)).map(order => ({
+      bankTransferReceipts: orders.filter(order => order.paymentMethod === "bank_transfer" && order.paymentReceiptEncrypted && inReportDay(order.paymentReceiptUploadedAt, range)).map(order => ({
         orderId: order.id, student: order.customerName, restaurant: order.businessName || order.restaurantName,
         amount: reportMoney(order.total), transactionReference: order.transactionReference || "",
         fileName: order.paymentReceiptFileName || "transfer-receipt", uploadedAt: order.paymentReceiptUploadedAt,

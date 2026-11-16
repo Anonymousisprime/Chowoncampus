@@ -2317,7 +2317,8 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
   }
 
   const order = {
-    id: `COC-${Date.now()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`,
+    id: paymentMethod === "bank_transfer" ? "PAYREQ-" + crypto.randomUUID() : `COC-${Date.now()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`,
+    orderNumber: null,
     customerName: customerName.trim(),
     customerPhone: customerPhone.trim(),
     hostel: [deliveryLocation.hostel, deliveryLocation.block && `Block ${deliveryLocation.block}`, deliveryLocation.room && `Room ${deliveryLocation.room}`, deliveryLocation.landmark && `Near ${deliveryLocation.landmark}`].filter(Boolean).join(", "),
@@ -2351,7 +2352,7 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     updatedAt: new Date().toISOString(),
     paymentStatus: paymentMethod === "foodback" ? "FoodBack — awaiting admin approval" : paymentMethod === "bank_transfer" ? "Bank transfer — awaiting receipt" : (IS_PRODUCTION ? "Unpaid" : "Unpaid — demo only"),
     idempotencyKey: cleanRequestId || null,
-    deliveryCode: createDeliveryCode(),
+    deliveryCode: null,
     deliveryCodeAttempts: 0,
     deliveryCodeLocked: false,
     assignedAgentId: null,
@@ -2483,6 +2484,8 @@ app.post("/api/orders/:id/bank-transfer/verify", requireLogin, (req, res) => {
   const status = decision === "received" ? "verified" : decision === "not_received" ? "rejected" : "investigating";
   order.paymentVerification = { status, decision, reason, verifiedAt: now, verifiedBy: req.account.username, verifiedRole: role, history: [...history, { action: decision, at: now, by: req.account.username, role, reason }] };
   if (decision === "received") {
+    if (!order.orderNumber) order.orderNumber = `COC-${Date.now()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+    if (!order.deliveryCode) order.deliveryCode = createDeliveryCode();
     order.paymentStatus = "Paid — bank transfer verified";
     order.paidAt = now;
     order.status = "Confirmed";
@@ -2522,6 +2525,8 @@ app.post("/api/superadmin/orders/:id/bank-transfer/override", requireSuperAdmin,
   const history = Array.isArray(order.paymentVerification?.history) ? order.paymentVerification.history : [];
   order.paymentVerification = { status: decision === "received" ? "verified" : "rejected", decision, reason, overridden: true, verifiedAt: now, verifiedBy: req.account.username, verifiedRole: "ultimate_admin", history: [...history, { action: "admin_override_" + decision, at: now, by: req.account.username, role: "ultimate_admin", reason }] };
   if (decision === "received") {
+    if (!order.orderNumber) order.orderNumber = `COC-${Date.now()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+    if (!order.deliveryCode) order.deliveryCode = createDeliveryCode();
     order.paymentStatus = "Paid — bank transfer verified";
     order.paidAt = now;
     order.status = "Confirmed";
@@ -2775,7 +2780,7 @@ app.post("/api/orders/:id/chat", requireRole("student", "agent", "restaurant"), 
 // Public order tracking by reference. Do not expose private customer details.
 app.get("/api/orders/:id", (req, res) => {
   try {
-    const order = readOrders().find(o => o.id === req.params.id);
+    const order = readOrders().find(o => o.id === req.params.id || o.orderNumber === req.params.id);
 
     if (!order) {
       return res.status(404).json({ error: "Order not found." });

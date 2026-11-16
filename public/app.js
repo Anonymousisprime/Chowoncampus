@@ -630,7 +630,10 @@ function renderTrackedOrder(order, resultSelector = "#trackResult") {
       ${state.account?.role === "student" && order.deliveryCode && (order.paymentMethod !== "bank_transfer" || String(order.paymentStatus || "").startsWith("Paid —")) && !["Completed", "Cancelled"].includes(order.status) ? `<section class="tracking-alert" style="background:#eaf5ee;border:1px solid #b9dec5;border-radius:12px;padding:14px;margin:14px 0"><strong>🔐 Your delivery handover code</strong><div style="font-size:28px;font-weight:900;letter-spacing:7px;margin:8px 0;color:#176b45">${escapeHtml(order.deliveryCode)}</div><p class="tiny muted">Keep this code private. Share it only when the agent has your food. The agent needs it to confirm delivery.</p></section>` : ""}
       <p>Food and packaging: <strong>${money(order.subtotal)}</strong></p><p>Delivery fee: <strong>${money(order.deliveryFee)}</strong></p><p>Payment fee (1%): <strong>${money(order.paymentFee || 0)}</strong></p><p>Total paid/payable: <strong>${money(order.total)}</strong></p>
       <p>Payment: <strong>${escapeHtml(order.paymentStatus || "Check with the restaurant")}</strong></p>
-      ${state.account?.role === "student" && (order.paymentMethod === "bank_transfer" || String(order.paymentStatus || "").toLowerCase().includes("bank transfer")) ? (studentMerchantAccount ? `<section class="tracking-alert" style="margin:14px 0;padding:14px;border:1px solid #b9dec5;border-radius:12px;background:#f2faf4"><h4>Transfer to this approved merchant account</h4><p>Bank: <strong>${escapeHtml(studentMerchantAccount.bankName || "")}</strong></p><p>Account name: <strong>${escapeHtml(studentMerchantAccount.accountName || "")}</strong></p><p style="font-size:1.2rem">Account number: <strong>${escapeHtml(studentMerchantAccount.accountNumber || "")}</strong></p><p class="tiny muted">Transfer only the exact total shown above. The merchant must confirm the bank credit before preparing your order.</p>${order.paymentReceiptSubmitted ? '<p class="tracking-alert"><strong>Transfer receipt submitted ✓</strong><br>Waiting for the restaurant to confirm the actual bank credit. Your order ID and delivery code remain locked until confirmation.</p>' : '<label>Bank transaction reference<input type="text" maxlength="120" data-bank-reference="' + escapeHtml(order.id) + '" placeholder="Enter transaction reference"></label><label>Upload transfer receipt<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf,.pdf" data-bank-receipt="' + escapeHtml(order.id) + '"></label><button type="button" class="primary-button" data-bank-verify="' + escapeHtml(order.id) + '">I Have Transferred the Money</button><p class="tiny muted">Submit your receipt here after transferring. This does not mark the order as paid.</p>'}</section>` : `<section class="tracking-alert" style="margin:14px 0;padding:14px"><strong>Approved merchant bank details could not be loaded.</strong><p class="tiny muted">Do not transfer yet. Refresh the approved bank accounts section or contact ChowOnCampus support on 09169398221.</p></section>`) : ""}
+      ${state.account?.role === "student" && order.paymentMethod === "bank_transfer" ? `
+        ${studentMerchantAccount ? `<section class="tracking-alert" style="margin:14px 0;padding:14px;border:1px solid #b9dec5;border-radius:12px;background:#f2faf4"><h4>Transfer to this approved merchant account</h4><p>Bank: <strong>${escapeHtml(studentMerchantAccount.bankName || "")}</strong></p><p>Account name: <strong>${escapeHtml(studentMerchantAccount.accountName || "")}</strong></p><p style="font-size:1.2rem">Account number: <strong>${escapeHtml(studentMerchantAccount.accountNumber || "")}</strong></p><p class="tiny muted">Transfer exactly ${money(order.total)}. The merchant must confirm the bank credit before preparing your order.</p></section>` : `<section class="tracking-alert" style="margin:14px 0;padding:14px"><strong>Campus Bites bank details are not being returned to this screen.</strong><p class="tiny muted">Do not transfer until the account number is displayed. The receipt form is available below, but only submit it after a transfer to the verified merchant account.</p></section>`}
+        ${order.paymentReceiptSubmitted ? `<section class="tracking-alert"><strong>Transfer receipt submitted ✓</strong><p>Waiting for the restaurant to confirm the actual bank credit. Your order ID and delivery code remain locked until confirmation.</p></section>` : `<section class="tracking-alert" style="margin:14px 0;padding:14px"><h4>Submit bank transfer receipt</h4><label>Bank transaction reference<input type="text" maxlength="120" data-bank-reference="${escapeHtml(order.id)}" placeholder="Enter transaction reference"></label><label>Upload transfer receipt<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf,.pdf" data-bank-receipt="${escapeHtml(order.id)}"></label><button type="button" class="primary-button" data-bank-verify="${escapeHtml(order.id)}">I Have Transferred the Money</button><p class="tiny muted">Submitting a receipt does not mark the order as paid. The restaurant must confirm the actual bank credit.</p></section>`}
+      ` : ""}
       <p class="tiny muted">Last updated: ${escapeHtml(new Date(order.updatedAt || order.createdAt).toLocaleString())}</p>
       
       <p class="tiny muted">Tracking refreshes automatically every 15 seconds while this page is open.</p>
@@ -721,18 +724,16 @@ async function trackOrder(orderId, quiet = false, resultSelector = "#trackResult
     const result = await api(`/api/orders/${encodeURIComponent(id)}`);
     // Bank-transfer checkout must not depend on the dashboard having already loaded
     // the merchant account list. Fetch approved accounts on the order-tracking path too.
-    if (state.account?.role === "student" && result.order?.paymentMethod === "bank_transfer" && !result.order.paymentBankAccount) {
+    if (state.account?.role === "student" && result.order?.paymentMethod === "bank_transfer") {
       try {
+        // Always refresh approved merchant accounts: older order snapshots may lack
+        // the account object even though the merchant's current account is approved.
         const bankResult = await api("/api/student/restaurant-bank-accounts", { cache: "no-store" });
         const accounts = Array.isArray(bankResult.accounts) ? bankResult.accounts : [];
         window.cocStudentBankAccounts = accounts;
         window.cocStudentBankAccountIssues = Array.isArray(bankResult.accountIssues) ? bankResult.accountIssues : [];
-        const merchantId = String(result.order.businessId || result.order.restaurantId || "");
-        const matchingAccount = accounts.find(item =>
-          String(item.merchantId || item.restaurantId || "") === merchantId &&
-          (!result.order.merchantType || item.merchantType === result.order.merchantType)
-        );
-        if (matchingAccount) result.order.paymentBankAccount = matchingAccount;
+        const matchedAccount = studentBankAccountForOrder(result.order);
+        if (matchedAccount) result.order.paymentBankAccount = matchedAccount;
       } catch (bankError) {
         console.warn("Could not load approved merchant bank details for order tracking:", bankError.message);
       }
@@ -801,7 +802,18 @@ function renderStudentRating(order) {
 
 function studentBankAccountForOrder(order) {
   const accounts = Array.isArray(window.cocStudentBankAccounts) ? window.cocStudentBankAccounts : [];
-  return order.paymentBankAccount || accounts.find(item => String(item.merchantId || item.restaurantId || "") === String(order.businessId || order.restaurantId || "") && (!order.merchantType || item.merchantType === order.merchantType)) || null;
+  if (order.paymentBankAccount) return order.paymentBankAccount;
+  const merchantId = String(order.businessId || order.restaurantId || "");
+  const sameType = item => !order.merchantType || item.merchantType === order.merchantType;
+  const byId = accounts.find(item => String(item.merchantId || item.restaurantId || "") === merchantId && sameType(item));
+  if (byId) return byId;
+  // Some legacy orders have a missing/older merchant ID. Only use an exact,
+  // unique merchant-name match; never guess between similarly named businesses.
+  const normalize = value => String(value || "").trim().toLowerCase().replace(/\\s+/g, " ");
+  const name = normalize(order.restaurantName || order.businessName);
+  if (!name) return null;
+  const matches = accounts.filter(item => sameType(item) && normalize(item.merchantName || item.restaurantName) === name);
+  return matches.length === 1 ? matches[0] : null;
 }
 
 function renderPaymentReceiptPreview(order, maxHeight = 420) {

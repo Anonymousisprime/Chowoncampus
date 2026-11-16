@@ -719,6 +719,24 @@ async function trackOrder(orderId, quiet = false, resultSelector = "#trackResult
   if (!quiet && $(resultSelector)) $(resultSelector).innerHTML = `<p class="loading">Looking up your order…</p>`;
   try {
     const result = await api(`/api/orders/${encodeURIComponent(id)}`);
+    // Bank-transfer checkout must not depend on the dashboard having already loaded
+    // the merchant account list. Fetch approved accounts on the order-tracking path too.
+    if (state.account?.role === "student" && result.order?.paymentMethod === "bank_transfer" && !result.order.paymentBankAccount) {
+      try {
+        const bankResult = await api("/api/student/restaurant-bank-accounts", { cache: "no-store" });
+        const accounts = Array.isArray(bankResult.accounts) ? bankResult.accounts : [];
+        window.cocStudentBankAccounts = accounts;
+        window.cocStudentBankAccountIssues = Array.isArray(bankResult.accountIssues) ? bankResult.accountIssues : [];
+        const merchantId = String(result.order.businessId || result.order.restaurantId || "");
+        const matchingAccount = accounts.find(item =>
+          String(item.merchantId || item.restaurantId || "") === merchantId &&
+          (!result.order.merchantType || item.merchantType === result.order.merchantType)
+        );
+        if (matchingAccount) result.order.paymentBankAccount = matchingAccount;
+      } catch (bankError) {
+        console.warn("Could not load approved merchant bank details for order tracking:", bankError.message);
+      }
+    }
     if (state.account?.role === "student" && !studentOrderIsVisible(result.order)) {
       try {
         if (localStorage.getItem("coc_last_order_id") === id) localStorage.removeItem("coc_last_order_id");

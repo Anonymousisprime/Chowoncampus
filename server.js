@@ -812,6 +812,8 @@ function studentPublicOrder(order, username) {
   // COC order number or handover code until the merchant confirms actual bank credit.
   if (order.customerPhone === username && order.deliveryCode && !["Completed", "Cancelled"].includes(order.status) && (order.paymentMethod !== "bank_transfer" || isVerifiedOrderPayment(order))) safeOrder.deliveryCode = order.deliveryCode;
   if (order.customerPhone === username && order.paymentMethod === "bank_transfer") {
+    safeOrder.paymentReceiptSubmitted = Boolean(order.paymentReceiptEncrypted && order.paymentVerification?.status !== "rejected");
+    safeOrder.paymentReceiptSubmittedAt = safeOrder.paymentReceiptSubmitted ? (order.paymentReceiptUploadedAt || null) : null;
     let currentMerchant = null;
     if (order.merchantType === "business" && order.businessId) {
       currentMerchant = readOtherBusinesses().find(item => String(item.id) === String(order.businessId)) || null;
@@ -883,9 +885,9 @@ const FIXED_RUN_DELIVERY_AREA = Object.freeze({
   enabled: true,
   centerLatitude: 7.67998,
   centerLongitude: 4.45982,
-  radiusMeters: 800,
+  radiusMeters: 1200,
   fixed: true,
-  label: "Redeemer's University campus"
+  label: "Redeemer's University expanded campus delivery zone"
 });
 function readDeliveryAreaConfig() { return { ...FIXED_RUN_DELIVERY_AREA }; }
 function saveDeliveryAreaConfig() {

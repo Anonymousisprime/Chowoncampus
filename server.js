@@ -1864,20 +1864,32 @@ app.put("/api/merchant/payment-settings", requireLogin, (req, res) => {
 });
 app.get("/api/student/restaurant-bank-accounts", requireRole("student"), (req, res) => {
   const accounts = [];
-  for (const merchant of restaurants) {
+  const approvedMerchants = [
+    ...restaurants
+      .filter(merchant => vendorIsApproved(merchant.id))
+      .map(merchant => ({ ...merchant, merchantType: "restaurant" })),
+    ...readOtherBusinesses()
+      .filter(merchant => merchant.status === "approved" && !merchant.suspended)
+      .map(merchant => ({ ...merchant, merchantType: "business" }))
+  ];
+  for (const merchant of approvedMerchants) {
     if (!merchant.paymentAccountEncrypted || merchant.paymentAccountStatus !== "approved") continue;
     try {
       const account = JSON.parse(decryptVendorDocument(merchant.paymentAccountEncrypted).toString("utf8"));
       if (!account.bankName || !account.accountName || !/^\d{10}$/.test(String(account.accountNumber || ""))) continue;
       accounts.push({
-        restaurantId: merchant.id,
-        restaurantName: merchant.name,
+        merchantType: merchant.merchantType,
+        merchantId: merchant.id,
+        merchantName: merchant.name,
+        restaurantId: merchant.merchantType === "restaurant" ? merchant.id : undefined,
+        restaurantName: merchant.merchantType === "restaurant" ? merchant.name : undefined,
         bankName: account.bankName,
         accountName: account.accountName,
-        accountNumber: account.accountNumber
+        accountNumber: account.accountNumber,
+        whatsappNumber: merchant.whatsappNumber || ""
       });
     } catch (error) {
-      console.error("Could not decrypt approved restaurant bank account:", merchant.id, error.message);
+      console.error("Could not decrypt approved merchant bank account:", merchant.id, error.message);
     }
   }
   res.set("Cache-Control", "no-store, private");

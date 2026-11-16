@@ -808,7 +808,7 @@ function createDeliveryCode() {
 
 function studentPublicOrder(order, username) {
   const safeOrder = publicOrder(order);
-  if (order.customerPhone === username && order.deliveryCode && !["Completed", "Cancelled"].includes(order.status)) safeOrder.deliveryCode = order.deliveryCode;
+  if (order.customerPhone === username && order.deliveryCode && !["Completed", "Cancelled"].includes(order.status) && (order.paymentMethod !== "bank_transfer" || isVerifiedOrderPayment(order))) safeOrder.deliveryCode = order.deliveryCode;
   if (order.customerPhone === username && order.paymentMethod === "bank_transfer") {
     let encryptedAccount = order.paymentBankAccountEncrypted || null;
     let currentMerchant = null;

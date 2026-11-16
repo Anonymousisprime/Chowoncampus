@@ -804,7 +804,7 @@ function renderOrderCard(order) {
       ${state.account.role === "student" && order.deliveryCode && (order.paymentMethod !== "bank_transfer" || paymentIsVerified) && !["Completed", "Cancelled"].includes(order.status) ? `<section class="tracking-alert" style="background:#eaf5ee;border:1px solid #b9dec5;border-radius:12px;padding:14px;margin:14px 0"><strong>🔐 Your delivery handover code</strong><div style="font-size:28px;font-weight:900;letter-spacing:7px;margin:8px 0;color:#176b45">${escapeHtml(order.deliveryCode)}</div><p class="tiny muted">Keep this code private. Share it only when the agent has your food. The agent needs it to confirm delivery.</p></section>` : ""}
       <p>Total: <strong>${money(order.total)}</strong> · Payment: ${escapeHtml(order.paymentStatus)}</p>
       ${state.account.role === "student" && order.paymentMethod === "bank_transfer" && order.paymentBankAccount && !String(order.paymentStatus || "").startsWith("Paid — bank transfer") ? '<section class="tracking-alert" style="background:#f3f8f4;border:1px solid #c9dfd0;border-radius:12px;padding:14px;margin:14px 0"><strong>Direct bank transfer to ' + escapeHtml(order.restaurantName) + '</strong><p>Bank: <strong>' + escapeHtml(order.paymentBankAccount.bankName) + '</strong></p><p>Account name: <strong>' + escapeHtml(order.paymentBankAccount.accountName) + '</strong></p><p>Account number: <strong>' + escapeHtml(order.paymentBankAccount.accountNumber) + '</strong></p><p>Transfer exactly: <strong>' + money(order.total) + '</strong></p><label>Bank transaction reference<input type="text" maxlength="120" data-bank-reference="' + escapeHtml(order.id) + '" placeholder="Enter transaction reference"></label><label>Upload transfer receipt<input type="file" accept="image/jpeg,image/png,image/webp" data-bank-receipt="' + escapeHtml(order.id) + '"></label><button type="button" class="primary-button" data-bank-verify="' + escapeHtml(order.id) + '">Verify Payment</button>' + (order.merchantWhatsAppNumber ? '<a class="secondary-button" target="_blank" rel="noopener noreferrer" href="https://wa.me/' + encodeURIComponent(String(order.merchantWhatsAppNumber).replace(/\D/g, "")) + '?text=' + encodeURIComponent("Hello " + order.restaurantName + ", I have submitted the bank transfer receipt for order " + order.id + ". Please check your bank account and confirm receipt.") + '">Send receipt notice on WhatsApp</a>' : '') + '<p class="tiny muted">Upload the receipt here first. WhatsApp opens a chat with the business; attach the same receipt there if requested. A screenshot alone does not confirm payment.</p></section>' : ""}
-      ${state.account.role === "restaurant" && order.paymentMethod === "bank_transfer" && order.paymentReceiptDataUrl ? '<section class="tracking-alert" style="background:#f8faf8;border:1px solid #c9dfd0;border-radius:12px;padding:14px;margin:14px 0"><strong>Student transfer receipt</strong><p>Transaction reference: <strong>' + escapeHtml(order.transactionReference || "Not supplied") + '</strong></p><p>Uploaded: ' + escapeHtml(order.paymentReceiptUploadedAt ? new Date(order.paymentReceiptUploadedAt).toLocaleString() : "—") + '</p><img src="' + escapeHtml(order.paymentReceiptDataUrl) + '" alt="Student bank transfer receipt" style="display:block;max-width:100%;max-height:420px;object-fit:contain;border-radius:8px;margin:10px 0"><div class="order-actions"><button type="button" class="primary-button" data-bank-decision="received" data-bank-order="' + escapeHtml(order.id) + '">Payment Received</button><button type="button" class="danger-button" data-bank-decision="not_received" data-bank-order="' + escapeHtml(order.id) + '">Reject — not received</button><button type="button" class="secondary-button" data-bank-decision="investigate" data-bank-order="' + escapeHtml(order.id) + '">Flag for investigation</button></div></section>' : ""}
+      ${["restaurant", "business"].includes(state.account.role) && order.paymentMethod === "bank_transfer" && order.paymentReceiptDataUrl ? '<section class="tracking-alert" style="background:#f8faf8;border:1px solid #c9dfd0;border-radius:12px;padding:14px;margin:14px 0"><strong>Student transfer receipt</strong><p>Transaction reference: <strong>' + escapeHtml(order.transactionReference || "Not supplied") + '</strong></p><p>Uploaded: ' + escapeHtml(order.paymentReceiptUploadedAt ? new Date(order.paymentReceiptUploadedAt).toLocaleString() : "—") + '</p><img src="' + escapeHtml(order.paymentReceiptDataUrl) + '" alt="Student bank transfer receipt" style="display:block;max-width:100%;max-height:420px;object-fit:contain;border-radius:8px;margin:10px 0"><div class="order-actions"><button type="button" class="primary-button" data-bank-decision="received" data-bank-order="' + escapeHtml(order.id) + '">Payment Received</button><button type="button" class="danger-button" data-bank-decision="not_received" data-bank-order="' + escapeHtml(order.id) + '">Reject — not received</button><button type="button" class="secondary-button" data-bank-decision="investigate" data-bank-order="' + escapeHtml(order.id) + '">Flag for investigation</button></div></section>' : ""}
       ${state.account.role === "admin" && state.account.isSuperAdmin && order.paymentMethod === "bank_transfer" && order.paymentReceiptDataUrl ? '<section class="tracking-alert" style="background:#f8faf8;border:1px solid #c9dfd0;border-radius:12px;padding:14px;margin:14px 0"><strong>Bank transfer receipt · Ultimate Admin review</strong><p>Reference: ' + escapeHtml(order.transactionReference || "—") + '</p><img src="' + escapeHtml(order.paymentReceiptDataUrl) + '" alt="Bank transfer receipt" style="display:block;max-width:100%;max-height:360px;object-fit:contain;border-radius:8px;margin:10px 0"><div class="order-actions"><button type="button" class="primary-button" data-bank-override="received" data-bank-order="' + escapeHtml(order.id) + '">Admin confirm payment</button><button type="button" class="danger-button" data-bank-override="not_received" data-bank-order="' + escapeHtml(order.id) + '">Admin reject payment</button></div></section>' : ""}
       ${order.paymentMethod === "foodback" ? `<p><strong>FoodBack redemption</strong> · ${canReviewFoodBack ? "Needs ultimate admin review" : escapeHtml(order.approvedAt ? "Approved by ultimate admin" : order.refundedAt ? "Credits refunded" : "Under review")}</p>` : "" }
       ${canReviewFoodBack ? `<div class="order-actions"><button type="button" class="primary-button" data-foodback-review="approve" data-foodback-order="${escapeHtml(order.id)}">Approve FoodBack order</button><button type="button" class="danger-button" data-foodback-review="reject" data-foodback-order="${escapeHtml(order.id)}">Reject &amp; refund credits</button></div>` : ""}
@@ -1371,6 +1371,7 @@ async function loadDashboard(automatic = false) {
   $("#dashboardTitle").textContent = ({
     admin: "Admin dashboard",
     restaurant: "Restaurant orders",
+    business: "Business orders",
     agent: "Delivery dashboard",
     student: "Student account"
   })[account.role] || "Dashboard";
@@ -1535,6 +1536,22 @@ async function loadDashboard(automatic = false) {
       renderRestaurantPaymentSettingsPanel();
       document.querySelectorAll("[data-restaurant-chat-order]").forEach(form => loadRestaurantChat(form.dataset.restaurantChatOrder));
       document.querySelectorAll("[data-agent-chat-order]").forEach(form => loadAgentChat(form.dataset.agentChatOrder));
+    } else if (account.role === "business") {
+      $("#dashboardContent").innerHTML = `
+        <div class="restaurant-welcome">
+          <div><span class="eyebrow">BUSINESS WORKSPACE</span><h2>Welcome, ${escapeHtml(account.name)}!</h2><p>Manage your business payment details, WhatsApp contact and incoming orders from here.</p></div>
+          <button class="secondary-button" id="refreshBusinessOrders" type="button">↻ Refresh orders</button>
+        </div>
+        <section class="dashboard-order-section">
+          <div class="dashboard-section-heading"><div><span class="eyebrow">BUSINESS PAYMENTS</span><h2>Bank account &amp; WhatsApp settings</h2><p>Add or update your account details. Ultimate Admin approval is required before students can use the account.</p></div></div>
+          <div id="businessPaymentSettingsMount"></div>
+        </section>
+        <section class="dashboard-order-section">
+          <div class="dashboard-section-heading"><div><h2>Business orders</h2><p>Review submitted receipts and confirm only transfers that have actually arrived in your bank account.</p></div><span class="count-pill">${orders.length}</span></div>
+          ${orders.length ? '<div class="order-list">' + orders.map(renderOrderCard).join("") + '</div>' : '<div class="empty-state">No orders or submitted receipts yet.</div>'}
+        </section>`;
+      renderRestaurantPaymentSettingsPanel();
+      $("#refreshBusinessOrders")?.addEventListener("click", () => loadDashboard());
     } else if (account.role === "admin") {
       const [restaurantResult, studentResult] = await Promise.all([
         api("/api/admin/restaurants"),
@@ -1889,9 +1906,9 @@ async function loadDashboard(automatic = false) {
     }
 
     const securityPanel = document.createElement("section");
-    securityPanel.className = "dashboard-order-section" + (account.role === "restaurant" ? " restaurant-view-panel" : "");
-    securityPanel.hidden = account.role === "restaurant";
-    const canTogglePasswordForm = ["student", "restaurant"].includes(account.role);
+    securityPanel.className = "dashboard-order-section" + (["restaurant", "business"].includes(account.role) ? " restaurant-view-panel" : "");
+    securityPanel.hidden = ["restaurant", "business"].includes(account.role);
+    const canTogglePasswordForm = ["student", "restaurant", "business"].includes(account.role);
     securityPanel.id = "accountSecurityPanel";
     securityPanel.innerHTML = `
       <div class="dashboard-section-heading"><div><span class="eyebrow">ACCOUNT SECURITY</span><h2>Change password</h2><p>Use your current password to set a new one (10–128 characters). You will need to log in again after changing it.</p></div></div>

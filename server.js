@@ -832,7 +832,7 @@ function studentPublicOrder(order, username) {
     for (const encryptedAccount of [...new Set(candidates)]) {
       try {
         const account = JSON.parse(decryptVendorDocument(encryptedAccount).toString("utf8"));
-        if (account?.bankName && account?.accountName && /^\\d{10}$/.test(String(account.accountNumber || ""))) {
+        if (account?.bankName && account?.accountName && /^\d{10}$/.test(String(account.accountNumber || ""))) {
           safeOrder.paymentBankAccount = account;
           break;
         }
@@ -1912,7 +1912,7 @@ app.get("/api/student/restaurant-bank-accounts", requireRole("student"), (req, r
     }
     try {
       const account = JSON.parse(decryptVendorDocument(merchant.paymentAccountEncrypted).toString("utf8"));
-      if (!account.bankName || !account.accountName || !/^\\d{10}$/.test(String(account.accountNumber || ""))) {
+      if (!account.bankName || !account.accountName || !/^\d{10}$/.test(String(account.accountNumber || ""))) {
         accountIssues.push({ merchantName: merchant.name, reason: "The approved bank details are incomplete. The merchant must review them." });
         continue;
       }

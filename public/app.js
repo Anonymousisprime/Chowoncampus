@@ -1216,12 +1216,12 @@ function renderRestaurantMenuManager() {
 }
 
 function renderRestaurantPaymentSettingsPanel() {
-  if (!state.account || state.account.role !== "restaurant" || document.getElementById("restaurantPaymentSettingsPanel")) return;
+  if (!state.account || !["restaurant", "business"].includes(state.account.role) || document.getElementById("restaurantPaymentSettingsPanel")) return;
   const panel = document.createElement("section");
   panel.className = "order-card";
   panel.id = "restaurantPaymentSettingsPanel";
   panel.style.marginBottom = "18px";
-  panel.innerHTML = '<div class="dashboard-section-heading"><div><span class="eyebrow">DIRECTPAY · PAYMENT SETTINGS</span><h2>Add / Update Bank Account</h2><p>Submit your restaurant bank details here. Ultimate Admin must approve them before students can see and use the account.</p></div></div><form id="restaurantPaymentSettingsForm"><label>Bank name<input name="bankName" maxlength="100" required></label><label>Account name<input name="accountName" maxlength="120" required></label><label>10-digit account number<input name="accountNumber" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" required></label><label>WhatsApp number<input name="whatsappNumber" placeholder="e.g. 08012345678 or +2348012345678"></label><div class="menu-editor-actions"><button type="submit" class="primary-button">Save payment details</button><span id="restaurantPaymentSettingsMessage" class="muted" role="status"></span></div></form>';
+  panel.innerHTML = '<div class="dashboard-section-heading"><div><span class="eyebrow">DIRECTPAY · PAYMENT SETTINGS</span><h2>Add / Update Bank Account &amp; WhatsApp</h2><p>Enter your business bank details and WhatsApp contact here. Ultimate Admin must approve bank details before students can see and use the account.</p></div></div><form id="restaurantPaymentSettingsForm"><label>Bank name<input name="bankName" maxlength="100" required></label><label>Account name<input name="accountName" maxlength="120" required></label><label>10-digit account number<input name="accountNumber" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" required></label><label>WhatsApp number<input name="whatsappNumber" placeholder="e.g. 08012345678 or +2348012345678"></label><div class="menu-editor-actions"><button type="submit" class="primary-button">Save payment details</button><span id="restaurantPaymentSettingsMessage" class="muted" role="status"></span></div></form>';
   $("#dashboardContent").prepend(panel);
   const form = panel.querySelector("#restaurantPaymentSettingsForm");
   const message = panel.querySelector("#restaurantPaymentSettingsMessage");

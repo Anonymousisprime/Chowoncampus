@@ -1835,13 +1835,17 @@ async function loadDashboard(automatic = false) {
         try {
           const result = await api("/api/student/restaurant-bank-accounts", { cache: "no-store" });
           const accounts = Array.isArray(result.accounts) ? result.accounts : [];
-          list.innerHTML = accounts.length ? '<div class="order-list">' + accounts.map(item =>
-            '<article class="order-card"><div class="order-top"><div><span class="eyebrow">APPROVED MERCHANT ACCOUNT</span><h3>' + escapeHtml(item.restaurantName) + '</h3></div><span class="status">APPROVED</span></div>' +
-            '<p>Bank: <strong>' + escapeHtml(item.bankName) + '</strong></p>' +
-            '<p>Account name: <strong>' + escapeHtml(item.accountName) + '</strong></p>' +
-            '<p style="font-size:1.2rem">Account number: <strong style="letter-spacing:1px">' + escapeHtml(item.accountNumber) + '</strong></p>' +
-            '<p class="tiny muted">Only transfer after placing an order and checking the exact amount on that order.</p></article>'
-          ).join("") + '</div>' : '<div class="empty-state compact-empty">No restaurant bank accounts have been approved yet. Approved accounts will appear here.</div>';
+          list.innerHTML = accounts.length ? '<div class="order-list">' + accounts.map(item => {
+            const merchantName = item.merchantName || item.restaurantName || "Approved merchant";
+            const whatsappDigits = String(item.whatsappNumber || "").replace(/\D/g, "");
+            const whatsappLink = whatsappDigits ? "https://wa.me/" + whatsappDigits : "";
+            return '<article class="order-card"><div class="order-top"><div><span class="eyebrow">APPROVED ' + (item.merchantType === "business" ? "BUSINESS" : "RESTAURANT") + ' ACCOUNT</span><h3>' + escapeHtml(merchantName) + '</h3></div><span class="status">APPROVED</span></div>' +
+              '<p>Bank: <strong>' + escapeHtml(item.bankName) + '</strong></p>' +
+              '<p>Account name: <strong>' + escapeHtml(item.accountName) + '</strong></p>' +
+              '<p style="font-size:1.2rem">Account number: <strong style="letter-spacing:1px">' + escapeHtml(item.accountNumber) + '</strong></p>' +
+              (whatsappLink ? '<p>WhatsApp: <a href="' + escapeHtml(whatsappLink) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(item.whatsappNumber) + '</a></p>' : '<p class="muted">WhatsApp contact not provided.</p>') +
+              '<p class="tiny muted">Only transfer after placing an order and checking the exact amount on that order.</p></article>';
+          }).join("") + '</div>' : '<div class="empty-state compact-empty">No approved merchant bank accounts are available yet. Approved restaurant and business accounts will appear here.</div>';
         } catch (error) {
           list.innerHTML = '<p class="error">Could not load restaurant bank accounts: ' + escapeHtml(error.message) + '</p>';
         }

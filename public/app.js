@@ -620,7 +620,7 @@ function renderTrackedOrder(order, resultSelector = "#trackResult") {
   if (!resultTarget) return;
   resultTarget.innerHTML = `
     <article class="order-card tracking-card">
-      <div class="order-top"><div>${state.account?.role === "student" && order.paymentMethod === "bank_transfer" && !String(order.paymentStatus || "").startsWith("Paid —") ? '<span class="eyebrow">PAYMENT PENDING</span><h3>Order reference pending</h3>' : '<span class="eyebrow">ORDER REFERENCE</span><h3>' + escapeHtml(order.id) + '</h3>'}</div><span class="status">${escapeHtml(order.status)}</span></div>
+      <div class="order-top"><div>${state.account?.role === "student" && isBankTransferOrder(order) && !String(order.paymentStatus || "").startsWith("Paid —") ? '<span class="eyebrow">PAYMENT PENDING</span><h3>Order reference pending</h3>' : '<span class="eyebrow">ORDER REFERENCE</span><h3>' + escapeHtml(order.id) + '</h3>'}</div><span class="status">${escapeHtml(order.status)}</span></div>
       <p>${escapeHtml(order.restaurantName || "Your restaurant")}</p><p class="order-items">${items}</p>
       <div class="tracking-progress" aria-label="Order progress">
         ${steps.map((step,index)=>`<div class="tracking-step ${!cancelled && currentIndex>=index ? "done" : ""} ${order.status===step ? "current" : ""}"><span>${!cancelled && currentIndex>index ? "✓" : index+1}</span><small>${escapeHtml(step)}</small></div>`).join("")}
@@ -724,7 +724,7 @@ async function trackOrder(orderId, quiet = false, resultSelector = "#trackResult
     const result = await api(`/api/orders/${encodeURIComponent(id)}`);
     // Bank-transfer checkout must not depend on the dashboard having already loaded
     // the merchant account list. Fetch approved accounts on the order-tracking path too.
-    if (state.account?.role === "student" && result.order?.paymentMethod === "bank_transfer") {
+    if (state.account?.role === "student" && isBankTransferOrder(result.order)) {
       try {
         // Always refresh approved merchant accounts: older order snapshots may lack
         // the account object even though the merchant's current account is approved.
@@ -800,20 +800,38 @@ function renderStudentRating(order) {
     '<button type="submit" class="primary-button">Submit rating</button><p class="muted" role="status" data-rating-message></p></form></section>';
 }
 
+function isBankTransferOrder(order) {
+  return String(order?.paymentMethod || "").trim().toLowerCase().replace(/[\\s-]+/g, "_") === "bank_transfer";
+}
+
 function studentBankAccountForOrder(order) {
   const accounts = Array.isArray(window.cocStudentBankAccounts) ? window.cocStudentBankAccounts : [];
-  if (order.paymentBankAccount) return order.paymentBankAccount;
-  const merchantId = String(order.businessId || order.restaurantId || "");
-  const sameType = item => !order.merchantType || item.merchantType === order.merchantType;
-  const byId = accounts.find(item => String(item.merchantId || item.restaurantId || "") === merchantId && sameType(item));
-  if (byId) return byId;
-  // Some legacy orders have a missing/older merchant ID. Only use an exact,
-  // unique merchant-name match; never guess between similarly named businesses.
+  const isCompleteAccount = item => Boolean(
+    item && String(item.bankName || "").trim() &&
+    String(item.accountName || "").trim() &&
+    /^\\d{10}$/.test(String(item.accountNumber || "").replace(/\\s/g, ""))
+  );
+  // Do not let an old/partial order snapshot hide a complete, currently approved account.
+  if (isCompleteAccount(order?.paymentBankAccount)) return order.paymentBankAccount;
+  const merchantId = String(order?.businessId || order?.restaurantId || "");
+  const sameType = item => !order?.merchantType || !item.merchantType || item.merchantType === order.merchantType;
+  if (merchantId) {
+    const byId = accounts.find(item =>
+      isCompleteAccount(item) &&
+      String(item.merchantId || item.restaurantId || "") === merchantId
+    );
+    if (byId) return byId;
+  }
+  // Legacy orders may have a missing or old merchant ID. Prefer a type-matched
+  // exact name, then accept a unique exact name across types; never guess.
   const normalize = value => String(value || "").trim().toLowerCase().replace(/\\s+/g, " ");
-  const name = normalize(order.restaurantName || order.businessName);
+  const name = normalize(order?.restaurantName || order?.businessName);
   if (!name) return null;
-  const matches = accounts.filter(item => sameType(item) && normalize(item.merchantName || item.restaurantName) === name);
-  return matches.length === 1 ? matches[0] : null;
+  const named = accounts.filter(item => isCompleteAccount(item) &&
+    normalize(item.merchantName || item.restaurantName || item.businessName) === name);
+  const typed = named.filter(sameType);
+  if (typed.length === 1) return typed[0];
+  return named.length === 1 ? named[0] : null;
 }
 
 function renderPaymentReceiptPreview(order, maxHeight = 420) {

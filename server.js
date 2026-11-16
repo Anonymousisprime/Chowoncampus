@@ -808,22 +808,40 @@ function createDeliveryCode() {
 
 function studentPublicOrder(order, username) {
   const safeOrder = publicOrder(order);
+  // A bank-transfer payment request has an internal database key, but no student-facing
+  // COC order number or handover code until the merchant confirms actual bank credit.
   if (order.customerPhone === username && order.deliveryCode && !["Completed", "Cancelled"].includes(order.status) && (order.paymentMethod !== "bank_transfer" || isVerifiedOrderPayment(order))) safeOrder.deliveryCode = order.deliveryCode;
   if (order.customerPhone === username && order.paymentMethod === "bank_transfer") {
-    let encryptedAccount = order.paymentBankAccountEncrypted || null;
     let currentMerchant = null;
     if (order.merchantType === "business" && order.businessId) {
       currentMerchant = readOtherBusinesses().find(item => String(item.id) === String(order.businessId)) || null;
       if (!currentMerchant || currentMerchant.status !== "approved" || currentMerchant.suspended || currentMerchant.paymentAccountStatus !== "approved") currentMerchant = null;
     } else {
+      const paymentSettings = readRestaurantPaymentSettings();
       currentMerchant = restaurants.find(item => String(item.id) === String(order.restaurantId)) || null;
+      if (currentMerchant) currentMerchant = { ...currentMerchant, ...(paymentSettings[currentMerchant.id] || {}) };
       if (!currentMerchant || !vendorIsApproved(currentMerchant.id) || currentMerchant.paymentAccountStatus !== "approved") currentMerchant = null;
     }
-    if (!encryptedAccount && currentMerchant) encryptedAccount = currentMerchant.paymentAccountEncrypted || null;
-    if (encryptedAccount) {
-      try { safeOrder.paymentBankAccount = JSON.parse(decryptVendorDocument(encryptedAccount).toString("utf8")); } catch {}
+    // Prefer the account snapshot attached at checkout. If that snapshot cannot be
+    // decrypted, try the merchant's currently approved account instead of silently
+    // returning an empty bank-account section.
+    const candidates = [
+      order.paymentBankAccountEncrypted,
+      currentMerchant?.paymentAccountEncrypted
+    ].filter(Boolean);
+    for (const encryptedAccount of [...new Set(candidates)]) {
+      try {
+        const account = JSON.parse(decryptVendorDocument(encryptedAccount).toString("utf8"));
+        if (account?.bankName && account?.accountName && /^\\d{10}$/.test(String(account.accountNumber || ""))) {
+          safeOrder.paymentBankAccount = account;
+          break;
+        }
+      } catch (error) {
+        console.error("Student bank account decrypt attempt failed:", order.restaurantId || order.businessId, error.message);
+      }
     }
     if (currentMerchant) safeOrder.merchantWhatsAppNumber = currentMerchant.whatsappNumber || safeOrder.merchantWhatsAppNumber || "";
+    if (!safeOrder.paymentBankAccount) safeOrder.paymentBankAccountUnavailable = true;
   }
   if (order.customerPhone === username && !safeOrder.merchantWhatsAppNumber) safeOrder.merchantWhatsAppNumber = order.merchantWhatsAppNumber || "";
   return safeOrder;
@@ -1877,19 +1895,27 @@ app.put("/api/merchant/payment-settings", requireLogin, (req, res) => {
 });
 app.get("/api/student/restaurant-bank-accounts", requireRole("student"), (req, res) => {
   const accounts = [];
+  const accountIssues = [];
+  const restaurantSettings = readRestaurantPaymentSettings();
   const approvedMerchants = [
-    ...restaurants
-      .filter(merchant => vendorIsApproved(merchant.id))
-      .map(merchant => ({ ...merchant, merchantType: "restaurant" })),
+    ...restaurants.map(merchant => ({ ...merchant, ...(restaurantSettings[merchant.id] || {}), merchantType: "restaurant" }))
+      .filter(merchant => vendorIsApproved(merchant.id)),
     ...readOtherBusinesses()
       .filter(merchant => merchant.status === "approved" && !merchant.suspended)
       .map(merchant => ({ ...merchant, merchantType: "business" }))
   ];
   for (const merchant of approvedMerchants) {
-    if (!merchant.paymentAccountEncrypted || merchant.paymentAccountStatus !== "approved") continue;
+    if (merchant.paymentAccountStatus !== "approved") continue;
+    if (!merchant.paymentAccountEncrypted) {
+      accountIssues.push({ merchantName: merchant.name, reason: "The account is marked approved, but its encrypted bank details are missing." });
+      continue;
+    }
     try {
       const account = JSON.parse(decryptVendorDocument(merchant.paymentAccountEncrypted).toString("utf8"));
-      if (!account.bankName || !account.accountName || !/^\d{10}$/.test(String(account.accountNumber || ""))) continue;
+      if (!account.bankName || !account.accountName || !/^\\d{10}$/.test(String(account.accountNumber || ""))) {
+        accountIssues.push({ merchantName: merchant.name, reason: "The approved bank details are incomplete. The merchant must review them." });
+        continue;
+      }
       accounts.push({
         merchantType: merchant.merchantType,
         merchantId: merchant.id,
@@ -1903,10 +1929,11 @@ app.get("/api/student/restaurant-bank-accounts", requireRole("student"), (req, r
       });
     } catch (error) {
       console.error("Could not decrypt approved merchant bank account:", merchant.id, error.message);
+      accountIssues.push({ merchantName: merchant.name, reason: "The approved account is saved, but secure decryption failed. ChowOnCampus support must check the encryption setting." });
     }
   }
   res.set("Cache-Control", "no-store, private");
-  res.json({ accounts });
+  res.json({ accounts, accountIssues });
 });
 app.get("/api/superadmin/merchant-payment-accounts", requireSuperAdmin, (req, res) => {
   const rows = [];

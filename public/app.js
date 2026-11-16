@@ -1857,7 +1857,9 @@ async function loadDashboard(automatic = false) {
     } else {
       try {
         const bankAccountResult = await api("/api/student/restaurant-bank-accounts", { cache: "no-store" });
-        window.cocStudentBankAccounts = Array.isArray(bankAccountResult.accounts) ? bankAccountResult.accounts : [];
+        const freshlyLoadedBankAccounts = Array.isArray(bankAccountResult.accounts) ? bankAccountResult.accounts : [];
+        if (freshlyLoadedBankAccounts.length) window.cocStudentBankAccounts = freshlyLoadedBankAccounts;
+        else if (!Array.isArray(window.cocStudentBankAccounts)) window.cocStudentBankAccounts = [];
       } catch (bankAccountError) {
         // Keep last successful account data through temporary API/network failures.
         console.error("Could not refresh approved merchant bank accounts; retaining cached accounts:", bankAccountError.message);

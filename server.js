@@ -788,7 +788,7 @@ function requireRole(...roles) {
 function isVerifiedOrderPayment(order) { return String(order?.paymentStatus || "").startsWith("Paid —") || order?.paymentStatus === "Paid — demo verified"; }
 
 function publicOrder(order, includeReceipt = false) {
-  const { chatMessages, paymentEmail, deliveryCode, deliveryCodeAttempts, deliveryCodeLocked, paymentReceiptEncrypted, paymentReceiptHistory, paymentReferenceHistory, paymentReceiptMimeType, paymentReceiptFileName, paymentReceiptUploadedAt, transactionReference, paymentVerification, paymentBankAccountEncrypted, ...safeOrder } = order;
+  const { chatMessages, paymentEmail, deliveryCode, deliveryCodeAttempts, deliveryCodeLocked, paymentReceiptEncrypted, paymentReceiptHistory, paymentReferenceHistory, paymentReceiptMimeType, paymentReceiptFileName, paymentReceiptUploadedAt, transactionReference, paymentVerification, paymentBankAccountEncrypted, merchantWhatsAppNumber, ...safeOrder } = order;
   if (includeReceipt && paymentReceiptEncrypted) {
     try {
       safeOrder.paymentReceiptDataUrl = "data:" + String(order.paymentReceiptMimeType || "image/jpeg") + ";base64," + decryptVendorDocument(paymentReceiptEncrypted).toString("base64");
@@ -842,10 +842,8 @@ function studentPublicOrder(order, username) {
         console.error("Student bank account decrypt attempt failed:", order.restaurantId || order.businessId, error.message);
       }
     }
-    if (currentMerchant) safeOrder.merchantWhatsAppNumber = currentMerchant.whatsappNumber || safeOrder.merchantWhatsAppNumber || "";
     if (!safeOrder.paymentBankAccount) safeOrder.paymentBankAccountUnavailable = true;
   }
-  if (order.customerPhone === username && !safeOrder.merchantWhatsAppNumber) safeOrder.merchantWhatsAppNumber = order.merchantWhatsAppNumber || "";
   return safeOrder;
 }
 
@@ -1416,7 +1414,6 @@ app.get("/api/menu", (req, res) => {
     const { paymentAccountEncrypted, ...publicRestaurant } = restaurant;
     return {
       ...publicRestaurant,
-      whatsappNumber: restaurant.whatsappNumber || "",
       ...getRestaurantOperations(restaurant.id),
       location: restaurant.location || "",
       ratingAverage: average(restaurantReviews.map(order => order.rating.restaurantRating)),
@@ -1701,7 +1698,6 @@ function publicOtherBusiness(item) {
   return {
     id: item.id, name: item.name, category: item.category, description: item.description || "",
     location: item.location || "", latitude: item.latitude ?? null, longitude: item.longitude ?? null,
-    whatsappNumber: item.whatsappNumber || "",
     online: item.online === true, status: item.status, products: (item.products || []).filter(p => p.available !== false)
       .map(p => ({ id: p.id, name: p.name, description: p.description || "", category: p.category || "", price: p.price, imageUrl: p.imageUrl || "", available: p.available !== false }))
   };
@@ -1830,7 +1826,6 @@ function maskedMerchantPaymentSettings(merchant) {
   let account = null;
   try { if (merchant?.paymentAccountEncrypted) account = JSON.parse(decryptVendorDocument(merchant.paymentAccountEncrypted).toString("utf8")); } catch {}
   return {
-    whatsappNumber: merchant?.whatsappNumber || "",
     bankAccountStatus: merchant?.paymentAccountStatus || "not_submitted",
     bankName: account?.bankName || "",
     accountName: account?.accountName || "",
@@ -1863,15 +1858,13 @@ app.get("/api/merchant/payment-settings", requireLogin, (req, res) => {
 app.put("/api/merchant/payment-settings", requireLogin, (req, res) => {
   const { type, merchant } = merchantForSession(req.account);
   if (!merchant) return res.status(403).json({ error: "Restaurant or business account required." });
-  const whatsappNumber = req.body.whatsappNumber ? normalizeNigerianPhone(req.body.whatsappNumber) : "";
-  if (req.body.whatsappNumber && !whatsappNumber) return res.status(400).json({ error: "Enter a valid WhatsApp number, including country code if needed." });
   const hasBankFields = ["bankName", "accountName", "accountNumber"].some(key => req.body[key] !== undefined);
-  const updates = { whatsappNumber, updatedAt: new Date().toISOString() };
+  const updates = { updatedAt: new Date().toISOString() };
   if (hasBankFields) {
     const bankName = String(req.body.bankName || "").trim().slice(0, 100);
     const accountName = String(req.body.accountName || "").trim().slice(0, 120);
-    const accountNumber = String(req.body.accountNumber || "").replace(/\s/g, "");
-    if (bankName.length < 2 || accountName.length < 2 || !/^\d{10}$/.test(accountNumber)) return res.status(400).json({ error: "Enter a bank name, account name and valid 10-digit Nigerian account number." });
+    const accountNumber = String(req.body.accountNumber || "").replace(/\\s/g, "");
+    if (bankName.length < 2 || accountName.length < 2 || !/^\\d{10}$/.test(accountNumber)) return res.status(400).json({ error: "Enter a bank name, account name and valid 10-digit Nigerian account number." });
     try {
       updates.paymentAccountEncrypted = encryptVendorDocument(Buffer.from(JSON.stringify({ bankName, accountName, accountNumber }), "utf8"));
     } catch {
@@ -1889,11 +1882,13 @@ app.put("/api/merchant/payment-settings", requireLogin, (req, res) => {
     updates.paymentAccountReviewedAt = null;
     updates.paymentAccountReviewedBy = null;
     updates.paymentAccountRejectionReason = "";
+  } else {
+    return res.status(400).json({ error: "Enter your bank name, account name and 10-digit account number." });
   }
   saveMerchantPaymentSettings(type, merchant, updates);
-  recordOperationsEvent({ type: "merchant_payment_settings_updated", entityType: type, entityId: merchant.id, entityName: merchant.name, actorRole: type, actorId: req.account.username, details: (hasBankFields ? "Bank account submitted for Ultimate Admin approval. " : "") + "WhatsApp contact updated." });
+  recordOperationsEvent({ type: "merchant_payment_settings_updated", entityType: type, entityId: merchant.id, entityName: merchant.name, actorRole: type, actorId: req.account.username, details: "Bank account submitted for Ultimate Admin approval." });
   res.set("Cache-Control", "no-store, private");
-  res.json({ ok: true, settings: maskedMerchantPaymentSettings(merchant), message: hasBankFields ? "Bank details submitted for Ultimate Admin approval. They cannot receive transfers through checkout until approved." : "WhatsApp contact saved." });
+  res.json({ ok: true, settings: maskedMerchantPaymentSettings(merchant), message: "Bank details submitted for Ultimate Admin approval. They cannot receive transfers through checkout until approved." });
 });
 app.get("/api/student/restaurant-bank-accounts", requireRole("student"), (req, res) => {
   const accounts = [];
@@ -1927,7 +1922,6 @@ app.get("/api/student/restaurant-bank-accounts", requireRole("student"), (req, r
         bankName: account.bankName,
         accountName: account.accountName,
         accountNumber: account.accountNumber,
-        whatsappNumber: merchant.whatsappNumber || ""
       });
     } catch (error) {
       console.error("Could not decrypt approved merchant bank account:", merchant.id, error.message);
@@ -2374,7 +2368,6 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     paymentFee,
     total: orderTotal,
     paymentMethod,
-    merchantWhatsAppNumber: String(merchant.whatsappNumber || ""),
     paymentBankAccountEncrypted: paymentMethod === "bank_transfer" ? merchant.paymentAccountEncrypted : null,
     status: paymentMethod === "foodback" ? "Awaiting admin approval" : "Awaiting payment",
     statusHistory: [{ status: paymentMethod === "foodback" ? "Awaiting admin approval" : "Awaiting payment", at: new Date().toISOString(), by: "system" }],
@@ -2447,14 +2440,15 @@ app.post("/api/orders/:id/bank-transfer/submit", requireRole("student"), (req, r
   const mimeType = String(req.body.mimeType || "").toLowerCase();
   const data = String(req.body.receiptDataBase64 || "");
   if (transactionReference.length < 4) return res.status(400).json({ error: "Enter the bank transaction reference shown on your receipt." });
-  if (!["image/jpeg", "image/png", "image/webp"].includes(mimeType) || !/^[A-Za-z0-9+/]+=*$/.test(data)) return res.status(400).json({ error: "Upload a JPG, PNG or WEBP transfer receipt." });
+  if (!["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(mimeType) || !/^[A-Za-z0-9+/]+=*$/.test(data)) return res.status(400).json({ error: "Upload a JPG, PNG, WEBP or PDF transfer receipt." });
   const buffer = Buffer.from(data, "base64");
   if (!buffer.length || buffer.length > 2 * 1024 * 1024) return res.status(413).json({ error: "The transfer receipt must be 2 MB or smaller." });
   const isJpeg = buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
   const isPng = buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
   const isWebp = buffer.length >= 12 && buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WEBP";
-  if ((mimeType === "image/jpeg" && !isJpeg) || (mimeType === "image/png" && !isPng) || (mimeType === "image/webp" && !isWebp)) {
-    return res.status(400).json({ error: "The uploaded file content does not match its selected image type." });
+  const isPdf = buffer.length >= 5 && buffer.toString("ascii", 0, 5) === "%PDF-";
+  if ((mimeType === "image/jpeg" && !isJpeg) || (mimeType === "image/png" && !isPng) || (mimeType === "image/webp" && !isWebp) || (mimeType === "application/pdf" && !isPdf)) {
+    return res.status(400).json({ error: "The uploaded file content does not match its selected file type." });
   }
   const duplicateReference = orders.some(item => {
     const used = [item.transactionReference, ...(Array.isArray(item.paymentReferenceHistory) ? item.paymentReferenceHistory.map(entry => entry.reference) : [])];
@@ -3556,6 +3550,24 @@ function reportMoney(value) {
   const number = Number(value);
   return Number.isFinite(number) ? Math.round(number) : 0;
 }
+app.get("/api/superadmin/orders/:id/bank-transfer/receipt", requireSuperAdmin, (req, res) => {
+  const order = readOrders().find(item => String(item.id) === String(req.params.id));
+  if (!order || order.paymentMethod !== "bank_transfer" || !order.paymentReceiptEncrypted) return res.status(404).json({ error: "Bank transfer receipt not found." });
+  try {
+    const buffer = decryptVendorDocument(order.paymentReceiptEncrypted);
+    const mimeType = ["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(order.paymentReceiptMimeType) ? order.paymentReceiptMimeType : "application/octet-stream";
+    const filename = String(order.paymentReceiptFileName || "transfer-receipt").replace(/[\\r\\n"]/g, "_").slice(0, 120);
+    res.set("Cache-Control", "no-store, private");
+    res.set("X-Content-Type-Options", "nosniff");
+    res.set("Content-Type", mimeType);
+    res.set("Content-Disposition", (req.query.download === "1" ? "attachment" : "inline") + "; filename=\"" + filename + "\"");
+    return res.send(buffer);
+  } catch (error) {
+    console.error("Ultimate Admin receipt retrieval failed:", error.message);
+    return res.status(503).json({ error: "The receipt could not be decrypted. Check the vendor document encryption setting." });
+  }
+});
+
 app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
   try {
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
@@ -3717,6 +3729,13 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
         outstandingWalletBalance: outstandingFoodback, transactions: foodbackLedger },
       system: { events: events.length, errors: events.filter(item => /error|fail/i.test(String(item.type || item.event || item.action || ""))),
         suspiciousActivity: events.filter(item => /suspicious|security|unauthori[sz]ed|blocked/i.test(String(item.type || item.event || item.action || ""))) },
+      bankTransferReceipts: dayOrders.filter(order => order.paymentMethod === "bank_transfer" && order.paymentReceiptEncrypted && inReportDay(order.paymentReceiptUploadedAt, range)).map(order => ({
+        orderId: order.id, student: order.customerName, restaurant: order.businessName || order.restaurantName,
+        amount: reportMoney(order.total), transactionReference: order.transactionReference || "",
+        fileName: order.paymentReceiptFileName || "transfer-receipt", uploadedAt: order.paymentReceiptUploadedAt,
+        verificationStatus: order.paymentVerification?.status || "pending",
+        confirmedBy: order.paymentVerification?.verifiedBy || null, confirmedAt: order.paymentVerification?.verifiedAt || null
+      })),
       orderRatings: orderRatings.sort((a,b) => new Date(b.ratedAt) - new Date(a.ratedAt)),
       studentRemarks: studentRemarks.sort((a,b) => new Date(b.at) - new Date(a.at)),
       notes: {

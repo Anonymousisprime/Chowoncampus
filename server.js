@@ -878,15 +878,16 @@ function saveFoodBackConfig(config) {
   saveStoredJson(FOODBACK_CONFIG_FILE, config);
 }
 const DELIVERY_AREA_CONFIG_FILE = path.join(__dirname, "delivery-area-config.json");
-// Fixed initial delivery zone centred on Redeemer's University, Ede.
-// This is a campus-centred radius, not an editable admin setting.
+// Approximate RUN campus delivery zone based on the supplied campus centre
+// and 812-hectare campus area. A 1,600 m radius circle covers about 804 hectares;
+// this is an approximation, not an official surveyed campus-perimeter polygon.
 const FIXED_RUN_DELIVERY_AREA = Object.freeze({
   enabled: true,
-  centerLatitude: 7.67998,
-  centerLongitude: 4.45982,
-  radiusMeters: 1200,
+  centerLatitude: 7.681111,
+  centerLongitude: 4.458056,
+  radiusMeters: 1600,
   fixed: true,
-  label: "Redeemer's University expanded campus delivery zone"
+  label: "Redeemer's University approximate campus delivery zone (1.6 km radius)"
 });
 function readDeliveryAreaConfig() { return { ...FIXED_RUN_DELIVERY_AREA }; }
 function saveDeliveryAreaConfig() {

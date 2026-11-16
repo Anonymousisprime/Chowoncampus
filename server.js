@@ -809,10 +809,23 @@ function createDeliveryCode() {
 function studentPublicOrder(order, username) {
   const safeOrder = publicOrder(order);
   if (order.customerPhone === username && order.deliveryCode && !["Completed", "Cancelled"].includes(order.status)) safeOrder.deliveryCode = order.deliveryCode;
-  if (order.customerPhone === username && order.paymentMethod === "bank_transfer" && order.paymentBankAccountEncrypted) {
-    try { safeOrder.paymentBankAccount = JSON.parse(decryptVendorDocument(order.paymentBankAccountEncrypted).toString("utf8")); } catch {}
+  if (order.customerPhone === username && order.paymentMethod === "bank_transfer") {
+    let encryptedAccount = order.paymentBankAccountEncrypted || null;
+    let currentMerchant = null;
+    if (order.merchantType === "business" && order.businessId) {
+      currentMerchant = readOtherBusinesses().find(item => String(item.id) === String(order.businessId)) || null;
+      if (!currentMerchant || currentMerchant.status !== "approved" || currentMerchant.suspended || currentMerchant.paymentAccountStatus !== "approved") currentMerchant = null;
+    } else {
+      currentMerchant = restaurants.find(item => String(item.id) === String(order.restaurantId)) || null;
+      if (!currentMerchant || !vendorIsApproved(currentMerchant.id) || currentMerchant.paymentAccountStatus !== "approved") currentMerchant = null;
+    }
+    if (!encryptedAccount && currentMerchant) encryptedAccount = currentMerchant.paymentAccountEncrypted || null;
+    if (encryptedAccount) {
+      try { safeOrder.paymentBankAccount = JSON.parse(decryptVendorDocument(encryptedAccount).toString("utf8")); } catch {}
+    }
+    if (currentMerchant) safeOrder.merchantWhatsAppNumber = currentMerchant.whatsappNumber || safeOrder.merchantWhatsAppNumber || "";
   }
-  if (order.customerPhone === username) safeOrder.merchantWhatsAppNumber = order.merchantWhatsAppNumber || "";
+  if (order.customerPhone === username && !safeOrder.merchantWhatsAppNumber) safeOrder.merchantWhatsAppNumber = order.merchantWhatsAppNumber || "";
   return safeOrder;
 }
 

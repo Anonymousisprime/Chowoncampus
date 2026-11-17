@@ -1938,7 +1938,7 @@ app.get("/api/student/restaurant-bank-accounts", requireRole("student"), (req, r
     for (const encrypted of [...new Set(encryptedCandidates)]) {
       try {
         const parsed = JSON.parse(decryptVendorDocument(encrypted).toString("utf8"));
-        if (parsed?.bankName && parsed?.accountName && /^\\d{10}$/.test(String(parsed.accountNumber || ""))) {
+        if (parsed?.bankName && parsed?.accountName && /^\d{10}$/.test(String(parsed.accountNumber || ""))) {
           account = parsed;
           break;
         }

@@ -1865,8 +1865,8 @@ app.put("/api/merchant/payment-settings", requireLogin, (req, res) => {
   if (hasBankFields) {
     const bankName = String(req.body.bankName || "").trim().slice(0, 100);
     const accountName = String(req.body.accountName || "").trim().slice(0, 120);
-    const accountNumber = String(req.body.accountNumber || "").replace(/\\s/g, "");
-    if (bankName.length < 2 || accountName.length < 2 || !/^\\d{10}$/.test(accountNumber)) return res.status(400).json({ error: "Enter a bank name, account name and valid 10-digit Nigerian account number." });
+    const accountNumber = String(req.body.accountNumber || "").replace(/\s/g, "");
+    if (bankName.length < 2 || accountName.length < 2 || !/^\d{10}$/.test(accountNumber)) return res.status(400).json({ error: "Enter a bank name, account name and valid 10-digit Nigerian account number." });
     try {
       updates.paymentAccountEncrypted = encryptVendorDocument(Buffer.from(JSON.stringify({ bankName, accountName, accountNumber }), "utf8"));
     } catch {

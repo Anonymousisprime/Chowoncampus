@@ -1924,6 +1924,10 @@ app.get("/api/student/restaurant-bank-accounts", requireRole("student"), (req, r
       };
       if (!merchant || !vendorIsApproved(merchant.id) || merchant.paymentAccountStatus !== "approved") merchant = null;
     }
+    if (!merchant) {
+      accountIssues.push({ merchantName: order.restaurantName || order.businessName || "Your merchant", orderId: order.id, reason: "This merchant no longer has an approved payment account. Do not transfer." });
+      continue;
+    }
     // Prefer the encrypted account snapshot attached to this exact order.
     // Fall back only to that same merchant's currently approved account.
     const encryptedCandidates = [

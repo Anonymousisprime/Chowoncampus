@@ -1935,27 +1935,29 @@ async function loadDashboard(automatic = false) {
       const loadStudentBankAccounts = async () => {
         const list = $("#studentRestaurantBankAccountsList");
         if (!list) return;
-        list.innerHTML = '<p class="muted">Loading approved restaurant accounts…</p>';
+        list.innerHTML = '<p class="muted">Loading payment details for your active orders…</p>';
         try {
           const result = await api("/api/student/restaurant-bank-accounts", { cache: "no-store" });
-          const fetchedAccounts = Array.isArray(result.accounts) ? result.accounts : [];
-          // Preserve the last successfully loaded accounts if an intermittent response is empty.
-          if (fetchedAccounts.length) window.cocStudentBankAccounts = fetchedAccounts;
-          else if (!Array.isArray(window.cocStudentBankAccounts)) window.cocStudentBankAccounts = [];
-          const accounts = Array.isArray(window.cocStudentBankAccounts) ? window.cocStudentBankAccounts : [];
+          const accounts = Array.isArray(result.accounts) ? result.accounts : [];
+          // Replace, never retain, the previous response: this also prevents stale
+          // merchant account details from lingering if a student changes accounts.
+          window.cocStudentBankAccounts = accounts;
           list.innerHTML = accounts.length ? '<div class="order-list">' + accounts.map(item => {
-            const merchantName = item.merchantName || item.restaurantName || "Approved merchant";
-            return '<article class="order-card"><div class="order-top"><div><span class="eyebrow">APPROVED ' + (item.merchantType === "business" ? "BUSINESS" : "RESTAURANT") + ' ACCOUNT</span><h3>' + escapeHtml(merchantName) + '</h3></div><span class="status">APPROVED</span></div>' +
+            const merchantName = item.merchantName || item.restaurantName || "Your merchant";
+            const orderRefs = Array.isArray(item.orderIds) ? item.orderIds : [];
+            return '<article class="order-card"><div class="order-top"><div><span class="eyebrow">PAYMENT DETAILS FOR YOUR ORDER</span><h3>' + escapeHtml(merchantName) + '</h3></div><span class="status">APPROVED</span></div>' +
               '<p>Bank: <strong>' + escapeHtml(item.bankName) + '</strong></p>' +
               '<p>Account name: <strong>' + escapeHtml(item.accountName) + '</strong></p>' +
               '<p style="font-size:1.2rem">Account number: <strong style="letter-spacing:1px">' + escapeHtml(item.accountNumber) + '</strong></p>' +
-              '<p class="tiny muted">Only transfer after placing an order and checking the exact amount on that order.</p></article>';
-          }).join("") + '</div>' : '<div class="empty-state compact-empty">No approved bank account details were returned.</div>';
+              (orderRefs.length ? '<p class="tiny muted">Order: ' + orderRefs.map(escapeHtml).join(", ") + '</p>' : '') +
+              '<p class="tiny muted">Transfer only the exact amount shown on your order. These details are shown only because you placed an active order with this merchant.</p></article>';
+          }).join("") + '</div>' : '<div class="empty-state compact-empty">Your restaurant account number will appear here after you place a bank-transfer order. You will only see account details for your own active orders.</div>';
           if (Array.isArray(result.accountIssues) && result.accountIssues.length) {
             list.innerHTML += '<div class="tracking-alert" style="margin-top:12px"><strong>Bank account loading needs attention</strong>' + result.accountIssues.map(issue => '<p><strong>' + escapeHtml(issue.merchantName) + ':</strong> ' + escapeHtml(issue.reason) + '</p>').join('') + '<p class="tiny muted">Do not transfer until the full approved account number is visible.</p></div>';
           }
         } catch (error) {
-          list.innerHTML = '<p class="error">Could not load restaurant bank accounts: ' + escapeHtml(error.message) + '</p>';
+          window.cocStudentBankAccounts = [];
+          list.innerHTML = '<p class="error">Could not load your order payment details: ' + escapeHtml(error.message) + '</p>';
         }
       };
       loadStudentBankAccounts();

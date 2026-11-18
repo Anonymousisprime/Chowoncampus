@@ -71,3 +71,58 @@ body.coc-auth-page{min-height:100vh;display:grid;place-items:center;padding:24px
 .coc-auth-page .msg{min-height:24px;line-height:1.5}
 .coc-auth-page .foot,.coc-auth-page main>p{line-height:1.65}
 .coc-auth-page .support{margin-top:18px;padding:15px;border:1px solid #e2eae3;border-radius:14px;background:#f7faf7;font-size:.9rem;line-height:1.8}
+
+/* Role-specific dashboard shells */
+body:has(> .top)>.top{position:sticky;top:0;z-index:30;min-height:72px;padding:13px clamp(14px,3vw,38px);background:rgba(255,255,255,.96);backdrop-filter:blur(14px);box-shadow:0 3px 18px rgba(18,48,32,.035)}
+body:has(> .top)>.top .brand{font:900 20px Manrope,system-ui,sans-serif;letter-spacing:-.6px;color:var(--coc-green)}
+body:has(> .top)>.top .btn{min-height:42px;border-radius:11px}
+body:has(> .top)>.wrap{width:min(1320px,100%);padding:clamp(18px,3vw,36px) clamp(12px,3vw,34px) 60px}
+body:has(> .top)>.wrap>h1,body:has(> .top)>.wrap .heading h1{font:850 clamp(1.9rem,4vw,2.7rem)/1.12 Manrope,sans-serif;letter-spacing:-1.3px;color:var(--coc-ink)}
+body:has(> .top) .panel{padding:clamp(15px,2.2vw,22px);border:1px solid var(--coc-line);border-radius:18px;box-shadow:0 8px 25px rgba(18,48,32,.045);overflow:hidden}
+body:has(> .top) .panel h2,body:has(> .top) .panel h3{font-family:Manrope,sans-serif;letter-spacing:-.35px}
+body:has(> .top) .cards{grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+body:has(> .top) .metric{min-width:0;border:1px solid var(--coc-line);border-radius:17px;box-shadow:0 8px 22px rgba(18,48,32,.045);padding:18px}
+body:has(> .top) .metric strong,body:has(> .top) .stat-number{color:var(--coc-green-2);font-family:Manrope,sans-serif;font-weight:900}
+body:has(> .top) .search,body:has(> .top) select,body:has(> .top) input:not([type=checkbox]):not([type=radio]){border-color:#d8e2da;border-radius:11px;min-height:42px}
+body:has(> .top) table th{background:#f3f7f3;color:#53675a;font-weight:800;letter-spacing:.06em}
+body:has(> .top) table td,body:has(> .top) table th{padding:13px 15px}
+body:has(> .top) .pill{border-radius:999px;padding:6px 10px;font-weight:800}
+.agent-dashboard-page .wrap{max-width:1120px}
+.agent-dashboard-page .agent-overview-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+body:has(#agentNotificationsPanel) .wrap>h1{margin-bottom:4px}
+body:has(#agentNotificationsPanel) .wrap>p.muted{margin-top:4px;margin-bottom:22px}
+body:has(#agentNotificationsPanel) .panel:first-of-type{background:linear-gradient(120deg,#123c2a,#1e5a3d);color:#fff;border:0}
+body:has(#agentNotificationsPanel) .panel:first-of-type .muted{color:#e0eee4}
+body:has(#agentNotificationsPanel) .panel:first-of-type .pill{background:#fff;color:#17442e}
+body:has(#agentNotificationsPanel) .panel:first-of-type .btn.primary{background:var(--coc-orange);color:#2b261f}
+body:has(#agentNotificationsPanel) .panel .stat{border:1px solid var(--coc-line);border-radius:15px}
+body:has(#agentNotificationsPanel) .panel .cards{margin:14px 0}
+.admin-dashboard-page .wrap{max-width:1480px}
+body:has(#globalStatus) .top{align-items:flex-start}
+body:has(#globalStatus) .top-right{flex-wrap:wrap;justify-content:flex-end}
+body:has(#globalStatus) .top-right .btn{white-space:nowrap}
+body:has(#globalStatus) .heading{padding:12px 2px 0}
+body:has(#globalStatus) .cards .metric{background:linear-gradient(180deg,#fff,#fbfdfb)}
+body:has(#globalStatus) .panel{margin:18px 0}
+body:has(#globalStatus) .panel-head{background:#fbfdfb}
+.student-dashboard-page .student-side-nav{background:#102f22;border-right:1px solid #254b37}
+.student-dashboard-page .student-side-brand{color:#fff}
+.student-dashboard-page .student-side-links a,.student-dashboard-page .student-side-links button{border-radius:11px;transition:background .16s,color .16s}
+.student-dashboard-page .student-side-links a:hover,.student-dashboard-page .student-side-links button:hover{background:#ffffff16;color:#fff}
+.student-dashboard-page .student-side-links a.active{background:#fff;color:#153e2b;font-weight:850}
+.student-dashboard-page #dashboardView{max-width:1240px}
+.student-dashboard-page #dashboardContent>.restaurant-welcome{border-radius:18px;box-shadow:var(--coc-shadow)}
+@media(max-width:900px){body:has(> .top) .cards{grid-template-columns:repeat(2,minmax(0,1fr))}body:has(#globalStatus) .top{position:relative;flex-direction:column}body:has(#globalStatus) .top-right{width:100%;justify-content:flex-start}body:has(#globalStatus) .top-right .btn{flex:1 1 auto}}
+@media(max-width:600px){
+ body:has(> .top)>.wrap{padding:16px 11px 38px}
+ body:has(> .top) .panel{padding:14px;margin:12px 0}
+ body:has(> .top) .cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+ body:has(> .top) .metric{padding:13px}
+ body:has(> .top) .metric strong{font-size:clamp(1.25rem,7vw,1.8rem)}
+ body:has(#agentNotificationsPanel) .panel:first-of-type .row{align-items:flex-start}
+ body:has(#globalStatus) .top-right .btn{width:100%;justify-content:center}
+ body:has(#globalStatus) .top-right{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+ body:has(#globalStatus) .top-right .btn{min-width:0;white-space:normal}
+ .student-dashboard-page #dashboardView{padding:16px 12px 42px}
+}
+@media(max-width:380px){body:has(> .top) .cards{grid-template-columns:1fr}body:has(#globalStatus) .top-right{grid-template-columns:1fr}}

@@ -1442,6 +1442,86 @@ async function loadRestaurantAdApplications() {
  form.addEventListener("submit",async event=>{event.preventDefault();const button=form.querySelector('button[type="submit"]');button.disabled=true;if(status)status.textContent="Submitting your application…";try{const formData=new FormData(form);const payload=Object.fromEntries(formData.entries());payload.imageUrl=await readAdImage(formData.get("imageFile"))||String(payload.imageUrl||"").trim();delete payload.imageFile;if(!payload.imageUrl)throw new Error("Paste an HTTPS image URL or upload a picture from your device.");if(payload.startsAt)payload.startsAt=new Date(payload.startsAt).toISOString();else delete payload.startsAt;const result=await api("/api/restaurant/ads",{method:"POST",body:JSON.stringify(payload)});form.reset();updateHelp();if(status)status.textContent=result.message;const data=await api("/api/restaurant/ads",{cache:"no-store"});render(data.ads||[]);}catch(error){if(status)status.textContent=error.message;}finally{button.disabled=false;}});
 }
 
+
+let lastAgentDashboardSnapshot = "";
+let agentBackgroundRefreshInProgress = false;
+
+// Refresh only the agent's delivery panels. The surrounding dashboard is left
+// untouched so scroll position, focus, open controls and in-progress interactions survive.
+async function refreshAgentDashboardInBackground(force = false) {
+  if (state.account?.role !== "agent" || document.visibilityState !== "visible") return;
+  if (!force && (Date.now() < dashboardInteractionUntil || ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName))) return;
+  if (agentBackgroundRefreshInProgress) return;
+  agentBackgroundRefreshInProgress = true;
+  try {
+    const [ordersResult, profile] = await Promise.all([
+      api("/api/orders", { cache: "no-store" }),
+      api("/api/agents/me", { cache: "no-store" })
+    ]);
+    if (document.visibilityState !== "visible") return;
+    if (!force && Date.now() < dashboardInteractionUntil) return;
+    const orders = Array.isArray(ordersResult.orders) ? ordersResult.orders : [];
+    const account = state.account;
+    const active = orders.filter(order => order.assignedAgentId === account.agentId && ["Ready for pickup", "Out for delivery"].includes(order.status));
+    const completed = orders.filter(order => order.assignedAgentId === account.agentId && order.status === "Completed");
+    const snapshot = JSON.stringify({
+      online: Boolean(profile.online),
+      active: active.map(order => [order.id, order.status, order.assignedAgentId, order.updatedAt, order.deliveredAt, order.completedAt]),
+      completed: completed.slice(0, 10).map(order => [order.id, order.status, order.updatedAt, order.deliveredAt, order.completedAt])
+    });
+    state.agentProfile = profile;
+    state.agentOnline = Boolean(profile.online);
+    if (state.agentOnline) startAgentLocationTracking();
+    else stopAgentLocationTracking();
+    if (snapshot === lastAgentDashboardSnapshot) return;
+    lastAgentDashboardSnapshot = snapshot;
+
+    const activePanel = $("#agentActiveDeliveries");
+    const historyPanel = $("#agentCompletedDeliveries");
+    if (activePanel) {
+      const count = activePanel.querySelector(".count-pill");
+      if (count) count.textContent = String(active.length);
+      const list = activePanel.querySelector(".order-list");
+      const empty = activePanel.querySelector(".empty-state");
+      if (active.length) {
+        const html = '<div class="order-list">' + active.map(renderOrderCard).join("") + '</div>';
+        if (list) list.outerHTML = html;
+        else if (empty) empty.outerHTML = html;
+      } else if (list) {
+        list.outerHTML = '<div class="empty-state">You have no active deliveries right now. New assignments will appear here.</div>';
+      }
+    }
+    if (historyPanel) {
+      const count = historyPanel.querySelector(".count-pill");
+      if (count) count.textContent = String(completed.length);
+      const list = historyPanel.querySelector(".order-list");
+      const empty = historyPanel.querySelector(".empty-state");
+      if (completed.length) {
+        const html = '<div class="order-list">' + completed.slice(0, 10).map(renderOrderCard).join("") + '</div>';
+        if (list) list.outerHTML = html;
+        else if (empty) empty.outerHTML = html;
+      } else if (list) {
+        list.outerHTML = '<div class="empty-state">No completed deliveries yet.</div>';
+      }
+    }
+    const availability = $("#toggleAgentAvailability");
+    if (availability) {
+      availability.textContent = state.agentOnline ? "Go offline" : "Go online";
+      availability.className = state.agentOnline ? "danger-button" : "primary-button";
+    }
+    const statusBadge = document.querySelector(".agent-status-panel .status");
+    if (statusBadge) statusBadge.textContent = state.agentOnline ? "ONLINE" : "OFFLINE";
+    const locationStatus = $("#agentLocationStatus");
+    if (locationStatus) locationStatus.textContent = state.agentOnline
+      ? "Online · GPS updates are active while this dashboard is open."
+      : "Offline · go online when you are ready to receive delivery offers.";
+  } catch (error) {
+    console.warn("Agent background refresh failed; keeping the current dashboard visible:", error.message);
+  } finally {
+    agentBackgroundRefreshInProgress = false;
+  }
+}
+
 async function loadDashboard(automatic = false) {
   if (!state.account) { location.href = "/student-login.html"; return; }
   if (automatic && Date.now() < dashboardInteractionUntil) return;
@@ -1919,6 +1999,7 @@ async function loadDashboard(automatic = false) {
         order.assignedAgentId === account.agentId && ["Ready for pickup", "Out for delivery"].includes(order.status)
       );
       const completedDeliveryOrders = orders.filter(order => order.assignedAgentId === account.agentId && order.status === "Completed");
+      lastAgentDashboardSnapshot = JSON.stringify({ online: Boolean(state.agentOnline), active: activeDeliveryOrders.map(order => [order.id, order.status, order.assignedAgentId, order.updatedAt, order.deliveredAt, order.completedAt]), completed: completedDeliveryOrders.slice(0, 10).map(order => [order.id, order.status, order.updatedAt, order.deliveredAt, order.completedAt]) });
       $("#dashboardContent").innerHTML = `
         <div class="restaurant-welcome agent-welcome">
           <div><span class="eyebrow">DELIVERY AGENT WORKSPACE</span><h2>Welcome, ${escapeHtml(account.name)}!</h2><p>Go online to share your GPS location and receive pickup offers from the nearest restaurant. Your location is used only while online.</p></div>
@@ -1932,11 +2013,11 @@ async function loadDashboard(automatic = false) {
           <p id="agentLocationStatus" class="muted" role="status">${state.agentOnline ? "Online · GPS updates are active while this dashboard is open." : "Offline · go online when you are ready to receive delivery offers."}</p>
           <p class="tiny muted">Only online agents with a recent GPS update are eligible. If an agent does not accept within 60 seconds, the request moves to the next nearest eligible agent.</p>
         </section>
-        <section class="dashboard-order-section agent-active-panel">
+        <section class="dashboard-order-section agent-active-panel" id="agentActiveDeliveries">
           <div class="dashboard-section-heading"><div><h2>Active deliveries</h2><p>Use the full-page chat while the order is ready for pickup or out for delivery.</p></div><span class="count-pill">${activeDeliveryOrders.length}</span></div>
           ${activeDeliveryOrders.length ? `<div class="order-list">${activeDeliveryOrders.map(renderOrderCard).join("")}</div>` : `<div class="empty-state">You have no active deliveries right now. New assignments will appear here.</div>`}
         </section>
-        <section class="dashboard-order-section agent-history-panel">
+        <section class="dashboard-order-section agent-history-panel" id="agentCompletedDeliveries">
           <div class="dashboard-section-heading"><div><h2>Completed deliveries</h2><p>Your recent completed orders.</p></div><span class="count-pill">${completedDeliveryOrders.length}</span></div>
           ${completedDeliveryOrders.length ? `<div class="order-list">${completedDeliveryOrders.slice(0,10).map(renderOrderCard).join("")}</div>` : `<div class="empty-state">No completed deliveries yet.</div>`}
         </section>`;
@@ -2716,7 +2797,7 @@ async function initialize() {
       await setAgentAvailability(!state.agentOnline);
       return;
     }
-    if (event.target.closest("#refreshAgentOrders")) { await loadDashboard(); return; }
+    if (event.target.closest("#refreshAgentOrders")) { await refreshAgentDashboardInBackground(true); showToast("Deliveries refreshed."); return; }
     if (event.target.closest("#toggleAgentOnline")) {
       const button = event.target.closest("#toggleAgentOnline");
       const wantsOnline = !Boolean(state.agentProfile?.online);
@@ -2945,11 +3026,11 @@ async function initialize() {
   startTrackingRefresh();
   // Keep orders current without interrupting staff while they handle an order.
   window.setInterval(() => {
-    if (state.account?.role === "agent" && document.visibilityState === "visible" && Date.now() >= dashboardInteractionUntil && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) loadDashboard(true);
+    if (state.account?.role === "agent") refreshAgentDashboardInBackground();
     else if (state.account?.role === "restaurant") refreshRestaurantOrdersInBackground();
   }, 15000);
   window.addEventListener("focus", () => {
-    if (state.account?.role === "agent" && Date.now() >= dashboardInteractionUntil) loadDashboard(true);
+    if (state.account?.role === "agent") refreshAgentDashboardInBackground();
     else if (state.account?.role === "restaurant") refreshRestaurantOrdersInBackground();
   });
   // Keep student prices and sold-out status current even when the portal stays open.

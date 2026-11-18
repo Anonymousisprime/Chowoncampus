@@ -2039,8 +2039,8 @@ async function loadDashboard(automatic = false) {
         </div>
         <section class="dashboard-order-section student-community-panel" aria-label="ChowOnCampus student community">
           <div class="dashboard-section-heading"><div><span class="eyebrow">OUR CAMPUS COMMUNITY</span><h2>Students on ChowOnCampus</h2><p>See how our student community is growing.</p></div><span class="status">LIVE COUNT</span></div>
-          <div class="student-community-metrics"><article><span>Registered students</span><strong id="studentCommunityTotal">Loading…</strong></article><article><span>Active in the last 30 days</span><strong id="studentCommunityActive">Loading…</strong></article></div>
-          <p class="tiny muted">Counts include registered, non-suspended student accounts. Active means signed in or registered within the last 30 days. No student names or personal details are shown.</p>
+          <div class="student-community-metrics"><article><span>Registered students</span><strong id="studentCommunityTotal">Loading…</strong></article><article><span>Active in the last 24 hours</span><strong id="studentCommunityActive">Loading…</strong></article></div>
+          <p class="tiny muted">Counts include registered, non-suspended student accounts. Active means signed in or registered within the last 24 hours. No student names or personal details are shown.</p>
         </section>
         <section class="dashboard-order-section" id="studentRestaurantBankAccounts" aria-label="Approved restaurant bank accounts">
           <div class="dashboard-section-heading"><div><span class="eyebrow">DIRECT BANK TRANSFER</span><h2>Restaurant Bank Accounts</h2><p>Use these approved account details when paying a restaurant directly. Always transfer the exact amount shown on your order.</p></div><button class="secondary-button" type="button" id="refreshStudentBankAccounts">↻ Refresh accounts</button></div>

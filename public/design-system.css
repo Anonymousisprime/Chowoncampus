@@ -1,0 +1,194 @@
+/* ChowOnCampus 2.0 — shared visual system. Presentation-only; existing flows and API contracts remain unchanged. */
+:root{--coc-ink:#14251e;--coc-muted:#68786f;--coc-green:#123d2b;--coc-green-2:#1d5a3c;--coc-orange:#ffad55;--coc-paper:#f5f7f4;--coc-line:#e2e9e3;--coc-card:#fff;--coc-radius:20px;--coc-shadow:0 14px 38px rgba(18,48,32,.075)}
+html{scroll-behavior:smooth}
+body{color:var(--coc-ink);background:var(--coc-paper)}
+button,a,input,select,textarea{ -webkit-tap-highlight-color:transparent}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #f2a34e;outline-offset:3px}
+.primary-button,.btn.primary{background:var(--coc-orange);color:#2a261f;border:0;border-radius:12px;font-weight:850;box-shadow:0 5px 14px rgba(194,116,42,.12)}
+.primary-button:hover,.btn.primary:hover{background:#ffc078;transform:translateY(-1px)}
+.secondary-button,.btn.light{border:1px solid var(--coc-line);border-radius:12px;background:#fff;color:var(--coc-green);font-weight:750}
+.site-header{background:rgba(255,255,255,.94)!important;backdrop-filter:blur(16px);border-bottom:1px solid var(--coc-line)!important}
+.food-home-page .navbar{width:min(1280px,94%);min-height:76px;margin:auto;padding:12px 0}
+.food-home-page .nav-actions{gap:6px}
+.food-home-page .nav-link{border-radius:10px;font-weight:750;color:#46584e}
+.food-home-page .nav-link:hover{background:#edf3ee;color:var(--coc-green)}
+.food-home-hero{width:min(1280px,94%);min-height:440px;margin:28px auto 54px;padding:clamp(28px,5.4vw,72px);border-radius:30px;background:radial-gradient(circle at 80% 18%,rgba(255,173,85,.18),transparent 32%),linear-gradient(125deg,#102b20,#174a32 66%,#20593b);box-shadow:0 22px 60px rgba(15,49,31,.13)}
+.food-home-copy h1{font-size:clamp(3rem,6.2vw,5.3rem);letter-spacing:-3.5px;line-height:1.02}
+.food-home-copy h1 span{color:#ffbd72}
+.food-home-copy p{font-size:1.08rem;line-height:1.7;color:#e0ebe3}
+.food-home-copy .eyebrow{color:#ffd29c}
+.food-home-hero-image{height:330px;border:8px solid rgba(255,255,255,.22);border-radius:26px;transform:rotate(1deg);box-shadow:0 24px 60px #061c1380}
+.food-home-floating{border:1px solid #ffffffb0;border-radius:14px;box-shadow:0 14px 35px #061c1333}
+.food-catalog-section{width:min(1280px,94%);margin:0 auto 78px}
+.food-catalog-heading h2{font:850 clamp(1.8rem,3.2vw,2.55rem)/1.15 Manrope,sans-serif;letter-spacing:-1.1px;color:var(--coc-ink)}
+.food-catalog-heading p{color:var(--coc-muted)}
+.catalog-search{border-radius:16px;border-color:var(--coc-line);box-shadow:var(--coc-shadow);padding:12px}
+.restaurant-card,.food-card,.order-card,.panel{border-color:var(--coc-line);border-radius:18px;box-shadow:var(--coc-shadow)}
+.restaurant-card{transition:transform .18s,box-shadow .18s}
+.restaurant-card:hover{transform:translateY(-3px);box-shadow:0 18px 42px rgba(18,48,32,.12)}
+.restaurant-info{padding:20px}
+.restaurant-info h3,.food-info h3{font-family:Manrope,sans-serif;letter-spacing:-.25px}
+.dashboard-header{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:clamp(20px,3.5vw,34px);margin:0 0 24px;border:1px solid #24583e;border-radius:22px;background:radial-gradient(circle at 90% 10%,#ffffff20,transparent 30%),linear-gradient(120deg,#102d20,#1c5538);color:#fff;box-shadow:0 18px 42px rgba(14,53,32,.14)}
+.dashboard-header h1{font:850 clamp(1.8rem,4vw,2.6rem)/1.12 Manrope,sans-serif;letter-spacing:-1.2px;color:#fff}
+.dashboard-header p{color:#dfebe2}
+.dashboard-header .eyebrow{color:#ffd39f}
+.dashboard-header #logoutButton{background:#fff;border:0;color:#173e2b;border-radius:11px;font-weight:850}
+.restaurant-welcome{border-radius:20px;background:linear-gradient(125deg,#123c2a,#1d5b3d);box-shadow:0 16px 36px rgba(18,48,32,.11)}
+.restaurant-metrics article{border-radius:17px;box-shadow:0 9px 25px rgba(18,48,32,.055);border-color:var(--coc-line)}
+.dashboard-order-section{padding:clamp(15px,2.2vw,22px);border:1px solid var(--coc-line);border-radius:18px;background:#fff;box-shadow:0 8px 24px rgba(18,48,32,.035)}
+.dashboard-section-heading h2{font-family:Manrope,sans-serif;letter-spacing:-.35px}
+.order-card{padding:18px}
+.site-footer{background:#102d20;color:#dce9df;border-top:0;padding:38px max(4%,calc((100% - 1200px)/2))}
+.site-footer a{color:#ffd09a}
+.site-footer p{color:#dce9df}
+@media(max-width:760px){
+ .food-home-page .navbar{width:92%;padding:10px 0}
+ .food-home-hero{grid-template-columns:1fr;margin:14px auto 34px;min-height:0;padding:26px 21px;border-radius:22px;gap:20px}
+ .food-home-copy h1{font-size:clamp(2.7rem,13vw,4rem);letter-spacing:-2px}
+ .food-home-hero-image{height:230px;transform:none;border-width:6px;border-radius:20px}
+ .food-home-floating-one{right:8%;top:auto;bottom:36%}
+ .food-home-floating-two{right:7%;bottom:5%}
+ .food-catalog-section{width:92%}
+ .dashboard-header{align-items:flex-start;flex-direction:column;border-radius:18px;padding:20px}
+ .dashboard-header #logoutButton{width:100%;min-height:44px}
+ .dashboard-order-section{padding:14px;margin:18px 0}
+ .restaurant-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:390px){.food-home-hero{padding:22px 17px}.food-home-copy h1{letter-spacing:-1.5px}.restaurant-metrics{gap:8px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+/* Shared authentication visual language */
+body.coc-auth-page{min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 12% 8%,#e6f0e8 0,transparent 34%),radial-gradient(circle at 92% 90%,#fff0dc 0,transparent 30%),#f4f7f3;font-family:'DM Sans',Inter,system-ui,sans-serif}
+.coc-auth-page .card{width:min(100%,460px);padding:clamp(25px,5vw,38px);border:1px solid #e1e9e2;border-radius:24px;background:rgba(255,255,255,.97);box-shadow:0 24px 70px rgba(20,55,35,.11)}
+.coc-auth-page .brand{display:inline-flex;align-items:center;color:var(--coc-green);font:900 21px Manrope,system-ui,sans-serif;letter-spacing:-.5px}
+.coc-auth-page h1{margin:17px 0 8px;color:var(--coc-ink);font:850 clamp(1.8rem,6vw,2.25rem)/1.15 Manrope,sans-serif;letter-spacing:-1px}
+.coc-auth-page .muted{color:var(--coc-muted);line-height:1.65}
+.coc-auth-page label{display:block;margin:17px 0 7px;color:#33493c;font-weight:750}
+.coc-auth-page input{min-height:48px;padding:13px 14px;border:1px solid #d6e1d8;border-radius:12px;background:#fbfdfb;font:inherit}
+.coc-auth-page input:focus{border-color:#397d55;box-shadow:0 0 0 3px #397d5518}
+.coc-auth-page button{min-height:49px;margin-top:21px;border-radius:12px;background:var(--coc-green);color:#fff;font:800 1rem Manrope,sans-serif;box-shadow:0 8px 18px #123d2b20}
+.coc-auth-page button:hover{background:#20583b}
+.coc-auth-page a{color:#226744;font-weight:650}
+.coc-auth-page .msg{min-height:24px;line-height:1.5}
+.coc-auth-page .foot,.coc-auth-page main>p{line-height:1.65}
+.coc-auth-page .support{margin-top:18px;padding:15px;border:1px solid #e2eae3;border-radius:14px;background:#f7faf7;font-size:.9rem;line-height:1.8}
+
+/* Role-specific dashboard shells */
+body:has(> .top)>.top{position:sticky;top:0;z-index:30;min-height:72px;padding:13px clamp(14px,3vw,38px);background:rgba(255,255,255,.96);backdrop-filter:blur(14px);box-shadow:0 3px 18px rgba(18,48,32,.035)}
+body:has(> .top)>.top .brand{font:900 20px Manrope,system-ui,sans-serif;letter-spacing:-.6px;color:var(--coc-green)}
+body:has(> .top)>.top .btn{min-height:42px;border-radius:11px}
+body:has(> .top)>.wrap{width:min(1320px,100%);padding:clamp(18px,3vw,36px) clamp(12px,3vw,34px) 60px}
+body:has(> .top)>.wrap>h1,body:has(> .top)>.wrap .heading h1{font:850 clamp(1.9rem,4vw,2.7rem)/1.12 Manrope,sans-serif;letter-spacing:-1.3px;color:var(--coc-ink)}
+body:has(> .top) .panel{padding:clamp(15px,2.2vw,22px);border:1px solid var(--coc-line);border-radius:18px;box-shadow:0 8px 25px rgba(18,48,32,.045);overflow:hidden}
+body:has(> .top) .panel h2,body:has(> .top) .panel h3{font-family:Manrope,sans-serif;letter-spacing:-.35px}
+body:has(> .top) .cards{grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+body:has(> .top) .metric{min-width:0;border:1px solid var(--coc-line);border-radius:17px;box-shadow:0 8px 22px rgba(18,48,32,.045);padding:18px}
+body:has(> .top) .metric strong,body:has(> .top) .stat-number{color:var(--coc-green-2);font-family:Manrope,sans-serif;font-weight:900}
+body:has(> .top) .search,body:has(> .top) select,body:has(> .top) input:not([type=checkbox]):not([type=radio]){border-color:#d8e2da;border-radius:11px;min-height:42px}
+body:has(> .top) table th{background:#f3f7f3;color:#53675a;font-weight:800;letter-spacing:.06em}
+body:has(> .top) table td,body:has(> .top) table th{padding:13px 15px}
+body:has(> .top) .pill{border-radius:999px;padding:6px 10px;font-weight:800}
+.agent-dashboard-page .wrap{max-width:1120px}
+.agent-dashboard-page .agent-overview-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+body:has(#agentNotificationsPanel) .wrap>h1{margin-bottom:4px}
+body:has(#agentNotificationsPanel) .wrap>p.muted{margin-top:4px;margin-bottom:22px}
+body:has(#agentNotificationsPanel) .panel:first-of-type{background:linear-gradient(120deg,#123c2a,#1e5a3d);color:#fff;border:0}
+body:has(#agentNotificationsPanel) .panel:first-of-type .muted{color:#e0eee4}
+body:has(#agentNotificationsPanel) .panel:first-of-type .pill{background:#fff;color:#17442e}
+body:has(#agentNotificationsPanel) .panel:first-of-type .btn.primary{background:var(--coc-orange);color:#2b261f}
+body:has(#agentNotificationsPanel) .panel .stat{border:1px solid var(--coc-line);border-radius:15px}
+body:has(#agentNotificationsPanel) .panel .cards{margin:14px 0}
+.admin-dashboard-page .wrap{max-width:1480px}
+body:has(#globalStatus) .top{align-items:flex-start}
+body:has(#globalStatus) .top-right{flex-wrap:wrap;justify-content:flex-end}
+body:has(#globalStatus) .top-right .btn{white-space:nowrap}
+body:has(#globalStatus) .heading{padding:12px 2px 0}
+body:has(#globalStatus) .cards .metric{background:linear-gradient(180deg,#fff,#fbfdfb)}
+body:has(#globalStatus) .panel{margin:18px 0}
+body:has(#globalStatus) .panel-head{background:#fbfdfb}
+.student-dashboard-page .student-side-nav{background:#102f22;border-right:1px solid #254b37}
+.student-dashboard-page .student-side-brand{color:#fff}
+.student-dashboard-page .student-side-links a,.student-dashboard-page .student-side-links button{border-radius:11px;transition:background .16s,color .16s}
+.student-dashboard-page .student-side-links a:hover,.student-dashboard-page .student-side-links button:hover{background:#ffffff16;color:#fff}
+.student-dashboard-page .student-side-links a.active{background:#fff;color:#153e2b;font-weight:850}
+.student-dashboard-page #dashboardView{max-width:1240px}
+.student-dashboard-page #dashboardContent>.restaurant-welcome{border-radius:18px;box-shadow:var(--coc-shadow)}
+@media(max-width:900px){body:has(> .top) .cards{grid-template-columns:repeat(2,minmax(0,1fr))}body:has(#globalStatus) .top{position:relative;flex-direction:column}body:has(#globalStatus) .top-right{width:100%;justify-content:flex-start}body:has(#globalStatus) .top-right .btn{flex:1 1 auto}}
+@media(max-width:600px){
+ body:has(> .top)>.wrap{padding:16px 11px 38px}
+ body:has(> .top) .panel{padding:14px;margin:12px 0}
+ body:has(> .top) .cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+ body:has(> .top) .metric{padding:13px}
+ body:has(> .top) .metric strong{font-size:clamp(1.25rem,7vw,1.8rem)}
+ body:has(#agentNotificationsPanel) .panel:first-of-type .row{align-items:flex-start}
+ body:has(#globalStatus) .top-right .btn{width:100%;justify-content:center}
+ body:has(#globalStatus) .top-right{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+ body:has(#globalStatus) .top-right .btn{min-width:0;white-space:normal}
+ .student-dashboard-page #dashboardView{padding:16px 12px 42px}
+}
+@media(max-width:380px){body:has(> .top) .cards{grid-template-columns:1fr}body:has(#globalStatus) .top-right{grid-template-columns:1fr}}
+
+.coc-dashboard-nav{position:sticky;top:72px;z-index:15;display:flex;gap:7px;overflow-x:auto;padding:10px max(3%,calc((100% - 1320px)/2));margin:0;background:rgba(247,250,247,.96);border-bottom:1px solid var(--coc-line);backdrop-filter:blur(12px);scrollbar-width:thin}
+.coc-dashboard-nav a{flex:0 0 auto;display:inline-flex;align-items:center;min-height:38px;padding:8px 13px;border:1px solid #e1e9e2;border-radius:10px;background:#fff;color:#315541;text-decoration:none;font-size:.84rem;font-weight:800;white-space:nowrap}
+.coc-dashboard-nav a:hover,.coc-dashboard-nav a:focus-visible{background:#eaf3ec;border-color:#bfd6c4;color:#123d2b}
+body:has(#globalStatus) .coc-dashboard-nav{top:72px}
+@media(max-width:600px){.coc-dashboard-nav{top:0;padding:9px 11px}.coc-dashboard-nav a{min-height:40px;font-size:.8rem}}
+
+
+/* Detailed workspace surfaces: menus, payment settings, operations and admin records */
+.restaurant-dashboard-page #dashboardView{width:min(1320px,94%);margin:0 auto;padding:28px 0 64px}
+.restaurant-dashboard-page .restaurant-welcome{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:24px clamp(18px,3vw,32px);color:#fff}
+.restaurant-dashboard-page .restaurant-welcome h2{font:850 clamp(1.5rem,3vw,2.1rem)/1.15 Manrope,sans-serif;color:#fff}
+.restaurant-dashboard-page .restaurant-welcome p{max-width:680px;color:#e1eee5;line-height:1.65}
+.restaurant-dashboard-page .restaurant-welcome .secondary-button{flex:0 0 auto}
+.restaurant-dashboard-page .restaurant-operations-panel{margin:18px 0;padding:22px;border:1px solid #dce8de;border-radius:19px;background:linear-gradient(135deg,#fff,#f5faf5);box-shadow:var(--coc-shadow)}
+.restaurant-dashboard-page .restaurant-operations-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.restaurant-dashboard-page .restaurant-operations-heading h2{margin:5px 0;font:850 clamp(1.3rem,2.6vw,1.8rem)/1.2 Manrope,sans-serif;color:var(--coc-ink)}
+.restaurant-dashboard-page .restaurant-operations-heading p,.restaurant-dashboard-page .restaurant-operations-note{color:var(--coc-muted);line-height:1.6}
+.restaurant-dashboard-page .restaurant-availability-pill{flex:0 0 auto;padding:8px 13px;border-radius:999px;font-size:.78rem;font-weight:900;letter-spacing:.06em}
+.restaurant-dashboard-page .restaurant-availability-pill.is-open{background:#e3f5e8;color:#17643a}
+.restaurant-dashboard-page .restaurant-availability-pill.is-closed{background:#fff0e8;color:#a34422}
+.restaurant-dashboard-page .restaurant-operations-actions,.restaurant-dashboard-page .restaurant-quick-actions,.restaurant-dashboard-page .menu-editor-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.restaurant-dashboard-page .restaurant-operations-actions{margin:16px 0}
+.restaurant-dashboard-page .restaurant-quick-actions{position:sticky;top:72px;z-index:12;padding:12px;margin:16px 0 22px;border:1px solid var(--coc-line);border-radius:15px;background:#f8fbf8ed;backdrop-filter:blur(12px)}
+.restaurant-dashboard-page .restaurant-quick-actions button{min-height:42px}
+.restaurant-dashboard-page .restaurant-view-panel[hidden],.restaurant-dashboard-page [hidden]{display:none!important}
+.restaurant-dashboard-page .dashboard-order-section{scroll-margin-top:145px}
+.restaurant-dashboard-page .restaurant-menu-manager,.restaurant-dashboard-page #restaurantPaymentSettingsPanel{padding:22px;margin:18px 0;border:1px solid var(--coc-line);border-radius:18px;background:#fff;box-shadow:var(--coc-shadow)}
+.restaurant-dashboard-page #restaurantMenuForm{display:grid;gap:14px}
+.restaurant-dashboard-page .menu-editor-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding:16px;border:1px solid var(--coc-line);border-radius:15px;background:#fbfdfb}
+.restaurant-dashboard-page .menu-editor-row label,.restaurant-dashboard-page #restaurantPaymentSettingsForm label,.restaurant-dashboard-page #restaurantLocationForm label{display:grid;gap:7px;color:#405548;font-weight:750}
+.restaurant-dashboard-page .menu-editor-row input,.restaurant-dashboard-page #restaurantPaymentSettingsForm input,.restaurant-dashboard-page #restaurantLocationForm input{width:100%;min-width:0;padding:11px 12px;border:1px solid #d8e3da;border-radius:10px;background:#fff}
+.restaurant-dashboard-page .menu-item-image-preview{min-height:80px;display:grid;place-items:center;border:1px dashed #cbd9ce;border-radius:12px;background:#f5f9f5;color:var(--coc-muted);overflow:hidden}
+.restaurant-dashboard-page .menu-item-image-preview img{width:100%;height:130px;object-fit:cover}
+.restaurant-dashboard-page #restaurantPaymentSettingsForm{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:end}
+.restaurant-dashboard-page #restaurantPaymentSettingsForm .menu-editor-actions{grid-column:1/-1}
+.restaurant-dashboard-page .restaurant-location-manager{display:grid;gap:16px}
+.restaurant-dashboard-page .restaurant-pickup-map,.restaurant-dashboard-page .restaurant-location-manager .restaurant-pickup-map{min-height:230px;border-radius:14px;overflow:hidden}
+.admin-dashboard-page .wrap .panel{scroll-margin-top:100px}
+.admin-dashboard-page .wrap .panel-head{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 16px;border-bottom:1px solid var(--coc-line);border-radius:12px}
+.admin-dashboard-page .wrap .panel-head h2{margin:0}
+.admin-dashboard-page .wrap .panel table{width:100%;border-collapse:separate;border-spacing:0}
+.admin-dashboard-page .wrap .panel table th:first-child{border-radius:10px 0 0 10px}
+.admin-dashboard-page .wrap .panel table th:last-child{border-radius:0 10px 10px 0}
+.admin-dashboard-page .wrap .panel .table-wrap,.admin-dashboard-page .wrap .panel:has(table){overflow-x:auto}
+.student-dashboard-page .student-side-nav{box-shadow:8px 0 28px rgba(6,28,17,.09)}
+.student-dashboard-page .student-side-links a,.student-dashboard-page .student-side-links button{min-height:44px;padding:11px 13px}
+.student-dashboard-page .coc-premium-panel,.student-dashboard-page .coc-premium-benefit{border-radius:17px;box-shadow:var(--coc-shadow)}
+.student-dashboard-page #dashboardContent{display:grid;gap:16px}
+.student-dashboard-page #dashboardContent .order-card,.student-dashboard-page #dashboardContent .panel{border:1px solid var(--coc-line);border-radius:17px;box-shadow:var(--coc-shadow)}
+@media(max-width:760px){
+ .restaurant-dashboard-page #dashboardView{width:92%;padding:18px 0 42px}
+ .restaurant-dashboard-page .restaurant-welcome{align-items:flex-start;flex-direction:column}
+ .restaurant-dashboard-page .restaurant-welcome .secondary-button{width:100%}
+ .restaurant-dashboard-page .restaurant-operations-heading{flex-direction:column}
+ .restaurant-dashboard-page .restaurant-quick-actions{top:0;margin-inline:-4%;border-radius:0;padding:10px 4%;overflow-x:auto;flex-wrap:nowrap}
+ .restaurant-dashboard-page .restaurant-quick-actions button{flex:0 0 auto;white-space:nowrap}
+ .restaurant-dashboard-page .menu-editor-row{grid-template-columns:1fr}
+ .restaurant-dashboard-page #restaurantPaymentSettingsForm{grid-template-columns:1fr}
+ .restaurant-dashboard-page #restaurantPaymentSettingsForm .menu-editor-actions{grid-column:auto}
+}
+@media(max-width:520px){
+ .restaurant-dashboard-page .restaurant-operations-panel,.restaurant-dashboard-page .restaurant-menu-manager,.restaurant-dashboard-page #restaurantPaymentSettingsPanel{padding:16px}
+ .restaurant-dashboard-page .restaurant-operations-actions>*{width:100%}
+ .student-dashboard-page .student-side-nav{width:min(84vw,300px)}
+}

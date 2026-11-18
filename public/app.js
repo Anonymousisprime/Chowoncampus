@@ -2349,7 +2349,7 @@ function showStudentLoginPopupAd(account) {
     if (!document.getElementById("cocStudentPopupAdStyles")) {
       const style = document.createElement("style");
       style.id = "cocStudentPopupAdStyles";
-      style.textContent = "#cocStudentPopupAd{position:fixed;inset:0;z-index:10050;background:rgba(8,15,12,.76);display:grid;place-items:center;padding:18px;backdrop-filter:blur(5px)}#cocStudentPopupAd .coc-popup-card{position:relative;width:min(560px,100%);max-height:calc(100vh - 36px);overflow:auto;background:#fff;border-radius:22px;box-shadow:0 24px 80px #0007}#cocStudentPopupAd .coc-popup-close{position:absolute;right:12px;top:12px;z-index:2;width:38px;height:38px;border:0;border-radius:50%;background:#101915e8;color:#fff;font-size:24px;cursor:pointer}#cocStudentPopupAd .coc-popup-image{display:block;width:100%;max-height:360px;object-fit:cover;background:#f0f3f0}#cocStudentPopupAd .coc-popup-copy{padding:20px 22px 22px}#cocStudentPopupAd .coc-popup-label{font-size:11px;font-weight:900;letter-spacing:.12em;color:#176b45;text-transform:uppercase}#cocStudentPopupAd h2{margin:7px 0;color:#173e2b;font-size:24px}#cocStudentPopupAd p{color:#607067;line-height:1.55;margin:8px 0 16px}#cocStudentPopupAd .coc-popup-cta{display:inline-flex;justify-content:center;align-items:center;min-height:46px;padding:0 20px;border-radius:12px;background:#f28b19;color:#17120a;text-decoration:none;font-weight:900}@media(max-width:520px){#cocStudentPopupAd{padding:10px}#cocStudentPopupAd .coc-popup-card{border-radius:16px}#cocStudentPopupAd .coc-popup-image{max-height:260px}#cocStudentPopupAd .coc-popup-copy{padding:16px}#cocStudentPopupAd h2{font-size:20px}}";
+      style.textContent = "#cocStudentPopupAd{position:fixed;inset:0;z-index:10050;background:rgba(8,15,12,.76);display:grid;place-items:center;padding:18px;backdrop-filter:blur(5px)}#cocStudentPopupAd .coc-popup-card{position:relative;width:min(560px,100%);max-height:calc(100vh - 36px);overflow:auto;background:#fff;border-radius:22px;box-shadow:0 24px 80px #0007}#cocStudentPopupAd .coc-popup-close{position:absolute;right:12px;top:12px;z-index:2;min-width:104px;height:38px;padding:0 12px;border:0;border-radius:20px;background:#101915e8;color:#fff;font-size:12px;font-weight:800;cursor:pointer}#cocStudentPopupAd .coc-popup-close:disabled{opacity:.82;cursor:not-allowed}#cocStudentPopupAd .coc-popup-image{display:block;width:100%;max-height:360px;object-fit:cover;background:#f0f3f0}#cocStudentPopupAd .coc-popup-copy{padding:20px 22px 22px}#cocStudentPopupAd .coc-popup-label{font-size:11px;font-weight:900;letter-spacing:.12em;color:#176b45;text-transform:uppercase}#cocStudentPopupAd h2{margin:7px 0;color:#173e2b;font-size:24px}#cocStudentPopupAd p{color:#607067;line-height:1.55;margin:8px 0 16px}#cocStudentPopupAd .coc-popup-cta{display:inline-flex;justify-content:center;align-items:center;min-height:46px;padding:0 20px;border-radius:12px;background:#f28b19;color:#17120a;text-decoration:none;font-weight:900}@media(max-width:520px){#cocStudentPopupAd{padding:10px}#cocStudentPopupAd .coc-popup-card{border-radius:16px}#cocStudentPopupAd .coc-popup-image{max-height:260px}#cocStudentPopupAd .coc-popup-copy{padding:16px}#cocStudentPopupAd h2{font-size:20px}}";
       document.head.appendChild(style);
     }
 
@@ -2358,12 +2358,32 @@ function showStudentLoginPopupAd(account) {
     overlay.setAttribute("role", "dialog");
     overlay.setAttribute("aria-modal", "true");
     overlay.setAttribute("aria-label", "Sponsored promotion");
-    overlay.innerHTML = '<article class="coc-popup-card"><button type="button" class="coc-popup-close" aria-label="Close advertisement">×</button><img class="coc-popup-image" src="' + escapeHtml(ad.imageUrl) + '" alt="' + escapeHtml(ad.title || "Sponsored promotion") + '"><div class="coc-popup-copy"><span class="coc-popup-label">Sponsored · ChowOnCampus</span><h2>' + escapeHtml(ad.title) + '</h2><p>' + escapeHtml(ad.description || ("A promotion from " + (ad.advertiser || "our campus partner") + ".")) + '</p><a class="coc-popup-cta" href="' + escapeHtml(ad.targetUrl) + '" ' + (ad.destinationType === "external" ? 'target="_blank" rel="noopener noreferrer"' : '') + '>View promotion</a></div></article>';
+    overlay.innerHTML = '<article class="coc-popup-card"><button type="button" class="coc-popup-close" aria-label="Skip advertisement in five seconds" disabled>Skip in 5s</button><img class="coc-popup-image" src="' + escapeHtml(ad.imageUrl) + '" alt="' + escapeHtml(ad.title || "Sponsored promotion") + '"><div class="coc-popup-copy"><span class="coc-popup-label">Sponsored · ChowOnCampus</span><h2>' + escapeHtml(ad.title) + '</h2><p>' + escapeHtml(ad.description || ("A promotion from " + (ad.advertiser || "our campus partner") + ".")) + '</p><a class="coc-popup-cta" href="' + escapeHtml(ad.targetUrl) + '" ' + (ad.destinationType === "external" ? 'target="_blank" rel="noopener noreferrer"' : '') + '>View promotion</a></div></article>';
     document.body.appendChild(overlay);
     api("/api/ads/" + encodeURIComponent(ad.id) + "/impression", { method: "POST", body: JSON.stringify({}) }).catch(() => {});
-    const close = () => { overlay.remove(); document.removeEventListener("keydown", onKeyDown); };
+    const skipButton = overlay.querySelector(".coc-popup-close");
+    let skipSeconds = 5;
+    let skipTimer = null;
+    const close = () => {
+      if (skipButton.disabled) return;
+      if (skipTimer) clearInterval(skipTimer);
+      overlay.remove();
+      document.removeEventListener("keydown", onKeyDown);
+    };
     const onKeyDown = event => { if (event.key === "Escape") close(); };
-    overlay.querySelector(".coc-popup-close").addEventListener("click", close);
+    skipTimer = setInterval(() => {
+      skipSeconds -= 1;
+      if (skipSeconds > 0) {
+        skipButton.textContent = "Skip in " + skipSeconds + "s";
+      } else {
+        clearInterval(skipTimer);
+        skipTimer = null;
+        skipButton.disabled = false;
+        skipButton.textContent = "Skip ad";
+        skipButton.setAttribute("aria-label", "Skip advertisement");
+      }
+    }, 1000);
+    skipButton.addEventListener("click", close);
     overlay.addEventListener("click", event => { if (event.target === overlay) close(); });
     overlay.querySelector(".coc-popup-cta").addEventListener("click", () => {
       api("/api/ads/" + encodeURIComponent(ad.id) + "/click", { method: "POST", body: JSON.stringify({}) }).catch(() => {});

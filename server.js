@@ -32,6 +32,7 @@ const storageFiles = {
   "delivery-area-config.json": "deliveryAreaConfig",
   "vendor-verifications.json": "vendorVerifications",
   "restaurant-operations.json": "restaurantOperations",
+  "global-operations.json": "globalOperations",
   "operations-events.json": "operationsEvents",
   "operations-cases.json": "operationsCases",
   "restaurant-suspensions.json": "restaurantSuspensions",
@@ -74,6 +75,7 @@ async function initializePersistentStorage() {
     ["delivery-area-config.json", { enabled: false, centerLatitude: null, centerLongitude: null, radiusMeters: 1200 }],
     ["vendor-verifications.json", []],
     ["restaurant-operations.json", {}],
+    ["global-operations.json", { offline: false, updatedAt: null, updatedBy: null }],
     ["operations-events.json", []],
     ["operations-cases.json", []],
     ["restaurant-suspensions.json", {}],
@@ -417,6 +419,21 @@ function readRestaurantOperations() {
 function saveRestaurantOperations(records) {
   saveStoredJson(RESTAURANT_OPERATIONS_FILE, records);
 }
+const GLOBAL_OPERATIONS_FILE = path.join(__dirname, "global-operations.json");
+function readGlobalOperations() {
+  const record = readStoredJson(GLOBAL_OPERATIONS_FILE, { offline: false, updatedAt: null, updatedBy: null }) || {};
+  return { offline: record.offline === true, updatedAt: record.updatedAt || null, updatedBy: record.updatedBy || null };
+}
+function saveGlobalOperations(record) {
+  saveStoredJson(GLOBAL_OPERATIONS_FILE, {
+    offline: record.offline === true,
+    updatedAt: record.updatedAt || null,
+    updatedBy: record.updatedBy || null
+  });
+}
+function globalOperationsAreOffline() {
+  return readGlobalOperations().offline;
+}
 const OPERATIONS_EVENTS_FILE = path.join(__dirname, "operations-events.json");
 const OPERATIONS_CASES_FILE = path.join(__dirname, "operations-cases.json");
 function readOperationsEvents() { return readStoredJson(OPERATIONS_EVENTS_FILE, []); }
@@ -438,6 +455,7 @@ function getRestaurantOperations(restaurantId) {
   };
 }
 function restaurantAcceptsOrders(restaurant) {
+  if (globalOperationsAreOffline()) return false;
   if (!restaurant || !vendorIsApproved(restaurant.id)) return false;
   const operations = getRestaurantOperations(restaurant.id);
   return operations.online && !operations.ordersPaused;
@@ -1460,13 +1478,14 @@ app.get("/api/restaurant/operations", requireRole("restaurant"), (req, res) => {
   if (!restaurant) return res.status(404).json({ error: "Restaurant account not found." });
   if (!vendorIsApproved(restaurant.id)) return res.status(403).json({ error: "Complete restaurant verification before changing order availability." });
   res.setHeader("Cache-Control", "no-store, private");
-  return res.json({ operations: getRestaurantOperations(restaurant.id), acceptingOrders: restaurantAcceptsOrders(restaurant) });
+  return res.json({ operations: getRestaurantOperations(restaurant.id), acceptingOrders: restaurantAcceptsOrders(restaurant), globalOffline: globalOperationsAreOffline() });
 });
 app.patch("/api/restaurant/operations", requireRole("restaurant"), (req, res) => {
   const restaurant = restaurants.find(item => item.id === req.account.restaurantId);
   if (!restaurant) return res.status(404).json({ error: "Restaurant account not found." });
   if (!vendorIsApproved(restaurant.id)) return res.status(403).json({ error: "Complete restaurant verification before changing order availability." });
   const hasOnline = typeof req.body.online === "boolean";
+  if (hasOnline && req.body.online === true && globalOperationsAreOffline()) return res.status(423).json({ error: "ChowOnCampus is globally offline. Only the Ultimate Admin can restore operations." });
   const hasPaused = typeof req.body.ordersPaused === "boolean";
   if (!hasOnline && !hasPaused) return res.status(400).json({ error: "Choose whether to go online/offline or pause/resume incoming orders." });
   const records = readRestaurantOperations();
@@ -2303,6 +2322,8 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
       });
     }
   }
+
+  if (globalOperationsAreOffline()) return res.status(503).json({ code: "PLATFORM_GLOBALLY_OFFLINE", error: "ChowOnCampus is temporarily offline. New orders are paused by the Ultimate Admin. Please try again later." });
 
   if (
     typeof customerName !== "string" ||
@@ -3542,6 +3563,108 @@ function requireSuperAdmin(req, res, next) {
   next();
 }
 
+app.get("/api/superadmin/global-operations", requireSuperAdmin, (req, res) => {
+  res.setHeader("Cache-Control", "no-store, private");
+  const state = readGlobalOperations();
+  const activeDeliveries = readOrders().filter(order =>
+    order.status === "Out for delivery" ||
+    (order.status === "Ready for pickup" && order.assignmentAcceptedAt && order.assignedAgentId)
+  ).length;
+  const acceptedRestaurantOrders = readOrders().filter(order =>
+    ["Confirmed", "Preparing", "Ready for pickup"].includes(order.status)
+  ).length;
+  res.json({ ...state, activeDeliveries, acceptedRestaurantOrders });
+});
+
+app.patch("/api/superadmin/global-operations", requireSuperAdmin, (req, res) => {
+  if (typeof req.body.offline !== "boolean") return res.status(400).json({ error: "Choose Go Offline or Go Online." });
+  const current = readGlobalOperations();
+  const offline = req.body.offline;
+  if (current.offline === offline) return res.json({ ok: true, ...current, message: offline ? "Global offline mode is already active." : "Platform operations are already enabled." });
+  const now = new Date().toISOString();
+  try {
+    if (offline) {
+      // Force every restaurant and agent offline. Preserve accepted orders and an agent's
+      // activeOrderId so existing fulfilment can continue, but withdraw unaccepted offers.
+      const restaurantRecords = readRestaurantOperations();
+      for (const restaurant of restaurants) {
+        const record = { ...(restaurantRecords[restaurant.id] || {}) };
+        record.online = false;
+        record.ordersPaused = false;
+        record.pauseReason = "";
+        record.updatedAt = now;
+        restaurantRecords[restaurant.id] = record;
+      }
+      saveRestaurantOperations(restaurantRecords);
+
+      const agentRecords = readAgentRecords();
+      const orders = readOrders();
+      for (const order of orders) {
+        if (order.status !== "Ready for pickup" || !order.assignedAgentId || order.assignmentAcceptedAt) continue;
+        const agentId = String(order.assignedAgentId);
+        const agent = agentRecords.find(item => String(item.id) === agentId);
+        if (agent && agent.activeOrderId === order.id) {
+          agent.activeOrderId = null;
+        }
+        order.assignedAgentId = null;
+        order.assignmentExpiresAt = null;
+        order.updatedAt = now;
+        order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+        order.statusHistory.push({ status: "Pickup offer withdrawn — global offline", at: now, by: "ultimate-admin" });
+        if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, "Delivery paused", "The platform has temporarily paused new delivery assignments. Your accepted order remains recorded.", order.id);
+        else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Delivery paused", "The platform has temporarily paused new delivery assignments. Your accepted order remains recorded.", order.id);
+        createNotification({ role: "student", username: order.customerPhone }, "Delivery temporarily paused", "ChowOnCampus has temporarily paused new delivery assignments. Orders already being delivered may still be completed.", order.id);
+      }
+      for (const agent of agentRecords) {
+        agent.online = false;
+        agent.availabilityUpdatedAt = now;
+        // Keep the active assignment reference for agents already fulfilling an order.
+        if (!agent.activeOrderId) {
+          agent.latitude = null;
+          agent.longitude = null;
+          agent.locationUpdatedAt = null;
+        }
+      }
+      saveAgentRecords(agentRecords);
+      agents = agentRecords.map(record => ({
+        id: record.id, name: record.name, username: record.username,
+        online: false, activeOrderId: record.activeOrderId || null, createdAt: record.createdAt || null
+      }));
+      saveOrders(orders);
+    }
+
+    const next = { offline, updatedAt: now, updatedBy: req.account.username };
+    saveGlobalOperations(next);
+    recordOperationsEvent({
+      type: offline ? "platform_global_offline" : "platform_global_online",
+      entityType: "platform",
+      entityId: "global",
+      entityName: "ChowOnCampus",
+      actorRole: "ultimate-admin",
+      actorId: req.account.username,
+      details: offline
+        ? "Ultimate Admin activated global offline mode. New orders and delivery assignments are paused; accepted restaurant orders and active deliveries may finish."
+        : "Ultimate Admin restored platform operations. Restaurants and agents must individually choose to go online."
+    });
+    const activeDeliveries = readOrders().filter(order =>
+      order.status === "Out for delivery" ||
+      (order.status === "Ready for pickup" && order.assignmentAcceptedAt && order.assignedAgentId)
+    ).length;
+    const acceptedRestaurantOrders = readOrders().filter(order =>
+      ["Confirmed", "Preparing", "Ready for pickup"].includes(order.status)
+    ).length;
+    return res.json({
+      ok: true, ...next, activeDeliveries, acceptedRestaurantOrders,
+      message: offline
+        ? "Global offline mode is active. Restaurants and agents are offline; accepted restaurant orders and deliveries already underway can finish. New orders and new delivery assignments are blocked."
+        : "Platform operations are restored. Restaurants and agents remain offline until each chooses to go online."
+    });
+  } catch (error) {
+    console.error("Could not change global operations mode:", error.message);
+    return res.status(500).json({ error: "Could not update global operations mode. Please retry." });
+  }
+});
+
 function maskBankAccount(value) {
   const digits = String(value || "").replace(/\D/g, "");
   return digits ? "••••" + digits.slice(-4) : "Not available";
@@ -4571,6 +4694,7 @@ function calculateDeliveryQuote(restaurant, deliveryLatitude, deliveryLongitude)
 }
 
 function assignReadyOrders() {
+  if (globalOperationsAreOffline()) return false;
   const records = readAgentRecords();
   const orders = readOrders();
   const busyAgentIds = new Set(orders.filter(order =>
@@ -4756,6 +4880,7 @@ setInterval(() => {
 // Admin can override an agent's availability and trigger assignment when enabling them.
 app.patch("/api/admin/agents/:id/availability", requireRole("admin"), (req, res) => {
   if (typeof req.body.online !== "boolean") return res.status(400).json({ error: "Choose online or offline." });
+  if (req.body.online === true && globalOperationsAreOffline()) return res.status(423).json({ error: "Global offline mode is active. Only the Ultimate Admin can restore operations." });
   try {
     const records = readAgentRecords();
     const agent = records.find(item => item.id === req.params.id);
@@ -4793,6 +4918,7 @@ app.get("/api/agents/me", requireRole("agent"), (req, res) => {
       username: agent.username,
       online: Boolean(agent.online),
       activeOrderId: agent.activeOrderId || null,
+      globalOffline: globalOperationsAreOffline(),
       successfulDeliveries
     });
   } catch (error) {
@@ -4806,6 +4932,7 @@ app.post("/api/agent/assignments/:id/accept", requireRole("agent"), (req, res) =
     const orders = readOrders();
     const order = orders.find(item => item.id === req.params.id);
     if (!order) return res.status(404).json({ error: "Order not found." });
+    if (globalOperationsAreOffline() && !order.assignmentAcceptedAt) return res.status(423).json({ error: "ChowOnCampus is globally offline. Unaccepted pickup offers are paused; only deliveries already accepted before the shutdown may continue." });
     if (order.assignedAgentId !== req.account.agentId || order.status !== "Ready for pickup") {
       return res.status(409).json({ error: "This pickup offer is no longer assigned to you." });
     }
@@ -4856,6 +4983,7 @@ app.patch("/api/agent/location", requireRole("agent"), (req, res) => {
 // An agent can change only their own availability. Going online triggers assignment.
 app.patch("/api/agent/availability", requireRole("agent"), (req, res) => {
   if (typeof req.body.online !== "boolean") return res.status(400).json({ error: "Choose online or offline." });
+  if (req.body.online === true && globalOperationsAreOffline()) return res.status(423).json({ error: "ChowOnCampus is globally offline. Only the Ultimate Admin can restore operations." });
   try {
     const records = readAgentRecords();
     const agent = records.find(item => item.id === req.account.agentId);
@@ -4882,6 +5010,7 @@ app.patch("/api/agent/availability", requireRole("agent"), (req, res) => {
 // Admin assigns delivery agent
 app.patch("/api/orders/:id/assign", requireRole("admin"), (req, res) => {
   try {
+    if (globalOperationsAreOffline()) return res.status(423).json({ error: "Global offline mode is active. New delivery assignments are paused." });
     const agentId = req.body.agentId;
 
     if (!agents.some(agent => agent.id === agentId)) {

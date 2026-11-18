@@ -1,0 +1,73 @@
+/* ChowOnCampus 2.0 — shared visual system. Presentation-only; existing flows and API contracts remain unchanged. */
+:root{--coc-ink:#14251e;--coc-muted:#68786f;--coc-green:#123d2b;--coc-green-2:#1d5a3c;--coc-orange:#ffad55;--coc-paper:#f5f7f4;--coc-line:#e2e9e3;--coc-card:#fff;--coc-radius:20px;--coc-shadow:0 14px 38px rgba(18,48,32,.075)}
+html{scroll-behavior:smooth}
+body{color:var(--coc-ink);background:var(--coc-paper)}
+button,a,input,select,textarea{ -webkit-tap-highlight-color:transparent}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #f2a34e;outline-offset:3px}
+.primary-button,.btn.primary{background:var(--coc-orange);color:#2a261f;border:0;border-radius:12px;font-weight:850;box-shadow:0 5px 14px rgba(194,116,42,.12)}
+.primary-button:hover,.btn.primary:hover{background:#ffc078;transform:translateY(-1px)}
+.secondary-button,.btn.light{border:1px solid var(--coc-line);border-radius:12px;background:#fff;color:var(--coc-green);font-weight:750}
+.site-header{background:rgba(255,255,255,.94)!important;backdrop-filter:blur(16px);border-bottom:1px solid var(--coc-line)!important}
+.food-home-page .navbar{width:min(1280px,94%);min-height:76px;margin:auto;padding:12px 0}
+.food-home-page .nav-actions{gap:6px}
+.food-home-page .nav-link{border-radius:10px;font-weight:750;color:#46584e}
+.food-home-page .nav-link:hover{background:#edf3ee;color:var(--coc-green)}
+.food-home-hero{width:min(1280px,94%);min-height:440px;margin:28px auto 54px;padding:clamp(28px,5.4vw,72px);border-radius:30px;background:radial-gradient(circle at 80% 18%,rgba(255,173,85,.18),transparent 32%),linear-gradient(125deg,#102b20,#174a32 66%,#20593b);box-shadow:0 22px 60px rgba(15,49,31,.13)}
+.food-home-copy h1{font-size:clamp(3rem,6.2vw,5.3rem);letter-spacing:-3.5px;line-height:1.02}
+.food-home-copy h1 span{color:#ffbd72}
+.food-home-copy p{font-size:1.08rem;line-height:1.7;color:#e0ebe3}
+.food-home-copy .eyebrow{color:#ffd29c}
+.food-home-hero-image{height:330px;border:8px solid rgba(255,255,255,.22);border-radius:26px;transform:rotate(1deg);box-shadow:0 24px 60px #061c1380}
+.food-home-floating{border:1px solid #ffffffb0;border-radius:14px;box-shadow:0 14px 35px #061c1333}
+.food-catalog-section{width:min(1280px,94%);margin:0 auto 78px}
+.food-catalog-heading h2{font:850 clamp(1.8rem,3.2vw,2.55rem)/1.15 Manrope,sans-serif;letter-spacing:-1.1px;color:var(--coc-ink)}
+.food-catalog-heading p{color:var(--coc-muted)}
+.catalog-search{border-radius:16px;border-color:var(--coc-line);box-shadow:var(--coc-shadow);padding:12px}
+.restaurant-card,.food-card,.order-card,.panel{border-color:var(--coc-line);border-radius:18px;box-shadow:var(--coc-shadow)}
+.restaurant-card{transition:transform .18s,box-shadow .18s}
+.restaurant-card:hover{transform:translateY(-3px);box-shadow:0 18px 42px rgba(18,48,32,.12)}
+.restaurant-info{padding:20px}
+.restaurant-info h3,.food-info h3{font-family:Manrope,sans-serif;letter-spacing:-.25px}
+.dashboard-header{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:clamp(20px,3.5vw,34px);margin:0 0 24px;border:1px solid #24583e;border-radius:22px;background:radial-gradient(circle at 90% 10%,#ffffff20,transparent 30%),linear-gradient(120deg,#102d20,#1c5538);color:#fff;box-shadow:0 18px 42px rgba(14,53,32,.14)}
+.dashboard-header h1{font:850 clamp(1.8rem,4vw,2.6rem)/1.12 Manrope,sans-serif;letter-spacing:-1.2px;color:#fff}
+.dashboard-header p{color:#dfebe2}
+.dashboard-header .eyebrow{color:#ffd39f}
+.dashboard-header #logoutButton{background:#fff;border:0;color:#173e2b;border-radius:11px;font-weight:850}
+.restaurant-welcome{border-radius:20px;background:linear-gradient(125deg,#123c2a,#1d5b3d);box-shadow:0 16px 36px rgba(18,48,32,.11)}
+.restaurant-metrics article{border-radius:17px;box-shadow:0 9px 25px rgba(18,48,32,.055);border-color:var(--coc-line)}
+.dashboard-order-section{padding:clamp(15px,2.2vw,22px);border:1px solid var(--coc-line);border-radius:18px;background:#fff;box-shadow:0 8px 24px rgba(18,48,32,.035)}
+.dashboard-section-heading h2{font-family:Manrope,sans-serif;letter-spacing:-.35px}
+.order-card{padding:18px}
+.site-footer{background:#102d20;color:#dce9df;border-top:0;padding:38px max(4%,calc((100% - 1200px)/2))}
+.site-footer a{color:#ffd09a}
+.site-footer p{color:#dce9df}
+@media(max-width:760px){
+ .food-home-page .navbar{width:92%;padding:10px 0}
+ .food-home-hero{grid-template-columns:1fr;margin:14px auto 34px;min-height:0;padding:26px 21px;border-radius:22px;gap:20px}
+ .food-home-copy h1{font-size:clamp(2.7rem,13vw,4rem);letter-spacing:-2px}
+ .food-home-hero-image{height:230px;transform:none;border-width:6px;border-radius:20px}
+ .food-home-floating-one{right:8%;top:auto;bottom:36%}
+ .food-home-floating-two{right:7%;bottom:5%}
+ .food-catalog-section{width:92%}
+ .dashboard-header{align-items:flex-start;flex-direction:column;border-radius:18px;padding:20px}
+ .dashboard-header #logoutButton{width:100%;min-height:44px}
+ .dashboard-order-section{padding:14px;margin:18px 0}
+ .restaurant-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:390px){.food-home-hero{padding:22px 17px}.food-home-copy h1{letter-spacing:-1.5px}.restaurant-metrics{gap:8px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+/* Shared authentication visual language */
+body.coc-auth-page{min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 12% 8%,#e6f0e8 0,transparent 34%),radial-gradient(circle at 92% 90%,#fff0dc 0,transparent 30%),#f4f7f3;font-family:'DM Sans',Inter,system-ui,sans-serif}
+.coc-auth-page .card{width:min(100%,460px);padding:clamp(25px,5vw,38px);border:1px solid #e1e9e2;border-radius:24px;background:rgba(255,255,255,.97);box-shadow:0 24px 70px rgba(20,55,35,.11)}
+.coc-auth-page .brand{display:inline-flex;align-items:center;color:var(--coc-green);font:900 21px Manrope,system-ui,sans-serif;letter-spacing:-.5px}
+.coc-auth-page h1{margin:17px 0 8px;color:var(--coc-ink);font:850 clamp(1.8rem,6vw,2.25rem)/1.15 Manrope,sans-serif;letter-spacing:-1px}
+.coc-auth-page .muted{color:var(--coc-muted);line-height:1.65}
+.coc-auth-page label{display:block;margin:17px 0 7px;color:#33493c;font-weight:750}
+.coc-auth-page input{min-height:48px;padding:13px 14px;border:1px solid #d6e1d8;border-radius:12px;background:#fbfdfb;font:inherit}
+.coc-auth-page input:focus{border-color:#397d55;box-shadow:0 0 0 3px #397d5518}
+.coc-auth-page button{min-height:49px;margin-top:21px;border-radius:12px;background:var(--coc-green);color:#fff;font:800 1rem Manrope,sans-serif;box-shadow:0 8px 18px #123d2b20}
+.coc-auth-page button:hover{background:#20583b}
+.coc-auth-page a{color:#226744;font-weight:650}
+.coc-auth-page .msg{min-height:24px;line-height:1.5}
+.coc-auth-page .foot,.coc-auth-page main>p{line-height:1.65}
+.coc-auth-page .support{margin-top:18px;padding:15px;border:1px solid #e2eae3;border-radius:14px;background:#f7faf7;font-size:.9rem;line-height:1.8}

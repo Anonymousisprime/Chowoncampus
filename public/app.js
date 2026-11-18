@@ -927,6 +927,7 @@ function renderOrderCard(order) {
         </div>
       ` : ""}
       ${state.account.role === "agent" && order.status === "Out for delivery" ? `<section class="agent-contact"><strong>Student handover code required</strong><p class="tiny muted">Ask the student to show the four-character code on their order dashboard. Enter it only after handing over the food.</p><form data-delivery-code-order="${escapeHtml(order.id)}" class="order-actions"><label>Four-digit code<input name="deliveryCode" type="text" minlength="4" maxlength="4" pattern="[A-Za-z0-9]{4}" autocomplete="off" autocapitalize="characters" required placeholder="e.g. A7K2"></label><button class="primary-button" type="submit">Verify code &amp; complete delivery</button><p class="muted" data-delivery-code-message role="status"></p></form></section>` : ""}
+      ${state.account.role === "admin" && state.account.isSuperAdmin && order.pickupCodeLocked ? '<section class="tracking-alert"><strong>Pickup verification locked</strong><p>Five incorrect pickup codes were entered. Review the order with the restaurant before resetting.</p><button type="button" class="secondary-button" data-reset-pickup-code="' + escapeHtml(order.id) + '">Reset pickup verification</button></section>' : ""}
       ${renderStudentRating(order)}
     </article>
   `;
@@ -2313,6 +2314,22 @@ async function assignAgent(orderId) {
     showToast(error.message);
   }
 }
+
+document.addEventListener("click", async event => {
+  const button = event.target.closest("[data-reset-pickup-code]");
+  if (!button) return;
+  if (!window.confirm("Reset the pickup verification code for this order? The restaurant must share the new code with its assigned agent.")) return;
+  button.disabled = true;
+  try {
+    const result = await api("/api/superadmin/orders/" + encodeURIComponent(button.dataset.resetPickupCode) + "/pickup-verification/reset", { method: "POST", body: JSON.stringify({}) });
+    showToast(result.message || "Pickup verification reset.");
+    await loadDashboard();
+  } catch (error) {
+    showToast(error.message || "Could not reset pickup verification.");
+  } finally {
+    button.disabled = false;
+  }
+});
 
 async function initialize() {
   const initialParams = new URLSearchParams(location.search);

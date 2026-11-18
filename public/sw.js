@@ -1,9 +1,10 @@
-const CACHE_NAME = "chowoncampus-pwa-v2";
+const CACHE_NAME = "chowoncampus-pwa-v3";
 const APP_SHELL = [
   "/",
   "/offline.html",
   "/manifest.webmanifest",
   "/style.css?v=global-cache-refresh-1",
+  "/design-system.css?v=coc-2-design-1",
   "/app.js?v=global-cache-refresh-1",
   "/pwa.js?v=global-cache-refresh-1",
   "/chowoncampus-logo.svg",

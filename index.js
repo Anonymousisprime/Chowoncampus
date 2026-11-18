@@ -16,7 +16,6 @@ const PAYMENT = {
   method: "PalmPay",
   accountNumber: "9169398221",
   accountName: "Adebajo Olamiposi Adetola",
-  receiptWhatsApp: "2349169398221"
 };
 
 const ADMIN = {
@@ -163,19 +162,6 @@ function showOrder(order) {
   console.log("===================================");
 }
 
-function makeReceiptWhatsAppLink(order) {
-  const message =
-    `Hello Chowoncampus, here is my payment receipt.\n` +
-    `Order ID: ${order.id}\n` +
-    `Restaurant: ${order.restaurant}\n` +
-    `Amount: ${money(order.total)}\n` +
-    `Please review my payment receipt.`;
-
-  return (
-    `https://wa.me/${PAYMENT.receiptWhatsApp}?text=` +
-    encodeURIComponent(message)
-  );
-}
 
 function showPaymentDetails(order) {
   console.log("\n========== PAYMENT DETAILS ==========");
@@ -357,7 +343,6 @@ async function reportTransferAtCheckout(orderId) {
 
   if (order.transferReported) {
     console.log("A transfer has already been reported for this order.");
-    console.log(makeReceiptWhatsAppLink(order));
     return;
   }
 
@@ -388,11 +373,7 @@ async function reportTransferAtCheckout(orderId) {
   console.log("\nTransfer report submitted!");
   console.log("A new notification has been recorded for the admin dashboard.");
 
-  console.log("\nSEND YOUR RECEIPT:");
-  console.log(makeReceiptWhatsAppLink(updated));
-  console.log("\nOpen the link and attach your actual receipt image.");
-  console.log("The order will remain hidden from the restaurant until");
-  console.log("the admin marks the receipt as seen.");
+  console.log("Your transfer report has been recorded for admin review.");
 
   console.log(
     "\nImportant: reporting a transfer does not confirm that the money arrived."
@@ -635,7 +616,7 @@ async function adminLogin() {
         continue;
       }
 
-      console.log("\nOpen WhatsApp and inspect the actual receipt first.");
+      console.log("\nInspect the submitted receipt before marking it as seen.");
       console.log("Marking a receipt as seen does not prove payment.");
 
       const confirm = (
@@ -654,7 +635,6 @@ async function adminLogin() {
 
       console.log("Receipt marked as seen.");
       console.log("The order is now visible in the restaurant dashboard.");
-      console.log("No automatic restaurant WhatsApp notification was sent.");
     } else if (choice === "5") {
       const orderId = await ask("Enter order ID: ");
       const order = findOrder(orderId);

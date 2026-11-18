@@ -134,7 +134,6 @@ test("DirectPay merchant onboarding, receipts, verification and reconciliation",
     const saved = await api(restaurantCookie, "/api/merchant/payment-settings", {
       method: "PUT", body: JSON.stringify({
         bankName: "Test Bank", accountName: "Campus Bites Ltd", accountNumber: "0123456789",
-        whatsappNumber: "08012345678"
       })
     });
     assert.equal(saved.response.status, 200);
@@ -163,7 +162,7 @@ test("DirectPay merchant onboarding, receipts, verification and reconciliation",
     assert.equal(created.response.status, 201, JSON.stringify(created.data));
     restaurantOrder1 = created.data.order;
     assert.equal(restaurantOrder1.paymentBankAccount.bankName, "Test Bank");
-    assert.equal(restaurantOrder1.merchantWhatsAppNumber, "+2348012345678");
+    assert.equal(Object.hasOwn(restaurantOrder1, "merchantWhatsAppNumber"), false);
     assert.equal(restaurantOrder1.deliveryFee, 300);
     assert.equal(restaurantOrder1.paymentFee, 25);
     assert.equal(restaurantOrder1.takeawayFee, 200);
@@ -223,7 +222,6 @@ test("DirectPay merchant onboarding, receipts, verification and reconciliation",
     const saved = await api(businessCookie, "/api/merchant/payment-settings", {
       method: "PUT", body: JSON.stringify({
         bankName: "Shop Bank", accountName: "Campus Bookshop", accountNumber: "9876543210",
-        whatsappNumber: "+2348098765432"
       })
     });
     assert.equal(saved.response.status, 200);

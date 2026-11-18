@@ -837,9 +837,6 @@ function studentPublicOrder(order, username) {
       if (currentMerchant) currentMerchant = { ...currentMerchant, ...(paymentSettings[currentMerchant.id] || {}) };
       if (!currentMerchant || !vendorIsApproved(currentMerchant.id) || currentMerchant.paymentAccountStatus !== "approved") currentMerchant = null;
     }
-    if (currentMerchant) {
-      safeOrder.merchantWhatsAppNumber = normalizeNigerianPhone(currentMerchant.whatsappNumber || order.merchantWhatsAppNumber) || "";
-    }
     // Prefer the account snapshot attached at checkout. If that snapshot cannot be
     // decrypted, try the merchant's currently approved account instead of silently
     // returning an empty bank-account section.
@@ -1848,7 +1845,6 @@ function maskedMerchantPaymentSettings(merchant) {
     bankName: account?.bankName || "",
     accountName: account?.accountName || "",
     accountNumber: account?.accountNumber || "",
-    whatsappNumber: normalizeNigerianPhone(merchant?.whatsappNumber) || "",
     reviewedAt: merchant?.paymentAccountReviewedAt || null,
     rejectionReason: merchant?.paymentAccountRejectionReason || "",
     reviewHistory: Array.isArray(merchant?.paymentAccountHistory) ? merchant.paymentAccountHistory : []
@@ -1858,12 +1854,14 @@ function saveMerchantPaymentSettings(type, merchant, settings) {
   if (type === "restaurant") {
     const all = readRestaurantPaymentSettings();
     all[merchant.id] = { ...(all[merchant.id] || {}), ...settings };
+    delete all[merchant.id].whatsappNumber;
     saveRestaurantPaymentSettings(all);
     Object.assign(merchant, all[merchant.id]);
   } else {
     const businesses = readOtherBusinesses();
     const target = businesses.find(item => item.id === merchant.id);
     Object.assign(target, settings);
+    delete target.whatsappNumber;
     saveOtherBusinesses(businesses);
     Object.assign(merchant, settings);
   }
@@ -1878,9 +1876,8 @@ app.put("/api/merchant/payment-settings", requireLogin, (req, res) => {
   const { type, merchant } = merchantForSession(req.account);
   if (!merchant) return res.status(403).json({ error: "Restaurant or business account required." });
   const hasBankFields = ["bankName", "accountName", "accountNumber"].some(key => req.body[key] !== undefined);
-  const hasWhatsappField = req.body.whatsappNumber !== undefined;
   const updates = { updatedAt: new Date().toISOString() };
-  if (!hasBankFields && !hasWhatsappField) return res.status(400).json({ error: "Enter bank details or a WhatsApp contact number." });
+  if (!hasBankFields) return res.status(400).json({ error: "Enter bank details." });
   if (hasBankFields) {
     const bankName = String(req.body.bankName || "").trim().slice(0, 100);
     const accountName = String(req.body.accountName || "").trim().slice(0, 120);
@@ -1903,12 +1900,6 @@ app.put("/api/merchant/payment-settings", requireLogin, (req, res) => {
     updates.paymentAccountReviewedAt = null;
     updates.paymentAccountReviewedBy = null;
     updates.paymentAccountRejectionReason = "";
-  }
-  if (hasWhatsappField) {
-    const rawWhatsapp = String(req.body.whatsappNumber || "").trim();
-    const whatsappNumber = rawWhatsapp ? normalizeNigerianPhone(rawWhatsapp) : "";
-    if (rawWhatsapp && !whatsappNumber) return res.status(400).json({ error: "Enter a valid Nigerian WhatsApp number, e.g. 08012345678." });
-    updates.whatsappNumber = whatsappNumber;
   }
   saveMerchantPaymentSettings(type, merchant, updates);
   recordOperationsEvent({ type: "merchant_payment_settings_updated", entityType: type, entityId: merchant.id, entityName: merchant.name, actorRole: type, actorId: req.account.username, details: "Bank account submitted for Ultimate Admin approval." });

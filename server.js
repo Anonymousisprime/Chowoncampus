@@ -237,7 +237,16 @@ const FIXED_DELIVERY_FEE = 300;
 const STUDENT_PAYMENT_FEE_RATE = 0.01;
 
 app.use(express.json({ limit: "24mb", verify: (req, res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
-app.use(express.static(path.join(__dirname, "public")));
+// Revalidate static assets on ordinary refreshes so browsers do not keep stale
+// dashboard JavaScript/CSS after a deployment. Hashed/versioned assets can be
+// cached by the browser only after it has revalidated the current response.
+app.use(express.static(path.join(__dirname, "public"), {
+  etag: true,
+  lastModified: true,
+  setHeaders(res, filePath) {
+    res.setHeader("Cache-Control", "no-cache, must-revalidate");
+  }
+}));
 app.use((req, res, next) => {
   const sendJson = res.json.bind(res);
   res.json = function (body) {

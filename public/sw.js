@@ -1,11 +1,11 @@
-const CACHE_NAME = "chowoncampus-pwa-v1";
+const CACHE_NAME = "chowoncampus-pwa-v2";
 const APP_SHELL = [
   "/",
   "/offline.html",
   "/manifest.webmanifest",
-  "/style.css?v=mobile-menu-1",
-  "/app.js?v=mobile-menu-1",
-  "/pwa.js?v=1",
+  "/style.css?v=global-cache-refresh-1",
+  "/app.js?v=global-cache-refresh-1",
+  "/pwa.js?v=global-cache-refresh-1",
   "/chowoncampus-logo.svg",
   "/chowoncampus-icon.png?v=2"
 ];
@@ -57,20 +57,21 @@ self.addEventListener("fetch", event => {
     return;
   }
 
-  const isStaticAsset = /\.(?:css|js|svg|png|webmanifest|woff2?)$/i.test(url.pathname);
+  const isStaticAsset = /\\.(?:css|js|svg|png|webmanifest|woff2?)$/i.test(url.pathname);
   if (!isStaticAsset) return;
+  // Network-first for app code: normal reloads get the deployed version;
+  // cached copies are only a fallback when the device is offline.
   event.respondWith((async () => {
-    const cached = await caches.match(request);
-    if (cached) return cached;
     try {
-      const response = await fetch(request);
+      const response = await fetch(request, { cache: "no-cache" });
       if (response.ok) {
         const cache = await caches.open(CACHE_NAME);
         await cache.put(request, response.clone());
       }
       return response;
     } catch {
-      return Response.error();
+      const cached = await caches.match(request);
+      return cached || Response.error();
     }
   })());
 });

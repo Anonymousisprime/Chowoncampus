@@ -49,7 +49,16 @@
 
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" })
-      .then(registration => registration.update().catch(() => {}))
+      .then(registration => {
+        const refreshWorker = () => registration.update().catch(() => {});
+        refreshWorker();
+        window.addEventListener("focus", refreshWorker);
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") refreshWorker();
+        });
+        // Keep installed PWAs from remaining on an old worker indefinitely.
+        window.setInterval(refreshWorker, 5 * 60 * 1000);
+      })
       .catch(error => console.warn("ChowOnCampus offline app setup failed:", error));
   });
 })();

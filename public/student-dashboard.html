@@ -70,16 +70,20 @@
   <script src="/app.js?v=foodback-premium-bonus-2" defer></script><script src="/premium.js?v=premium-revocation-sync-1" defer></script>
 
   <style>
-    .coc-premium-benefits{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin:0 0 20px}
-    .coc-premium-benefit{background:#fff;border:1px solid #e0e9e2;border-radius:14px;padding:15px}
-    .coc-premium-benefit strong{display:block;color:#244a35;margin-bottom:5px}
-    .coc-premium-benefit p{margin:0;color:#687c70;font-size:13px;line-height:1.5}
-    .coc-premium-extra{display:none;background:#fff;border:1px solid #ead8a5;border-radius:16px;padding:18px;margin:0 0 20px}
-    .coc-premium-extra h3{margin:0 0 6px;color:#3f3218}
-    .coc-premium-extra p{margin:4px 0 12px;color:#71664f}
-    .coc-premium-extra-actions{display:flex;gap:9px;flex-wrap:wrap}
-    .coc-premium-extra-actions a{display:inline-flex;align-items:center;justify-content:center;padding:10px 13px;border-radius:9px;background:#176b45;color:white;text-decoration:none;font-weight:800;font-size:13px}
+    .coc-premium-panel{gap:8px;margin:0 0 9px;padding:14px 16px;border-radius:14px}
+    .coc-premium-panel h2{font-size:18px;margin:3px 0}
+    .coc-premium-panel p{font-size:12px;margin:3px 0 0;line-height:1.35}
+    .coc-premium-actions{min-width:0;gap:3px}
+    .coc-premium-actions small{font-size:11px;line-height:1.35;max-width:440px}
+    .coc-premium-benefits{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}
+    .coc-premium-benefit{display:inline-flex;align-items:center;gap:5px;background:#fff;border:1px solid #e0e9e2;border-radius:999px;padding:7px 10px;color:#244a35;font-size:11px;font-weight:800;white-space:nowrap}
+    .coc-premium-extra{display:none;background:#fff;border:1px solid #ead8a5;border-radius:12px;padding:10px 12px;margin:0 0 12px}
+    .coc-premium-extra h3{font-size:13px;margin:0 0 3px;color:#3f3218}
+    .coc-premium-extra p{font-size:11px;margin:2px 0 8px;color:#71664f}
+    .coc-premium-extra-actions{display:flex;gap:7px;flex-wrap:wrap}
+    .coc-premium-extra-actions a{display:inline-flex;align-items:center;justify-content:center;padding:7px 10px;border-radius:8px;background:#176b45;color:white;text-decoration:none;font-weight:800;font-size:11px}
     .coc-premium-extra-actions a.secondary{background:#edf5ef;color:#176b45;border:1px solid #d4e5d9}
+    @media(max-width:600px){.coc-premium-panel{padding:12px}.coc-premium-actions{width:auto}.coc-premium-benefit{font-size:10px;padding:6px 8px}}
   </style>
 </head>
 <body class="student-dashboard-page">
@@ -213,13 +217,16 @@
         </div>
         <button type="button" id="logoutButton" class="secondary-button">Log out</button>
       </div>
-      <section class="coc-premium-panel"><div><span>CHOWONCAMPUS PREMIUM</span><h2 id="premiumHeading">Enjoy an ad-free campus experience</h2><p id="premiumDescription">Get the Premium badge and remove dashboard and pop-up advertisements for 30 days.</p></div><div class="coc-premium-actions"><small id="premiumStatus" role="status">Premium access is activated by the Ultimate Admin. Contact support to request access.</small></div></section>
-      <section class="coc-premium-benefits" aria-label="Premium membership benefits">
-        <article class="coc-premium-benefit"><strong>✦ Premium badge</strong><p>A visible badge on your student account.</p></article>
-        <article class="coc-premium-benefit"><strong>▣ Extra FoodBack</strong><p>Earn 1.5% FoodBack on eligible completed orders instead of the regular 1%.</p></article>
-        <article class="coc-premium-benefit"><strong>◈ Ad-free experience</strong><p>No dashboard or pop-up advertisements while your membership is active.</p></article>
-        <article class="coc-premium-benefit"><strong>⚡ Priority support</strong><p>Contact support using the Premium channel so your enquiry can be identified for priority handling.</p></article>
-        <article class="coc-premium-benefit"><strong>✧ Early access</strong><p>Get access to selected new ChowOnCampus features before their general release. Preview availability will be announced here.</p></article>
+      <section class="coc-premium-panel" aria-label="ChowOnCampus Premium">
+        <div><span>✦ CHOWONCAMPUS PREMIUM</span><h2 id="premiumHeading">Enjoy an ad-free campus experience</h2><p id="premiumDescription">More rewards. Fewer ads. Extra benefits.</p></div>
+        <div class="coc-premium-actions"><small id="premiumStatus" role="status">Premium is not active. Expired or revoked access is removed automatically. Contact support on 09169398221 if you believe this is an error.</small></div>
+      </section>
+      <section class="coc-premium-benefits" aria-label="Premium benefits">
+        <span class="coc-premium-benefit">✦ Premium badge</span>
+        <span class="coc-premium-benefit">▣ 1.5% FoodBack</span>
+        <span class="coc-premium-benefit">◈ Ad-free</span>
+        <span class="coc-premium-benefit">⚡ Priority support</span>
+        <span class="coc-premium-benefit">✧ Early access</span>
       </section>
       <section id="premiumMemberExtras" class="coc-premium-extra" aria-label="Premium member support and early access">
         <h3>Premium member benefits</h3>

@@ -815,7 +815,7 @@ function requireRole(...roles) {
 function isVerifiedOrderPayment(order) { return String(order?.paymentStatus || "").startsWith("Paid —") || order?.paymentStatus === "Paid — demo verified"; }
 
 function publicOrder(order, includeReceipt = false) {
-  const { chatMessages, paymentEmail, deliveryCode, deliveryCodeAttempts, deliveryCodeLocked, paymentReceiptEncrypted, paymentReceiptHistory, paymentReferenceHistory, paymentReceiptMimeType, paymentReceiptFileName, paymentReceiptUploadedAt, transactionReference, paymentVerification, paymentBankAccountEncrypted, merchantWhatsAppNumber, ...safeOrder } = order;
+  const { chatMessages, paymentEmail, deliveryCode, deliveryCodeAttempts, deliveryCodeLocked, pickupVerificationCode, pickupCodeAttempts, pickupCodeLocked, pickupCodeVerifiedAt, pickupCodeVerifiedBy, paymentReceiptEncrypted, paymentReceiptHistory, paymentReferenceHistory, paymentReceiptMimeType, paymentReceiptFileName, paymentReceiptUploadedAt, transactionReference, paymentVerification, paymentBankAccountEncrypted, merchantWhatsAppNumber, ...safeOrder } = order;
   if (includeReceipt && paymentReceiptEncrypted) {
     try {
       safeOrder.paymentReceiptDataUrl = "data:" + String(order.paymentReceiptMimeType || "image/jpeg") + ";base64," + decryptVendorDocument(paymentReceiptEncrypted).toString("base64");
@@ -834,6 +834,13 @@ function createDeliveryCode() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
   for (let index = 0; index < 4; index++) code += alphabet[crypto.randomInt(0, alphabet.length)];
+  return code;
+}
+function createPickupVerificationCode() {
+  // Separate six-character code for restaurant-to-agent collection.
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let index = 0; index < 6; index++) code += alphabet[crypto.randomInt(0, alphabet.length)];
   return code;
 }
 
@@ -2719,12 +2726,29 @@ app.get("/api/orders", requireLogin, (req, res) => {
       return res.status(403).json({ error: "You don't have permission to view orders." });
     }
 
+    const agentRecords = readAgentRecords();
     res.setHeader("Cache-Control", "no-store, private");
-    res.json({ orders: orders.map(order => req.account.role === "student" ? studentPublicOrder(order, req.account.username) :
-      ((req.account.role === "admin" && req.account.isSuperAdmin) ||
-       (req.account.role === "restaurant" && order.restaurantId === req.account.restaurantId) ||
-       (req.account.role === "business" && order.businessId === req.account.businessId))
-        ? publicOrder(order, true) : publicOrder(order)) });
+    res.json({ orders: orders.map(order => {
+      if (req.account.role === "student") return studentPublicOrder(order, req.account.username);
+      const ownsMerchantOrder =
+        (req.account.role === "restaurant" && order.merchantType !== "business" && order.restaurantId === req.account.restaurantId) ||
+        (req.account.role === "business" && order.merchantType === "business" && order.businessId === req.account.businessId);
+      const safe = ((req.account.role === "admin" && req.account.isSuperAdmin) || ownsMerchantOrder)
+        ? publicOrder(order, true) : publicOrder(order);
+      if (ownsMerchantOrder && order.assignedAgentId && ["Ready for pickup", "Out for delivery"].includes(order.status)) {
+        const assignedAgent = agentRecords.find(agent => String(agent.id) === String(order.assignedAgentId));
+        safe.assignedAgentName = assignedAgent?.name || "Assigned delivery agent";
+        safe.assignmentAcceptedAt = order.assignmentAcceptedAt || null;
+        safe.pickupCodeVerifiedAt = order.pickupCodeVerifiedAt || null;
+        safe.pickupVerificationCode = order.pickupCodeVerifiedAt ? null : (order.pickupVerificationCode || null);
+      }
+      if (req.account.role === "admin" && req.account.isSuperAdmin) {
+        safe.pickupCodeLocked = Boolean(order.pickupCodeLocked);
+        safe.pickupCodeAttempts = Number(order.pickupCodeAttempts) || 0;
+        safe.pickupCodeVerifiedAt = order.pickupCodeVerifiedAt || null;
+      }
+      return safe;
+    }) });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -4773,6 +4797,10 @@ function assignReadyOrders() {
     order.assignedAgentId = agent.id;
     order.assignmentOfferedAt = now.toISOString();
     order.assignmentExpiresAt = new Date(now.getTime() + 75 * 1000).toISOString();
+    order.pickupVerificationCode = createPickupVerificationCode();
+    order.pickupCodeAttempts = 0;
+    order.pickupCodeLocked = false;
+    order.pickupCodeVerifiedAt = null;
     order.offeredAgentIds = [...tried, agent.id];
     order.updatedAt = now.toISOString();
     order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
@@ -4780,6 +4808,7 @@ function assignReadyOrders() {
     agent.activeOrderId = order.id;
     agent.lastAssignedAt = now.toISOString();
     busyAgentIds.add(agent.id);
+    recordOperationsEvent({ type: "delivery_assignment_offered", entityType: "order", entityId: order.id, entityName: order.restaurantName || "Order", orderId: order.id, actorRole: "system", actorId: "auto-dispatch", details: "Pickup offer sent to " + agent.name + (hasTargetCoords ? " as the nearest eligible agent." : " using fair-rotation fallback.") });
 
     const deliveryDestination = String(order.hostel || order.deliveryLocation?.hostel || "Address not provided");
     const destinationLatitude = Number(order.deliveryLocation?.latitude);
@@ -4836,8 +4865,13 @@ function expireUnacceptedOffers() {
     }
     createNotification({ role: "agent", agentId: previousAgentId }, "Pickup request expired",
       `The 75-second window for order ${order.id} expired. The order will be offered to another agent.`, order.id);
+    recordOperationsEvent({ type: "delivery_assignment_expired", entityType: "order", entityId: order.id, entityName: order.restaurantName || "Order", orderId: order.id, actorRole: "system", actorId: "auto-dispatch", details: "The 75-second pickup offer expired for agent " + previousAgentId + ". The order was released for reassignment." });
     order.assignedAgentId = null;
     order.assignmentExpiresAt = null;
+    order.pickupVerificationCode = null;
+    order.pickupCodeAttempts = 0;
+    order.pickupCodeLocked = false;
+    order.pickupCodeVerifiedAt = null;
     order.updatedAt = new Date().toISOString();
     order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
     order.statusHistory.push({ status: "Pickup offer expired", at: order.updatedAt, by: "system" });
@@ -4962,9 +4996,13 @@ app.post("/api/agent/assignments/:id/accept", requireRole("agent"), (req, res) =
     }
     order.assignmentAcceptedAt = new Date().toISOString();
     order.assignmentExpiresAt = null;
+    if (!order.pickupVerificationCode) order.pickupVerificationCode = createPickupVerificationCode();
+    order.pickupCodeAttempts = 0;
+    order.pickupCodeLocked = false;
     order.updatedAt = order.assignmentAcceptedAt;
     order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
     order.statusHistory.push({ status: "Delivery assignment accepted", at: order.assignmentAcceptedAt, by: "agent" });
+    recordOperationsEvent({ type: "delivery_assignment_accepted", entityType: "order", entityId: order.id, entityName: order.restaurantName || "Order", orderId: order.id, actorRole: "agent", actorId: req.account.username, details: "Assigned agent accepted the pickup offer." });
     saveOrders(orders);
     if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, "Delivery agent accepted", `The delivery agent accepted pickup for ${order.id} and is heading to collect it.`, order.id);
     else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Delivery agent accepted", `The delivery agent accepted pickup for ${order.id} and is heading to collect it.`, order.id);
@@ -5025,6 +5063,25 @@ app.patch("/api/agent/availability", requireRole("agent"), (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message || "Could not update availability." });
   }
+});
+
+// Ultimate Admin can reset a locked pickup verification after confirming the restaurant/agent situation.
+app.post("/api/superadmin/orders/:id/pickup-verification/reset", requireSuperAdmin, (req, res) => {
+  const orders = readOrders();
+  const order = orders.find(item => item.id === req.params.id);
+  if (!order) return res.status(404).json({ error: "Order not found." });
+  if (order.status !== "Ready for pickup" || !order.assignedAgentId) return res.status(409).json({ error: "Pickup verification can only be reset for an order currently assigned and waiting at the restaurant." });
+  order.pickupVerificationCode = createPickupVerificationCode();
+  order.pickupCodeAttempts = 0;
+  order.pickupCodeLocked = false;
+  order.pickupCodeVerifiedAt = null;
+  order.updatedAt = new Date().toISOString();
+  saveOrders(orders);
+  if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, "Pickup code reset", "Ultimate Admin reset the pickup code for order " + order.id + ". Refresh your dashboard to see the new code.", order.id);
+  else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Pickup code reset", "Ultimate Admin reset the pickup code for order " + order.id + ". Refresh your dashboard to see the new code.", order.id);
+  createNotification({ role: "agent", agentId: order.assignedAgentId }, "Pickup verification reset", "The pickup verification for order " + order.id + " was reset by Ultimate Admin. Ask the restaurant for the new code.", order.id);
+  recordOperationsEvent({ type: "pickup_verification_reset", entityType: "order", entityId: order.id, entityName: order.restaurantName || "Order", orderId: order.id, actorRole: "ultimate_admin", actorId: req.account.username, details: "Pickup verification code was reset after an admin review." });
+  return res.json({ ok: true, message: "Pickup verification reset. The restaurant can now share the new one-time code with the assigned agent." });
 });
 
 // Admin assigns delivery agent
@@ -5121,6 +5178,36 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
         });
       }
 
+      if (newStatus === "Out for delivery") {
+        if (order.status !== "Ready for pickup" || !order.assignmentAcceptedAt) {
+          return res.status(409).json({ error: "Accept this pickup assignment before confirming collection." });
+        }
+        if (order.pickupCodeLocked) return res.status(423).json({ error: "Pickup verification is locked after repeated incorrect codes. Contact the Ultimate Admin." });
+        if (!order.pickupVerificationCode) {
+          order.pickupVerificationCode = createPickupVerificationCode();
+          order.pickupCodeAttempts = 0;
+          saveOrders(orders);
+          return res.status(409).json({ error: "A new pickup verification code has been generated. Ask the restaurant to refresh its dashboard and provide the code." });
+        }
+        const submittedPickupCode = String(req.body.pickupVerificationCode || "").trim().toUpperCase();
+        if (!/^[A-Z0-9]{6}$/.test(submittedPickupCode)) return res.status(400).json({ error: "Enter the six-character pickup verification code shown by the restaurant." });
+        const expectedPickupCode = Buffer.from(String(order.pickupVerificationCode), "utf8");
+        const suppliedPickupCode = Buffer.from(submittedPickupCode, "utf8");
+        const pickupMatches = expectedPickupCode.length === suppliedPickupCode.length && crypto.timingSafeEqual(expectedPickupCode, suppliedPickupCode);
+        if (!pickupMatches) {
+          order.pickupCodeAttempts = (Number(order.pickupCodeAttempts) || 0) + 1;
+          if (order.pickupCodeAttempts >= 5) {
+            order.pickupCodeLocked = true;
+            recordOperationsEvent({ type: "pickup_verification_code_locked", entityType: "order", entityId: order.id, entityName: order.restaurantName || "Order", orderId: order.id, actorRole: "agent", actorId: req.account.username, details: "Pickup verification locked after five incorrect codes. No code value was recorded." });
+          }
+          saveOrders(orders);
+          return res.status(order.pickupCodeLocked ? 423 : 403).json({ error: order.pickupCodeLocked ? "Too many incorrect pickup codes. Contact the Ultimate Admin." : "That pickup code is incorrect. Ask the restaurant to confirm the code.", attemptsRemaining: Math.max(0, 5 - order.pickupCodeAttempts) });
+        }
+        order.pickupCodeVerifiedAt = new Date().toISOString();
+        order.pickupCodeVerifiedBy = req.account.agentId;
+        order.pickupVerificationCode = null;
+        recordOperationsEvent({ type: "restaurant_pickup_verified", entityType: "order", entityId: order.id, entityName: order.restaurantName || "Order", orderId: order.id, actorRole: "agent", actorId: req.account.username, details: "Assigned agent verified the restaurant pickup code before leaving with the order." });
+      }
       if (newStatus === "Completed" && order.status !== "Out for delivery") {
         return res.status(400).json({ error: "Confirm delivery only after the order is marked Out for delivery." });
       }
@@ -5214,7 +5301,6 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
 
     // Starting delivery accepts the 75-second pickup offer.
     if (newStatus === "Out for delivery" && order.assignedAgentId === req.account.agentId) {
-      order.assignmentAcceptedAt = new Date().toISOString();
       order.assignmentExpiresAt = null;
     }
 

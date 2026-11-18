@@ -879,7 +879,7 @@ function renderOrderCard(order) {
       ${order.paymentMethod === "foodback" ? `<p><strong>FoodBack redemption</strong> · ${canReviewFoodBack ? "Needs ultimate admin review" : escapeHtml(order.approvedAt ? "Approved by ultimate admin" : order.refundedAt ? "Credits refunded" : "Under review")}</p>` : "" }
       ${canReviewFoodBack ? `<div class="order-actions"><button type="button" class="primary-button" data-foodback-review="approve" data-foodback-order="${escapeHtml(order.id)}">Approve FoodBack order</button><button type="button" class="danger-button" data-foodback-review="reject" data-foodback-order="${escapeHtml(order.id)}">Reject &amp; refund credits</button></div>` : ""}
       ${order.status === "Completed" ? `<p class="muted">Delivered: ${escapeHtml(order.deliveredAt || order.completedAt ? new Date(order.deliveredAt || order.completedAt).toLocaleString() : "Time not recorded")}</p>` : ""}
-      ${order.assignedAgentId ? `<p>Assigned agent: <strong>${escapeHtml(state.agents.find(agent => agent.id === order.assignedAgentId)?.name || order.assignedAgentId)}</strong></p>` : ""}
+      ${order.assignedAgentId ? '<section class="agent-contact"><div><span class="eyebrow">ASSIGNED DELIVERY AGENT</span><strong>' + escapeHtml(order.assignedAgentName || state.agents.find(agent => agent.id === order.assignedAgentId)?.name || "Delivery agent") + '</strong><p class="tiny muted">' + (order.assignmentAcceptedAt ? "Accepted · heading to collect" : "Waiting for agent acceptance") + '</p>' + (order.pickupCodeVerifiedAt ? '<p class="tiny"><strong>✓ Pickup verified</strong> · ' + escapeHtml(new Date(order.pickupCodeVerifiedAt).toLocaleTimeString()) + '</p>' : order.pickupVerificationCode ? '<div class="pickup-verification-code"><span class="tiny muted">Give this one-time code to the assigned agent when they arrive</span><strong style="display:block;font-size:24px;letter-spacing:5px;margin:7px 0">' + escapeHtml(order.pickupVerificationCode) + '</strong><span class="tiny muted">Do not share it with anyone else.</span></div>' : '') + '</div><button type="button" class="primary-button" data-open-temp-chat="' + escapeHtml(order.id) + '" data-chat-title="Delivery agent">Open delivery chat</button></section>' : ""}
       ${canShowAvailableAgents ? `
         <section class="agent-contact" aria-live="polite">
           <strong>Available delivery agents</strong>
@@ -927,6 +927,7 @@ function renderOrderCard(order) {
         </div>
       ` : ""}
       ${state.account.role === "agent" && order.status === "Out for delivery" ? `<section class="agent-contact"><strong>Student handover code required</strong><p class="tiny muted">Ask the student to show the four-character code on their order dashboard. Enter it only after handing over the food.</p><form data-delivery-code-order="${escapeHtml(order.id)}" class="order-actions"><label>Four-digit code<input name="deliveryCode" type="text" minlength="4" maxlength="4" pattern="[A-Za-z0-9]{4}" autocomplete="off" autocapitalize="characters" required placeholder="e.g. A7K2"></label><button class="primary-button" type="submit">Verify code &amp; complete delivery</button><p class="muted" data-delivery-code-message role="status"></p></form></section>` : ""}
+      ${state.account.role === "admin" && state.account.isSuperAdmin && order.pickupCodeLocked ? '<section class="tracking-alert"><strong>Pickup verification locked</strong><p>Five incorrect pickup codes were entered. Review the order with the restaurant before resetting.</p><button type="button" class="secondary-button" data-reset-pickup-code="' + escapeHtml(order.id) + '">Reset pickup verification</button></section>' : ""}
       ${renderStudentRating(order)}
     </article>
   `;
@@ -2281,9 +2282,15 @@ async function saveStatus(orderId) {
   if (!select) return;
 
   try {
+    const payload = { status: select.value };
+    if (state.account.role === "agent" && select.value === "Out for delivery") {
+      const pickupVerificationCode = window.prompt("Enter the six-character pickup code given by the restaurant:");
+      if (!pickupVerificationCode) return;
+      payload.pickupVerificationCode = pickupVerificationCode.trim().toUpperCase();
+    }
     await api(`/api/orders/${encodeURIComponent(orderId)}/status`, {
       method: "PATCH",
-      body: JSON.stringify({ status: select.value })
+      body: JSON.stringify(payload)
     });
     showToast("Order status updated.");
     await loadDashboard();
@@ -2307,6 +2314,22 @@ async function assignAgent(orderId) {
     showToast(error.message);
   }
 }
+
+document.addEventListener("click", async event => {
+  const button = event.target.closest("[data-reset-pickup-code]");
+  if (!button) return;
+  if (!window.confirm("Reset the pickup verification code for this order? The restaurant must share the new code with its assigned agent.")) return;
+  button.disabled = true;
+  try {
+    const result = await api("/api/superadmin/orders/" + encodeURIComponent(button.dataset.resetPickupCode) + "/pickup-verification/reset", { method: "POST", body: JSON.stringify({}) });
+    showToast(result.message || "Pickup verification reset.");
+    await loadDashboard();
+  } catch (error) {
+    showToast(error.message || "Could not reset pickup verification.");
+  } finally {
+    button.disabled = false;
+  }
+});
 
 async function initialize() {
   const initialParams = new URLSearchParams(location.search);

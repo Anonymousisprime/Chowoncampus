@@ -2089,7 +2089,11 @@ async function loadDashboard(automatic = false) {
       api("/api/student/community-stats", { cache: "no-store" }).then(stats => {
         const total = $("#studentCommunityTotal");
         const active = $("#studentCommunityActive");
-        if (total) total.textContent = Number(stats.totalStudents || 0).toLocaleString();
+        if (total) {
+          const count = Number(stats.totalStudents || 0);
+          const milestone = [1000, 500, 200, 100].find(value => count >= value);
+          total.textContent = milestone ? milestone.toLocaleString() + "+" : count.toLocaleString();
+        }
         if (active) active.textContent = Number(stats.activeStudents || 0).toLocaleString();
       }).catch(() => {
         const total = $("#studentCommunityTotal");

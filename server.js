@@ -815,7 +815,7 @@ function requireRole(...roles) {
 function isVerifiedOrderPayment(order) { return String(order?.paymentStatus || "").startsWith("Paid —") || order?.paymentStatus === "Paid — demo verified"; }
 
 function publicOrder(order, includeReceipt = false) {
-  const { chatMessages, paymentEmail, deliveryCode, deliveryCodeAttempts, deliveryCodeLocked, pickupVerificationCode, pickupCodeAttempts, pickupCodeLocked, paymentReceiptEncrypted, paymentReceiptHistory, paymentReferenceHistory, paymentReceiptMimeType, paymentReceiptFileName, paymentReceiptUploadedAt, transactionReference, paymentVerification, paymentBankAccountEncrypted, merchantWhatsAppNumber, ...safeOrder } = order;
+  const { chatMessages, paymentEmail, deliveryCode, deliveryCodeAttempts, deliveryCodeLocked, pickupVerificationCode, pickupCodeAttempts, pickupCodeLocked, pickupCodeVerifiedAt, pickupCodeVerifiedBy, paymentReceiptEncrypted, paymentReceiptHistory, paymentReferenceHistory, paymentReceiptMimeType, paymentReceiptFileName, paymentReceiptUploadedAt, transactionReference, paymentVerification, paymentBankAccountEncrypted, merchantWhatsAppNumber, ...safeOrder } = order;
   if (includeReceipt && paymentReceiptEncrypted) {
     try {
       safeOrder.paymentReceiptDataUrl = "data:" + String(order.paymentReceiptMimeType || "image/jpeg") + ";base64," + decryptVendorDocument(paymentReceiptEncrypted).toString("base64");
@@ -2745,6 +2745,7 @@ app.get("/api/orders", requireLogin, (req, res) => {
       if (req.account.role === "admin" && req.account.isSuperAdmin) {
         safe.pickupCodeLocked = Boolean(order.pickupCodeLocked);
         safe.pickupCodeAttempts = Number(order.pickupCodeAttempts) || 0;
+        safe.pickupCodeVerifiedAt = order.pickupCodeVerifiedAt || null;
       }
       return safe;
     }) });

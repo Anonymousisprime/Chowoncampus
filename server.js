@@ -2742,6 +2742,10 @@ app.get("/api/orders", requireLogin, (req, res) => {
         safe.pickupCodeVerifiedAt = order.pickupCodeVerifiedAt || null;
         safe.pickupVerificationCode = order.pickupCodeVerifiedAt ? null : (order.pickupVerificationCode || null);
       }
+      if (req.account.role === "admin" && req.account.isSuperAdmin) {
+        safe.pickupCodeLocked = Boolean(order.pickupCodeLocked);
+        safe.pickupCodeAttempts = Number(order.pickupCodeAttempts) || 0;
+      }
       return safe;
     }) });
   } catch (error) {
@@ -5055,6 +5059,25 @@ app.patch("/api/agent/availability", requireRole("agent"), (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message || "Could not update availability." });
   }
+});
+
+// Ultimate Admin can reset a locked pickup verification after confirming the restaurant/agent situation.
+app.post("/api/superadmin/orders/:id/pickup-verification/reset", requireSuperAdmin, (req, res) => {
+  const orders = readOrders();
+  const order = orders.find(item => item.id === req.params.id);
+  if (!order) return res.status(404).json({ error: "Order not found." });
+  if (order.status !== "Ready for pickup" || !order.assignedAgentId) return res.status(409).json({ error: "Pickup verification can only be reset for an order currently assigned and waiting at the restaurant." });
+  order.pickupVerificationCode = createPickupVerificationCode();
+  order.pickupCodeAttempts = 0;
+  order.pickupCodeLocked = false;
+  order.pickupCodeVerifiedAt = null;
+  order.updatedAt = new Date().toISOString();
+  saveOrders(orders);
+  if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, "Pickup code reset", "Ultimate Admin reset the pickup code for order " + order.id + ". Refresh your dashboard to see the new code.", order.id);
+  else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Pickup code reset", "Ultimate Admin reset the pickup code for order " + order.id + ". Refresh your dashboard to see the new code.", order.id);
+  createNotification({ role: "agent", agentId: order.assignedAgentId }, "Pickup verification reset", "The pickup verification for order " + order.id + " was reset by Ultimate Admin. Ask the restaurant for the new code.", order.id);
+  recordOperationsEvent({ type: "pickup_verification_reset", entityType: "order", entityId: order.id, entityName: order.restaurantName || "Order", orderId: order.id, actorRole: "ultimate_admin", actorId: req.account.username, details: "Pickup verification code was reset after an admin review." });
+  return res.json({ ok: true, message: "Pickup verification reset. The restaurant can now share the new one-time code with the assigned agent." });
 });
 
 // Admin assigns delivery agent

@@ -812,8 +812,11 @@ function publicOrder(order, includeReceipt = false) {
 }
 
 function createDeliveryCode() {
-  // Exactly four numeric digits, including a possible leading zero.
-  return String(crypto.randomInt(0, 10000)).padStart(4, "0");
+  // Four characters, excluding ambiguous I/O/0/1 characters for reliable handover.
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let index = 0; index < 4; index++) code += alphabet[crypto.randomInt(0, alphabet.length)];
+  return code;
 }
 
 function studentPublicOrder(order, username) {
@@ -833,6 +836,9 @@ function studentPublicOrder(order, username) {
       currentMerchant = restaurants.find(item => String(item.id) === String(order.restaurantId)) || null;
       if (currentMerchant) currentMerchant = { ...currentMerchant, ...(paymentSettings[currentMerchant.id] || {}) };
       if (!currentMerchant || !vendorIsApproved(currentMerchant.id) || currentMerchant.paymentAccountStatus !== "approved") currentMerchant = null;
+    }
+    if (currentMerchant) {
+      safeOrder.merchantWhatsAppNumber = normalizeNigerianPhone(currentMerchant.whatsappNumber || order.merchantWhatsAppNumber) || "";
     }
     // Prefer the account snapshot attached at checkout. If that snapshot cannot be
     // decrypted, try the merchant's currently approved account instead of silently
@@ -1842,6 +1848,7 @@ function maskedMerchantPaymentSettings(merchant) {
     bankName: account?.bankName || "",
     accountName: account?.accountName || "",
     accountNumber: account?.accountNumber || "",
+    whatsappNumber: normalizeNigerianPhone(merchant?.whatsappNumber) || "",
     reviewedAt: merchant?.paymentAccountReviewedAt || null,
     rejectionReason: merchant?.paymentAccountRejectionReason || "",
     reviewHistory: Array.isArray(merchant?.paymentAccountHistory) ? merchant.paymentAccountHistory : []
@@ -1871,7 +1878,9 @@ app.put("/api/merchant/payment-settings", requireLogin, (req, res) => {
   const { type, merchant } = merchantForSession(req.account);
   if (!merchant) return res.status(403).json({ error: "Restaurant or business account required." });
   const hasBankFields = ["bankName", "accountName", "accountNumber"].some(key => req.body[key] !== undefined);
+  const hasWhatsappField = req.body.whatsappNumber !== undefined;
   const updates = { updatedAt: new Date().toISOString() };
+  if (!hasBankFields && !hasWhatsappField) return res.status(400).json({ error: "Enter bank details or a WhatsApp contact number." });
   if (hasBankFields) {
     const bankName = String(req.body.bankName || "").trim().slice(0, 100);
     const accountName = String(req.body.accountName || "").trim().slice(0, 120);
@@ -1894,8 +1903,12 @@ app.put("/api/merchant/payment-settings", requireLogin, (req, res) => {
     updates.paymentAccountReviewedAt = null;
     updates.paymentAccountReviewedBy = null;
     updates.paymentAccountRejectionReason = "";
-  } else {
-    return res.status(400).json({ error: "Enter your bank name, account name and 10-digit account number." });
+  }
+  if (hasWhatsappField) {
+    const rawWhatsapp = String(req.body.whatsappNumber || "").trim();
+    const whatsappNumber = rawWhatsapp ? normalizeNigerianPhone(rawWhatsapp) : "";
+    if (rawWhatsapp && !whatsappNumber) return res.status(400).json({ error: "Enter a valid Nigerian WhatsApp number, e.g. 08012345678." });
+    updates.whatsappNumber = whatsappNumber;
   }
   saveMerchantPaymentSettings(type, merchant, updates);
   recordOperationsEvent({ type: "merchant_payment_settings_updated", entityType: type, entityId: merchant.id, entityName: merchant.name, actorRole: type, actorId: req.account.username, details: "Bank account submitted for Ultimate Admin approval." });

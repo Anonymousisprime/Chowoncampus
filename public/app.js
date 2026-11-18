@@ -946,8 +946,24 @@ async function refreshRestaurantOrdersInBackground(force = false) {
     const orders = Array.isArray(orderData.orders) ? orderData.orders : []; state.availableAgents = Array.isArray(agentData.agents) ? agentData.agents : [];
     const snapshot = JSON.stringify(orders.map(order => [order.id, order.status, order.assignedAgentId, order.updatedAt, order.paymentStatus, order.deliveredAt, order.completedAt, order.total]));
     if (!force && snapshot === lastRestaurantOrdersSnapshot) return; lastRestaurantOrdersSnapshot = snapshot;
-    const groups = { incoming: orders.filter(order => ["Awaiting payment", "Confirmed"].includes(order.status)), preparing: orders.filter(order => order.status === "Preparing"), pickup: orders.filter(order => ["Ready for pickup", "Out for delivery"].includes(order.status)), completed: orders.filter(order => ["Completed", "Cancelled"].includes(order.status)) };
-    for (const [key, list] of Object.entries(groups)) { const section = document.getElementById("restaurant-section-" + key); if (!section) continue; const count = section.querySelector(".count-pill"); if (count) count.textContent = String(list.length); const oldContent = section.querySelector(".order-list, .empty-state"); if (!oldContent) continue; const replacement = document.createElement("div"); replacement.className = list.length ? "order-list" : "empty-state compact-empty"; replacement.innerHTML = list.length ? list.map(renderOrderCard).join("") : "No " + key + " orders right now."; oldContent.replaceWith(replacement); }
+    const awaitingPayments = orders.filter(order => order.paymentMethod === "bank_transfer" && order.paymentStatus !== "Paid — bank transfer verified" && (Boolean(order.paymentReceiptDataUrl) || Boolean(order.paymentReceiptUnavailable)));
+    const receiptArchive = orders.filter(order => order.paymentMethod === "bank_transfer" && order.paymentStatus === "Paid — bank transfer verified" && (Boolean(order.paymentReceiptDataUrl) || Boolean(order.paymentReceiptUnavailable)));
+    const groups = {
+      "awaiting-payments": awaitingPayments,
+      "payment-receipts": receiptArchive,
+      incoming: orders.filter(order => order.status === "Confirmed" || (order.status === "Awaiting payment" && !awaitingPayments.some(item => item.id === order.id))),
+      preparing: orders.filter(order => order.status === "Preparing"),
+      pickup: orders.filter(order => ["Ready for pickup", "Out for delivery"].includes(order.status)),
+      completed: orders.filter(order => ["Completed", "Cancelled"].includes(order.status))
+    };
+    for (const [key, list] of Object.entries(groups)) {
+      const section = document.getElementById("restaurant-section-" + key); if (!section) continue;
+      const count = section.querySelector(".count-pill"); if (count) count.textContent = String(list.length);
+      const oldContent = section.querySelector(".order-list, .empty-state"); if (!oldContent) continue;
+      const replacement = document.createElement("div"); replacement.className = list.length ? "order-list" : "empty-state compact-empty";
+      replacement.innerHTML = list.length ? (key === "payment-receipts" ? list.map(order => '<article class="order-card"><div class="dashboard-section-heading"><div><span class="eyebrow">PAYMENT RECEIPT ARCHIVE</span><h3>' + escapeHtml(order.orderNumber || order.id) + '</h3><p>' + escapeHtml(order.customerName || "Student") + ' · ' + money(order.total) + '</p></div><span class="status-pill">Payment verified</span></div><p>Transaction reference: <strong>' + escapeHtml(order.transactionReference || "—") + '</strong></p><p>Confirmed: ' + escapeHtml(order.paymentVerification?.verifiedAt ? new Date(order.paymentVerification.verifiedAt).toLocaleString() : order.paidAt ? new Date(order.paidAt).toLocaleString() : "—") + '</p>' + (order.paymentReceiptDataUrl ? renderPaymentReceiptPreview(order, 420) : '<p class="muted">Receipt file is unavailable. Contact Ultimate Admin if it needs to be restored.</p>') + '</article>').join("") : list.map(renderOrderCard).join("")) : "No " + key + " records right now.";
+      oldContent.replaceWith(replacement);
+    }
     const metrics = document.querySelector("#dashboardContent .restaurant-metrics"); if (metrics) { const completed = orders.filter(order => order.status === "Completed"); const sales = completed.reduce((sum, order) => sum + Number(order.total || 0), 0); const values = [[groups.incoming.length, "Awaiting action"], [groups.preparing.length, "In the kitchen"], [groups.pickup.length, "Agent coordination"], [money(sales), completed.length + " completed orders"]]; metrics.querySelectorAll("article").forEach((article, index) => { if (!values[index]) return; const strong = article.querySelector("strong"), small = article.querySelector("small"); if (strong) strong.textContent = String(values[index][0]); if (small) small.textContent = values[index][1]; }); }
   } catch (error) { console.warn("Background restaurant order refresh failed:", error); } finally { restaurantOrderRefreshInProgress = false; }
 }
@@ -1582,6 +1598,7 @@ async function loadDashboard(automatic = false) {
         </section>
         <nav class="restaurant-quick-actions" aria-label="Restaurant dashboard shortcuts">
           <button type="button" class="secondary-button" data-restaurant-jump="restaurant-section-awaiting-payments">🏦 Awaiting payments</button>
+          <button type="button" class="secondary-button" data-restaurant-jump="restaurant-section-payment-receipts">🧾 Payment receipts</button>
           <button type="button" class="secondary-button" data-restaurant-jump="restaurant-section-incoming">📥 Incoming orders</button>
           <button type="button" class="secondary-button" data-restaurant-jump="restaurant-section-preparing">🍳 In the kitchen</button>
           <button type="button" class="secondary-button" data-restaurant-jump="restaurant-section-pickup">🛵 Pickup & delivery</button>

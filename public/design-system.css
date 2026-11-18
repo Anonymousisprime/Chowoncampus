@@ -132,3 +132,63 @@ body:has(#globalStatus) .panel-head{background:#fbfdfb}
 .coc-dashboard-nav a:hover,.coc-dashboard-nav a:focus-visible{background:#eaf3ec;border-color:#bfd6c4;color:#123d2b}
 body:has(#globalStatus) .coc-dashboard-nav{top:72px}
 @media(max-width:600px){.coc-dashboard-nav{top:0;padding:9px 11px}.coc-dashboard-nav a{min-height:40px;font-size:.8rem}}
+
+
+/* Detailed workspace surfaces: menus, payment settings, operations and admin records */
+.restaurant-dashboard-page #dashboardView{width:min(1320px,94%);margin:0 auto;padding:28px 0 64px}
+.restaurant-dashboard-page .restaurant-welcome{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:24px clamp(18px,3vw,32px);color:#fff}
+.restaurant-dashboard-page .restaurant-welcome h2{font:850 clamp(1.5rem,3vw,2.1rem)/1.15 Manrope,sans-serif;color:#fff}
+.restaurant-dashboard-page .restaurant-welcome p{max-width:680px;color:#e1eee5;line-height:1.65}
+.restaurant-dashboard-page .restaurant-welcome .secondary-button{flex:0 0 auto}
+.restaurant-dashboard-page .restaurant-operations-panel{margin:18px 0;padding:22px;border:1px solid #dce8de;border-radius:19px;background:linear-gradient(135deg,#fff,#f5faf5);box-shadow:var(--coc-shadow)}
+.restaurant-dashboard-page .restaurant-operations-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.restaurant-dashboard-page .restaurant-operations-heading h2{margin:5px 0;font:850 clamp(1.3rem,2.6vw,1.8rem)/1.2 Manrope,sans-serif;color:var(--coc-ink)}
+.restaurant-dashboard-page .restaurant-operations-heading p,.restaurant-dashboard-page .restaurant-operations-note{color:var(--coc-muted);line-height:1.6}
+.restaurant-dashboard-page .restaurant-availability-pill{flex:0 0 auto;padding:8px 13px;border-radius:999px;font-size:.78rem;font-weight:900;letter-spacing:.06em}
+.restaurant-dashboard-page .restaurant-availability-pill.is-open{background:#e3f5e8;color:#17643a}
+.restaurant-dashboard-page .restaurant-availability-pill.is-closed{background:#fff0e8;color:#a34422}
+.restaurant-dashboard-page .restaurant-operations-actions,.restaurant-dashboard-page .restaurant-quick-actions,.restaurant-dashboard-page .menu-editor-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.restaurant-dashboard-page .restaurant-operations-actions{margin:16px 0}
+.restaurant-dashboard-page .restaurant-quick-actions{position:sticky;top:72px;z-index:12;padding:12px;margin:16px 0 22px;border:1px solid var(--coc-line);border-radius:15px;background:#f8fbf8ed;backdrop-filter:blur(12px)}
+.restaurant-dashboard-page .restaurant-quick-actions button{min-height:42px}
+.restaurant-dashboard-page .restaurant-view-panel[hidden],.restaurant-dashboard-page [hidden]{display:none!important}
+.restaurant-dashboard-page .dashboard-order-section{scroll-margin-top:145px}
+.restaurant-dashboard-page .restaurant-menu-manager,.restaurant-dashboard-page #restaurantPaymentSettingsPanel{padding:22px;margin:18px 0;border:1px solid var(--coc-line);border-radius:18px;background:#fff;box-shadow:var(--coc-shadow)}
+.restaurant-dashboard-page #restaurantMenuForm{display:grid;gap:14px}
+.restaurant-dashboard-page .menu-editor-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding:16px;border:1px solid var(--coc-line);border-radius:15px;background:#fbfdfb}
+.restaurant-dashboard-page .menu-editor-row label,.restaurant-dashboard-page #restaurantPaymentSettingsForm label,.restaurant-dashboard-page #restaurantLocationForm label{display:grid;gap:7px;color:#405548;font-weight:750}
+.restaurant-dashboard-page .menu-editor-row input,.restaurant-dashboard-page #restaurantPaymentSettingsForm input,.restaurant-dashboard-page #restaurantLocationForm input{width:100%;min-width:0;padding:11px 12px;border:1px solid #d8e3da;border-radius:10px;background:#fff}
+.restaurant-dashboard-page .menu-item-image-preview{min-height:80px;display:grid;place-items:center;border:1px dashed #cbd9ce;border-radius:12px;background:#f5f9f5;color:var(--coc-muted);overflow:hidden}
+.restaurant-dashboard-page .menu-item-image-preview img{width:100%;height:130px;object-fit:cover}
+.restaurant-dashboard-page #restaurantPaymentSettingsForm{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:end}
+.restaurant-dashboard-page #restaurantPaymentSettingsForm .menu-editor-actions{grid-column:1/-1}
+.restaurant-dashboard-page .restaurant-location-manager{display:grid;gap:16px}
+.restaurant-dashboard-page .restaurant-pickup-map,.restaurant-dashboard-page .restaurant-location-manager .restaurant-pickup-map{min-height:230px;border-radius:14px;overflow:hidden}
+.admin-dashboard-page .wrap .panel{scroll-margin-top:100px}
+.admin-dashboard-page .wrap .panel-head{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 16px;border-bottom:1px solid var(--coc-line);border-radius:12px}
+.admin-dashboard-page .wrap .panel-head h2{margin:0}
+.admin-dashboard-page .wrap .panel table{width:100%;border-collapse:separate;border-spacing:0}
+.admin-dashboard-page .wrap .panel table th:first-child{border-radius:10px 0 0 10px}
+.admin-dashboard-page .wrap .panel table th:last-child{border-radius:0 10px 10px 0}
+.admin-dashboard-page .wrap .panel .table-wrap,.admin-dashboard-page .wrap .panel:has(table){overflow-x:auto}
+.student-dashboard-page .student-side-nav{box-shadow:8px 0 28px rgba(6,28,17,.09)}
+.student-dashboard-page .student-side-links a,.student-dashboard-page .student-side-links button{min-height:44px;padding:11px 13px}
+.student-dashboard-page .coc-premium-panel,.student-dashboard-page .coc-premium-benefit{border-radius:17px;box-shadow:var(--coc-shadow)}
+.student-dashboard-page #dashboardContent{display:grid;gap:16px}
+.student-dashboard-page #dashboardContent .order-card,.student-dashboard-page #dashboardContent .panel{border:1px solid var(--coc-line);border-radius:17px;box-shadow:var(--coc-shadow)}
+@media(max-width:760px){
+ .restaurant-dashboard-page #dashboardView{width:92%;padding:18px 0 42px}
+ .restaurant-dashboard-page .restaurant-welcome{align-items:flex-start;flex-direction:column}
+ .restaurant-dashboard-page .restaurant-welcome .secondary-button{width:100%}
+ .restaurant-dashboard-page .restaurant-operations-heading{flex-direction:column}
+ .restaurant-dashboard-page .restaurant-quick-actions{top:0;margin-inline:-4%;border-radius:0;padding:10px 4%;overflow-x:auto;flex-wrap:nowrap}
+ .restaurant-dashboard-page .restaurant-quick-actions button{flex:0 0 auto;white-space:nowrap}
+ .restaurant-dashboard-page .menu-editor-row{grid-template-columns:1fr}
+ .restaurant-dashboard-page #restaurantPaymentSettingsForm{grid-template-columns:1fr}
+ .restaurant-dashboard-page #restaurantPaymentSettingsForm .menu-editor-actions{grid-column:auto}
+}
+@media(max-width:520px){
+ .restaurant-dashboard-page .restaurant-operations-panel,.restaurant-dashboard-page .restaurant-menu-manager,.restaurant-dashboard-page #restaurantPaymentSettingsPanel{padding:16px}
+ .restaurant-dashboard-page .restaurant-operations-actions>*{width:100%}
+ .student-dashboard-page .student-side-nav{width:min(84vw,300px)}
+}

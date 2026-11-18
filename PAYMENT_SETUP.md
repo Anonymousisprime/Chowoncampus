@@ -4,10 +4,10 @@ ChowOnCampus uses direct bank transfer for merchant orders. Students select the 
 
 ## Merchant bank accounts
 
-1. Each restaurant or other business submits its bank name, account name, account number, and optional WhatsApp number in its merchant dashboard.
+1. Each restaurant or other business submits its bank name, account name, account number in its merchant dashboard.
 2. The Ultimate Admin reviews the details and supporting evidence.
 3. The account is displayed to students only after it has been approved.
-4. The assigned merchant checks its own bank account and confirms that the money was actually received. A receipt image or WhatsApp message alone is not proof of credit.
+4. The assigned merchant checks its own bank account and confirms that the money was actually received. A receipt image alone is not proof of credit.
 5. The Ultimate Admin can review receipt disputes and record an override with a reason.
 
 ## Student checkout

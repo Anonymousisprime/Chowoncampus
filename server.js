@@ -2281,12 +2281,17 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
   if (requestId !== undefined && (!cleanRequestId || cleanRequestId.length > 100)) {
     return res.status(400).json({ error: "Invalid order request identifier. Please try again." });
   }
-  // Idempotency: a retry after a timeout returns the original order instead of creating a duplicate.
+  // Expire old unpaid bank-transfer requests before applying idempotency.
+  expireUnpaidBankTransferRequests();
+  // Idempotency: a retry after a timeout returns the original still-valid request.
   if (cleanRequestId) {
     const existingOrder = readOrders().find(order => order.idempotencyKey === cleanRequestId);
     if (existingOrder) {
       if (existingOrder.customerPhone !== customerPhone) {
         return res.status(409).json({ error: "This order request identifier has already been used." });
+      }
+      if (existingOrder.paymentMethod === "bank_transfer" && existingOrder.paymentRequestExpiredAt) {
+        return res.status(409).json({ code: "PAYMENT_REQUEST_EXPIRED", error: "Your five-minute payment request expired. Please place a new order to generate a new payment ID." });
       }
       return res.status(200).json({
         order: studentPublicOrder(existingOrder, req.account.username),
@@ -2421,6 +2426,7 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     paymentFee,
     total: orderTotal,
     paymentMethod,
+    paymentExpiresAt: paymentMethod === "bank_transfer" ? new Date(Date.now() + 5 * 60 * 1000).toISOString() : null,
     paymentBankAccountEncrypted: paymentMethod === "bank_transfer" ? merchant.paymentAccountEncrypted : null,
     status: paymentMethod === "foodback" ? "Awaiting admin approval" : "Awaiting payment",
     statusHistory: [{ status: paymentMethod === "foodback" ? "Awaiting admin approval" : "Awaiting payment", at: new Date().toISOString(), by: "system" }],
@@ -2482,6 +2488,7 @@ app.post("/api/superadmin/premium/:id/revoke",requireSuperAdmin,(req,res)=>{cons
 // Local testing only: simulates payment without charging money.
 // View orders: restaurants see their orders, agents see assigned orders.
 app.post("/api/orders/:id/bank-transfer/submit", requireRole("student"), (req, res) => {
+  expireUnpaidBankTransferRequests();
   const orders = readOrders();
   const order = orders.find(item => item.id === req.params.id);
   if (!order) return res.status(404).json({ error: "Order not found." });
@@ -4701,9 +4708,45 @@ function expireUnacceptedOffers() {
   if (ordersChanged) assignReadyOrders();
 }
 
+// Bank-transfer payment IDs are valid for five minutes. Unpaid requests without a
+// submitted receipt are cancelled automatically and require a fresh checkout.
+function expireUnpaidBankTransferRequests(now = Date.now()) {
+  const orders = readOrders();
+  let changed = false;
+  for (const order of orders) {
+    if (order.paymentMethod !== "bank_transfer" || order.status !== "Awaiting payment" ||
+        order.paymentReceiptEncrypted || order.transactionReference || isVerifiedOrderPayment(order)) continue;
+    const createdAt = Date.parse(order.createdAt || "");
+    const expiresAt = Date.parse(order.paymentExpiresAt || "") ||
+      (Number.isFinite(createdAt) ? createdAt + 5 * 60 * 1000 : NaN);
+    if (!Number.isFinite(expiresAt)) continue;
+    if (!order.paymentExpiresAt) order.paymentExpiresAt = new Date(expiresAt).toISOString();
+    if (expiresAt > now) continue;
+    const expiredAt = new Date(now).toISOString();
+    order.status = "Cancelled";
+    order.paymentStatus = "Payment request expired — unpaid";
+    order.paymentRequestExpiredAt = expiredAt;
+    order.cancelledAt = expiredAt;
+    order.updatedAt = expiredAt;
+    order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+    order.statusHistory.push({ status: "Cancelled", at: expiredAt, by: "system", reason: "The five-minute bank-transfer payment window expired before a receipt was submitted." });
+    createNotification({ role: "student", username: order.customerPhone }, "Payment request expired",
+      "Your payment ID " + order.id + " expired after five minutes because no transfer receipt was submitted. Please place a new order to receive a new payment ID.", order.id);
+    if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, "Unpaid order expired",
+      "Payment request " + order.id + " expired without a transfer receipt. The order was cancelled.", order.id);
+    else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Unpaid order expired",
+      "Payment request " + order.id + " expired without a transfer receipt. The order was cancelled.", order.id);
+    changed = true;
+  }
+  if (changed) saveOrders(orders);
+  return changed;
+}
+
 setInterval(() => {
-  try { expireUnacceptedOffers(); }
-  catch (error) { console.error("Pickup offer expiry check failed:", error.message); }
+  try {
+    expireUnpaidBankTransferRequests();
+    expireUnacceptedOffers();
+  } catch (error) { console.error("Order expiry check failed:", error.message); }
 }, 5000);
 
 // Admin can override an agent's availability and trigger assignment when enabling them.

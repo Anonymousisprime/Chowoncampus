@@ -2353,11 +2353,12 @@ function selectNextRotatingPopupAd(account, popupAds) {
     let rotation = null;
     try { rotation = JSON.parse(localStorage.getItem(storageKey) || "null"); } catch {}
     const currentIds = new Set(byId.keys());
+    const knownIds = new Set(Array.isArray(rotation?.poolIds) ? rotation.poolIds.map(String) : []);
     let queue = Array.isArray(rotation?.queue)
       ? rotation.queue.map(String).filter(id => currentIds.has(id))
       : [];
     const queuedIds = new Set(queue);
-    const newlyEligible = ads.map(ad => String(ad.id)).filter(id => !queuedIds.has(id));
+    const newlyEligible = ads.map(ad => String(ad.id)).filter(id => !knownIds.has(id) && !queuedIds.has(id));
     queue.push(...shuffle(newlyEligible));
 
     if (!queue.length) {
@@ -2369,7 +2370,7 @@ function selectNextRotatingPopupAd(account, popupAds) {
     }
 
     const selectedId = queue.shift();
-    localStorage.setItem(storageKey, JSON.stringify({ queue, lastAdId: selectedId }));
+    localStorage.setItem(storageKey, JSON.stringify({ queue, poolIds: [...currentIds], lastAdId: selectedId }));
     return byId.get(selectedId) || null;
   } catch {
     return ads[Math.floor(Math.random() * ads.length)];

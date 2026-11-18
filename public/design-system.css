@@ -126,3 +126,9 @@ body:has(#globalStatus) .panel-head{background:#fbfdfb}
  .student-dashboard-page #dashboardView{padding:16px 12px 42px}
 }
 @media(max-width:380px){body:has(> .top) .cards{grid-template-columns:1fr}body:has(#globalStatus) .top-right{grid-template-columns:1fr}}
+
+.coc-dashboard-nav{position:sticky;top:72px;z-index:15;display:flex;gap:7px;overflow-x:auto;padding:10px max(3%,calc((100% - 1320px)/2));margin:0;background:rgba(247,250,247,.96);border-bottom:1px solid var(--coc-line);backdrop-filter:blur(12px);scrollbar-width:thin}
+.coc-dashboard-nav a{flex:0 0 auto;display:inline-flex;align-items:center;min-height:38px;padding:8px 13px;border:1px solid #e1e9e2;border-radius:10px;background:#fff;color:#315541;text-decoration:none;font-size:.84rem;font-weight:800;white-space:nowrap}
+.coc-dashboard-nav a:hover,.coc-dashboard-nav a:focus-visible{background:#eaf3ec;border-color:#bfd6c4;color:#123d2b}
+body:has(#globalStatus) .coc-dashboard-nav{top:72px}
+@media(max-width:600px){.coc-dashboard-nav{top:0;padding:9px 11px}.coc-dashboard-nav a{min-height:40px;font-size:.8rem}}

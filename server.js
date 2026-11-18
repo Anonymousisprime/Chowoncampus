@@ -1117,8 +1117,10 @@ app.post("/api/student/register", (req, res) => {
     }
     const passwordData = hashPassword(password);
     const consentedAt = new Date().toISOString();
-    const student = { id: crypto.randomUUID(), name, phone, passwordSalt: passwordData.salt, passwordHash: passwordData.hash, role: "student", verifiedPhone: false, referralCode: createReferralCode(students), referredByPhone: referrer ? referrer.phone : null, referralQualifyingOrderIds: [], referralRewardOrderIds: [], foodbackBalance: 0, foodbackLedger: [], policyConsent: { termsAcceptedAt: consentedAt, privacyAcceptedAt: consentedAt, deliveryPolicyAcceptedAt: consentedAt }, createdAt: consentedAt };
+    const student = { id: crypto.randomUUID(), name, phone, passwordSalt: passwordData.salt, passwordHash: passwordData.hash, role: "student", verifiedPhone: false, referralCode: createReferralCode(students), referredByPhone: referrer ? referrer.phone : null, referralQualifyingOrderIds: [], referralRewardOrderIds: [], foodbackBalance: 0, foodbackLedger: [], policyConsent: { termsAcceptedAt: consentedAt, privacyAcceptedAt: consentedAt, deliveryPolicyAcceptedAt: consentedAt }, createdAt: consentedAt, lastActiveAt: consentedAt };
     students.push(student);
+    saveStudents(students);
+    student.lastActiveAt = new Date().toISOString();
     saveStudents(students);
     const account = { username: student.phone, role: "student", name: student.name };
     const token = crypto.randomBytes(32).toString("hex");
@@ -1127,6 +1129,23 @@ app.post("/api/student/register", (req, res) => {
     res.status(201).json({ account, message: "Account created. Your phone number has not been verified." });
   } catch (error) {
     res.status(500).json({ error: error.message || "Could not create your account." });
+  }
+});
+
+// Student-facing community metrics. Return aggregate counts only; never expose student identities.
+app.get("/api/student/community-stats", requireRole("student"), (req, res) => {
+  try {
+    const students = readStudents();
+    const eligibleStudents = students.filter(student => !student.banned);
+    const activeSince = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const activeStudents = eligibleStudents.filter(student => {
+      const lastActive = Date.parse(student.lastActiveAt || student.createdAt || "");
+      return Number.isFinite(lastActive) && lastActive >= activeSince;
+    }).length;
+    res.set("Cache-Control", "private, no-store");
+    res.json({ totalStudents: eligibleStudents.length, activeStudents });
+  } catch (error) {
+    res.status(500).json({ error: "Could not load student community statistics." });
   }
 });
 
@@ -1274,7 +1293,8 @@ app.post("/api/student/login", (req, res) => {
   if (!phone || !password) return res.status(400).json({ error: "Enter a valid phone number and your password." });
 
   try {
-    const student = readStudents().find(item => item.phone === phone);
+    const students = readStudents();
+    const student = students.find(item => item.phone === phone);
     if (!student || !passwordMatches(password, student)) {
       return res.status(401).json({ error: "Incorrect phone number or password." });
     }

@@ -2037,6 +2037,11 @@ async function loadDashboard(automatic = false) {
           <div><span class="eyebrow">STUDENT WORKSPACE</span><h2>Welcome, ${escapeHtml(account.name)}!</h2><p>Track your current orders here. Completed orders remain visible briefly for feedback, then move out of your dashboard. Past orders are available to admins only.</p></div>
           <div class="student-dashboard-actions"><a class="secondary-button" href="/restaurants.html" style="display:inline-flex;align-items:center;text-decoration:none">🍽️ Browse food</a><button class="secondary-button" type="button" data-show-password-form>🔐 Change password</button></div>
         </div>
+        <section class="dashboard-order-section student-community-panel" aria-label="ChowOnCampus student community">
+          <div class="dashboard-section-heading"><div><span class="eyebrow">OUR CAMPUS COMMUNITY</span><h2>Students on ChowOnCampus</h2><p>See how our student community is growing.</p></div><span class="status">LIVE COUNT</span></div>
+          <div class="student-community-metrics"><article><span>Registered students</span><strong id="studentCommunityTotal">Loading…</strong></article><article><span>Active in the last 30 days</span><strong id="studentCommunityActive">Loading…</strong></article></div>
+          <p class="tiny muted">Counts include registered, non-suspended student accounts. Active means signed in or registered within the last 30 days. No student names or personal details are shown.</p>
+        </section>
         <section class="dashboard-order-section" id="studentRestaurantBankAccounts" aria-label="Approved restaurant bank accounts">
           <div class="dashboard-section-heading"><div><span class="eyebrow">DIRECT BANK TRANSFER</span><h2>Restaurant Bank Accounts</h2><p>Use these approved account details when paying a restaurant directly. Always transfer the exact amount shown on your order.</p></div><button class="secondary-button" type="button" id="refreshStudentBankAccounts">↻ Refresh accounts</button></div>
           <div id="studentRestaurantBankAccountsList"><p class="muted">Loading approved restaurant accounts…</p></div>
@@ -2081,6 +2086,21 @@ async function loadDashboard(automatic = false) {
       };
       loadStudentBankAccounts();
       $("#refreshStudentBankAccounts")?.addEventListener("click", loadStudentBankAccounts);
+      api("/api/student/community-stats", { cache: "no-store" }).then(stats => {
+        const total = $("#studentCommunityTotal");
+        const active = $("#studentCommunityActive");
+        if (total) {
+          const count = Number(stats.totalStudents || 0);
+          const milestone = [1000, 500, 200, 100].find(value => count >= value);
+          total.textContent = milestone ? milestone.toLocaleString() + "+" : count.toLocaleString();
+        }
+        if (active) active.textContent = Number(stats.activeStudents || 0).toLocaleString();
+      }).catch(() => {
+        const total = $("#studentCommunityTotal");
+        const active = $("#studentCommunityActive");
+        if (total) total.textContent = "Unavailable";
+        if (active) active.textContent = "Unavailable";
+      });
       api("/api/foodback").then(foodback => {
         const balance = $("#studentFoodBackBalance");
         const referrals = $("#studentFoodBackReferrals");

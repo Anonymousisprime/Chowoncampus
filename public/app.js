@@ -1920,23 +1920,23 @@ async function loadDashboard(automatic = false) {
       );
       const completedDeliveryOrders = orders.filter(order => order.assignedAgentId === account.agentId && order.status === "Completed");
       $("#dashboardContent").innerHTML = `
-        <div class="restaurant-welcome">
+        <div class="restaurant-welcome agent-welcome">
           <div><span class="eyebrow">DELIVERY AGENT WORKSPACE</span><h2>Welcome, ${escapeHtml(account.name)}!</h2><p>Go online to share your GPS location and receive pickup offers from the nearest restaurant. Your location is used only while online.</p></div>
           <div class="student-dashboard-actions">
             <button class="${state.agentOnline ? "danger-button" : "primary-button"}" type="button" id="toggleAgentAvailability">${state.agentOnline ? "Go offline" : "Go online"}</button>
             <button class="secondary-button" type="button" id="refreshAgentOrders">↻ Refresh deliveries</button>
           </div>
         </div>
-        <section class="dashboard-order-section">
+        <section class="dashboard-order-section agent-status-panel">
           <div class="dashboard-section-heading"><div><h2>GPS & availability</h2><p>GPS updates are sent while this dashboard is open. Keep location permission enabled for reliable offers.</p></div><span class="status">${state.agentOnline ? "ONLINE" : "OFFLINE"}</span></div>
           <p id="agentLocationStatus" class="muted" role="status">${state.agentOnline ? "Online · GPS updates are active while this dashboard is open." : "Offline · go online when you are ready to receive delivery offers."}</p>
           <p class="tiny muted">Only online agents with a recent GPS update are eligible. If an agent does not accept within 60 seconds, the request moves to the next nearest eligible agent.</p>
         </section>
-        <section class="dashboard-order-section">
+        <section class="dashboard-order-section agent-active-panel">
           <div class="dashboard-section-heading"><div><h2>Active deliveries</h2><p>Use the full-page chat while the order is ready for pickup or out for delivery.</p></div><span class="count-pill">${activeDeliveryOrders.length}</span></div>
           ${activeDeliveryOrders.length ? `<div class="order-list">${activeDeliveryOrders.map(renderOrderCard).join("")}</div>` : `<div class="empty-state">You have no active deliveries right now. New assignments will appear here.</div>`}
         </section>
-        <section class="dashboard-order-section">
+        <section class="dashboard-order-section agent-history-panel">
           <div class="dashboard-section-heading"><div><h2>Completed deliveries</h2><p>Your recent completed orders.</p></div><span class="count-pill">${completedDeliveryOrders.length}</span></div>
           ${completedDeliveryOrders.length ? `<div class="order-list">${completedDeliveryOrders.slice(0,10).map(renderOrderCard).join("")}</div>` : `<div class="empty-state">No completed deliveries yet.</div>`}
         </section>`;

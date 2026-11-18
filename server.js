@@ -1137,7 +1137,7 @@ app.get("/api/student/community-stats", requireRole("student"), (req, res) => {
   try {
     const students = readStudents();
     const eligibleStudents = students.filter(student => !student.banned);
-    const activeSince = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const activeSince = Date.now() - 24 * 60 * 60 * 1000;
     const activeStudents = eligibleStudents.filter(student => {
       const lastActive = Date.parse(student.lastActiveAt || student.createdAt || "");
       return Number.isFinite(lastActive) && lastActive >= activeSince;
@@ -1301,6 +1301,8 @@ app.post("/api/student/login", (req, res) => {
     if (student.banned) {
       return res.status(403).json({ error: "This student account has been banned. Contact ChowOnCampus support if you think this is a mistake." });
     }
+    student.lastActiveAt = new Date().toISOString();
+    saveStudents(students);
     const account = { username: student.phone, role: "student", name: student.name };
     const token = crypto.randomBytes(32).toString("hex");
     sessions.set(token, account);

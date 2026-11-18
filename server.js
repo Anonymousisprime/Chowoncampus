@@ -812,8 +812,8 @@ function publicOrder(order, includeReceipt = false) {
 }
 
 function createDeliveryCode() {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  return Array.from({ length: 4 }, () => alphabet[crypto.randomInt(0, alphabet.length)]).join("");
+  // Exactly four numeric digits, including a possible leading zero.
+  return String(crypto.randomInt(0, 10000)).padStart(4, "0");
 }
 
 function studentPublicOrder(order, username) {
@@ -2564,10 +2564,12 @@ app.post("/api/orders/:id/bank-transfer/verify", requireLogin, (req, res) => {
     if (!order.deliveryCode) order.deliveryCode = createDeliveryCode();
     order.paymentStatus = "Paid — bank transfer verified";
     order.paidAt = now;
-    order.status = "Preparing";
+    // Payment confirmation moves the paid order into the restaurant's Incoming Orders
+    // queue (Confirmed). The restaurant can then explicitly move it to Preparing.
+    order.status = "Confirmed";
     order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
-    order.statusHistory.push({ status: "Preparing", at: now, by: req.account.username + " (merchant payment verification)" });
-    notifyOrderParties(order, "Payment verified — order is being prepared", order.customerName + "'s payment for " + order.id + " has been confirmed. The restaurant is preparing the order.");
+    order.statusHistory.push({ status: "Confirmed", at: now, by: req.account.username + " (merchant payment verification)" });
+    notifyOrderParties(order, "Payment confirmed — order is in Incoming Orders", order.customerName + "'s payment for " + (order.orderNumber || order.id) + " has been confirmed. The order is now in Incoming Orders and ready for the restaurant to start preparing.");
   } else if (decision === "not_received") {
     order.paymentStatus = "Bank transfer rejected — no bank credit";
     createNotification({ role: "student", username: order.customerPhone }, "Payment not confirmed", "The merchant could not confirm bank credit for order " + order.id + ". Check the transfer details or contact ChowOnCampus support.", order.id);

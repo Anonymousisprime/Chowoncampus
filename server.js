@@ -2571,12 +2571,12 @@ app.post("/api/orders/:id/bank-transfer/verify", requireLogin, (req, res) => {
     if (!order.deliveryCode) order.deliveryCode = createDeliveryCode();
     order.paymentStatus = "Paid — bank transfer verified";
     order.paidAt = now;
-    // Payment confirmation moves the paid order into the restaurant's Incoming Orders
-    // queue (Confirmed). The restaurant can then explicitly move it to Preparing.
-    order.status = "Confirmed";
+    // Keep the uploaded receipt on the order for the merchant's Payment receipts archive,
+    // while moving the paid order straight into the kitchen queue.
+    order.status = "Preparing";
     order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
-    order.statusHistory.push({ status: "Confirmed", at: now, by: req.account.username + " (merchant payment verification)" });
-    notifyOrderParties(order, "Payment confirmed — order is in Incoming Orders", order.customerName + "'s payment for " + (order.orderNumber || order.id) + " has been confirmed. The order is now in Incoming Orders and ready for the restaurant to start preparing.");
+    order.statusHistory.push({ status: "Preparing", at: now, by: req.account.username + " (merchant payment verification)" });
+    notifyOrderParties(order, "Payment confirmed — order is in the kitchen", order.customerName + "'s payment for " + (order.orderNumber || order.id) + " has been confirmed. The order is now in the kitchen and preparation can begin.");
   } else if (decision === "not_received") {
     order.paymentStatus = "Bank transfer rejected — no bank credit";
     createNotification({ role: "student", username: order.customerPhone }, "Payment not confirmed", "The merchant could not confirm bank credit for order " + order.id + ". Check the transfer details or contact ChowOnCampus support.", order.id);

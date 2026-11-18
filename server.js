@@ -2554,10 +2554,10 @@ app.post("/api/orders/:id/bank-transfer/verify", requireLogin, (req, res) => {
     if (!order.deliveryCode) order.deliveryCode = createDeliveryCode();
     order.paymentStatus = "Paid — bank transfer verified";
     order.paidAt = now;
-    order.status = "Confirmed";
+    order.status = "Preparing";
     order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
-    order.statusHistory.push({ status: "Confirmed", at: now, by: req.account.username + " (merchant payment verification)" });
-    notifyOrderParties(order, "Bank transfer verified — new order", order.customerName + "'s payment for " + order.id + " has been confirmed.");
+    order.statusHistory.push({ status: "Preparing", at: now, by: req.account.username + " (merchant payment verification)" });
+    notifyOrderParties(order, "Payment verified — order is being prepared", order.customerName + "'s payment for " + order.id + " has been confirmed. The restaurant is preparing the order.");
   } else if (decision === "not_received") {
     order.paymentStatus = "Bank transfer rejected — no bank credit";
     createNotification({ role: "student", username: order.customerPhone }, "Payment not confirmed", "The merchant could not confirm bank credit for order " + order.id + ". Check the transfer details or contact ChowOnCampus support.", order.id);

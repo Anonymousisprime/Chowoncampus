@@ -4808,6 +4808,7 @@ function assignReadyOrders() {
     agent.activeOrderId = order.id;
     agent.lastAssignedAt = now.toISOString();
     busyAgentIds.add(agent.id);
+    recordOperationsEvent({ type: "delivery_assignment_offered", entityType: "order", entityId: order.id, entityName: order.restaurantName || "Order", orderId: order.id, actorRole: "system", actorId: "auto-dispatch", details: "Pickup offer sent to " + agent.name + (hasTargetCoords ? " as the nearest eligible agent." : " using fair-rotation fallback.") });
 
     const deliveryDestination = String(order.hostel || order.deliveryLocation?.hostel || "Address not provided");
     const destinationLatitude = Number(order.deliveryLocation?.latitude);
@@ -4864,6 +4865,7 @@ function expireUnacceptedOffers() {
     }
     createNotification({ role: "agent", agentId: previousAgentId }, "Pickup request expired",
       `The 75-second window for order ${order.id} expired. The order will be offered to another agent.`, order.id);
+    recordOperationsEvent({ type: "delivery_assignment_expired", entityType: "order", entityId: order.id, entityName: order.restaurantName || "Order", orderId: order.id, actorRole: "system", actorId: "auto-dispatch", details: "The 75-second pickup offer expired for agent " + previousAgentId + ". The order was released for reassignment." });
     order.assignedAgentId = null;
     order.assignmentExpiresAt = null;
     order.pickupVerificationCode = null;
@@ -5000,6 +5002,7 @@ app.post("/api/agent/assignments/:id/accept", requireRole("agent"), (req, res) =
     order.updatedAt = order.assignmentAcceptedAt;
     order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
     order.statusHistory.push({ status: "Delivery assignment accepted", at: order.assignmentAcceptedAt, by: "agent" });
+    recordOperationsEvent({ type: "delivery_assignment_accepted", entityType: "order", entityId: order.id, entityName: order.restaurantName || "Order", orderId: order.id, actorRole: "agent", actorId: req.account.username, details: "Assigned agent accepted the pickup offer." });
     saveOrders(orders);
     if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, "Delivery agent accepted", `The delivery agent accepted pickup for ${order.id} and is heading to collect it.`, order.id);
     else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Delivery agent accepted", `The delivery agent accepted pickup for ${order.id} and is heading to collect it.`, order.id);

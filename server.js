@@ -3599,14 +3599,12 @@ app.patch("/api/superadmin/global-operations", requireSuperAdmin, (req, res) => 
 
       const agentRecords = readAgentRecords();
       const orders = readOrders();
-      const withdrawnAgentIds = new Set();
       for (const order of orders) {
         if (order.status !== "Ready for pickup" || !order.assignedAgentId || order.assignmentAcceptedAt) continue;
         const agentId = String(order.assignedAgentId);
         const agent = agentRecords.find(item => String(item.id) === agentId);
         if (agent && agent.activeOrderId === order.id) {
           agent.activeOrderId = null;
-          withdrawnAgentIds.add(agentId);
         }
         order.assignedAgentId = null;
         order.assignmentExpiresAt = null;

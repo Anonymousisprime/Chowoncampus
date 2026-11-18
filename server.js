@@ -1598,9 +1598,10 @@ app.put("/api/restaurant/menu", requireRole("restaurant"), (req, res) => {
 // Current login
 
 app.get("/api/me", (req,res)=>{
+ res.set({ "Cache-Control": "no-store, no-cache, must-revalidate, private", "Pragma": "no-cache", "Expires": "0", "Vary": "Cookie" });
  const session=getSession(req);if(!session)return res.json({account:null});
  if(session.role!=="student")return res.json({account:session});
- const premium=getStudentPremium(findStudentByPhone(session.username));res.setHeader("Cache-Control","no-store, private");
+ const premium=getStudentPremium(findStudentByPhone(session.username));
  res.json({account:{...session,isPremium:premium.active,premium}});
 });
 

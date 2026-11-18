@@ -1535,7 +1535,14 @@ async function loadDashboard(automatic = false) {
     if (automatic && Date.now() < dashboardInteractionUntil) return;
     if (account.role === "restaurant") {
       lastRestaurantOrdersSnapshot = JSON.stringify(orders.map(order => [order.id, order.status, order.assignedAgentId, order.updatedAt, order.paymentStatus, order.deliveredAt, order.completedAt, order.total]));
-      const incoming = orders.filter(order => ["Awaiting payment", "Confirmed"].includes(order.status));
+      const awaitingPayments = orders.filter(order =>
+        order.paymentMethod === "bank_transfer" &&
+        (Boolean(order.paymentReceiptDataUrl) || Boolean(order.paymentReceiptUnavailable))
+      );
+      const incoming = orders.filter(order =>
+        ["Awaiting payment", "Confirmed"].includes(order.status) &&
+        !awaitingPayments.some(paymentOrder => paymentOrder.id === order.id)
+      );
       const preparing = orders.filter(order => order.status === "Preparing");
       const pickup = orders.filter(order => ["Ready for pickup", "Out for delivery"].includes(order.status));
       const completed = orders.filter(order => ["Completed", "Cancelled"].includes(order.status));
@@ -1563,6 +1570,7 @@ async function loadDashboard(automatic = false) {
           <p id="restaurantAvailabilityMessage" class="restaurant-operations-note" role="status" aria-live="polite"></p>
         </section>
         <nav class="restaurant-quick-actions" aria-label="Restaurant dashboard shortcuts">
+          <button type="button" class="secondary-button" data-restaurant-jump="restaurant-section-awaiting-payments">🏦 Awaiting payments</button>
           <button type="button" class="secondary-button" data-restaurant-jump="restaurant-section-incoming">📥 Incoming orders</button>
           <button type="button" class="secondary-button" data-restaurant-jump="restaurant-section-preparing">🍳 In the kitchen</button>
           <button type="button" class="secondary-button" data-restaurant-jump="restaurant-section-pickup">🛵 Pickup & delivery</button>
@@ -1596,6 +1604,7 @@ async function loadDashboard(automatic = false) {
           <article><span>Pickup / delivery</span><strong>${pickup.length}</strong><small>Agent coordination</small></article>
           <article><span>Completed sales</span><strong>${money(totalSales)}</strong><small>${completed.filter(o => o.status === "Completed").length} completed orders</small></article>
         </div>
+        ${section("Awaiting payments", "Bank-transfer receipts submitted by students. Review the receipt and confirm only after checking your bank account.", awaitingPayments, "awaiting-payments")}
         ${section("Incoming orders", "New orders that need your attention", incoming, "incoming")}
         ${section("In the kitchen", "Orders currently being prepared", preparing, "preparing")}
         ${section("Ready for pickup & delivery", "Contact your assigned agent and coordinate handoff", pickup, "pickup")}

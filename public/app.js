@@ -2335,13 +2335,54 @@ document.addEventListener("click", async event => {
   }
 });
 
+function selectNextRotatingPopupAd(account, popupAds) {
+  const ads = Array.isArray(popupAds) ? popupAds.filter(ad => ad && ad.id && ad.imageUrl && ad.targetUrl) : [];
+  if (!ads.length) return null;
+  const accountKey = String(account?.username || account?.id || "student").toLowerCase();
+  const storageKey = "coc_student_popup_ad_rotation:" + accountKey;
+  const byId = new Map(ads.map(ad => [String(ad.id), ad]));
+  const shuffle = items => {
+    const result = [...items];
+    for (let i = result.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [result[i], result[j]] = [result[j], result[i]];
+    }
+    return result;
+  };
+  try {
+    let rotation = null;
+    try { rotation = JSON.parse(localStorage.getItem(storageKey) || "null"); } catch {}
+    const currentIds = new Set(byId.keys());
+    let queue = Array.isArray(rotation?.queue)
+      ? rotation.queue.map(String).filter(id => currentIds.has(id))
+      : [];
+    const queuedIds = new Set(queue);
+    const newlyEligible = ads.map(ad => String(ad.id)).filter(id => !queuedIds.has(id));
+    queue.push(...shuffle(newlyEligible));
+
+    if (!queue.length) {
+      queue = shuffle([...currentIds]);
+      if (queue.length > 1 && queue[0] === String(rotation?.lastAdId || "")) {
+        const swapIndex = queue.findIndex(id => id !== String(rotation.lastAdId));
+        if (swapIndex > 0) [queue[0], queue[swapIndex]] = [queue[swapIndex], queue[0]];
+      }
+    }
+
+    const selectedId = queue.shift();
+    localStorage.setItem(storageKey, JSON.stringify({ queue, lastAdId: selectedId }));
+    return byId.get(selectedId) || null;
+  } catch {
+    return ads[Math.floor(Math.random() * ads.length)];
+  }
+}
+
 function showStudentLoginPopupAd(account) {
   if (!account || account.role !== "student") return;
   const storageKey = "coc_student_popup_ad_seen:" + String(account.username || account.id || "student");
   try { if (sessionStorage.getItem(storageKey) === "1") return; } catch {}
   api("/api/ads/public", { cache: "no-store" }).then(data => {
     if (!state.account || state.account.role !== "student" || data.hideAds || !Array.isArray(data.popupAds) || !data.popupAds.length) return;
-    const ad = data.popupAds[Math.floor(Math.random() * data.popupAds.length)];
+    const ad = selectNextRotatingPopupAd(state.account, data.popupAds);
     if (!ad || !ad.id || !ad.imageUrl || !ad.targetUrl) return;
     if (document.getElementById("cocStudentPopupAd")) return;
     try { sessionStorage.setItem(storageKey, "1"); } catch {}

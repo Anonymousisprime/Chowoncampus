@@ -2711,7 +2711,7 @@ app.get("/api/orders", requireLogin, (req, res) => {
       // Students see active orders and a short post-delivery feedback window only.
       // Older completed/cancelled orders remain available for admin review.
       const activeStatuses = new Set(["Awaiting payment", "Awaiting admin approval", "Confirmed", "Preparing", "Ready for pickup", "Out for delivery"]);
-      const feedbackWindowMs = 2 * 60 * 1000;
+      const feedbackWindowMs = 30 * 1000;
       orders = orders.filter(order => {
         if (order.customerPhone !== req.account.username) return false;
         if (activeStatuses.has(order.status)) return true;
@@ -5291,7 +5291,7 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
       awardFoodBackForCompletedOrder(order);
     }
 
-    // Delivery chat stays available for two minutes after successful delivery,
+    // Delivery chat stays available for 30 seconds after successful delivery,
     // then its messages are removed on the next chat request.
     if (newStatus === "Cancelled") {
       delete order.chatMessages;

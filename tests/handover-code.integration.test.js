@@ -139,6 +139,28 @@ test("rating comments are visible only to their intended recipients", async t =>
   });
 });
 
+
+test("assigned agent and owning student can exchange delivery chat messages", async () => {
+  const sent = await fetch(base + "/api/orders/WRONG/chat", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: agent },
+    body: JSON.stringify({ message: "I am at your hostel entrance." })
+  });
+  assert.equal(sent.status, 201);
+  const sentData = await sent.json();
+  assert.equal(sentData.message.message, "I am at your hostel entrance.");
+  assert.equal(sentData.message.senderRole, "agent");
+
+  const studentView = await fetch(base + "/api/orders/WRONG/chat", { headers: { cookie: a } });
+  assert.equal(studentView.status, 200);
+  const studentData = await studentView.json();
+  assert.equal(studentData.messages.length, 1);
+  assert.equal(studentData.messages[0].message, "I am at your hostel entrance.");
+
+  const unrelatedStudent = await fetch(base + "/api/orders/WRONG/chat", { headers: { cookie: b } });
+  assert.equal(unrelatedStudent.status, 403);
+});
+
 test("handover verification end-to-end", async t => {
   await t.test("student code visibility is restricted to the owning student", async () => {
     assert.equal((await (await view(a, "CORRECT")).json()).order.deliveryCode, "A7K2");

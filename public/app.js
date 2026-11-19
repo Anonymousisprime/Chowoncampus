@@ -929,8 +929,7 @@ function renderOrderCard(order) {
   const studentMerchantAccount = state.account.role === "student" ? studentBankAccountForOrder(order) : null;
   const displayOrderId = order.orderNumber || (order.paymentMethod === "bank_transfer" && !paymentIsVerified ? "" : order.id);
   const canChangeStatus = statuses.length > 0 && paymentIsVerified && !(order.status === "Completed") && !(order.paymentMethod === "foodback" && order.status === "Awaiting admin approval") && !(state.account.role === "agent" && order.status === "Out for delivery");
-  const canContactAgent = state.account.role === "restaurant" && order.assignedAgentId && ["Ready for pickup", "Out for delivery"].includes(order.status);
-  const canDeliveryChat = ["Ready for pickup", "Out for delivery"].includes(order.status) && ((state.account.role === "restaurant" && order.assignedAgentId) || (state.account.role === "agent" && state.account.agentId === order.assignedAgentId));
+  const canDeliveryChat = ["Ready for pickup", "Out for delivery"].includes(order.status) && state.account.role === "agent" && state.account.agentId === order.assignedAgentId;
 
   return `
     <article class="order-card">
@@ -975,12 +974,6 @@ function renderOrderCard(order) {
             </select>
           </label>
         </div>
-      ` : ""}
-      ${canContactAgent ? `
-        <section class="agent-contact">
-          <div><span class="eyebrow">PICKUP COORDINATION</span><strong>Assigned delivery agent: ${escapeHtml(order.assignedAgentId)}</strong><p class="tiny muted">Open a dedicated full-page chat to coordinate pickup and delivery.</p></div>
-          <button type="button" class="primary-button" data-open-temp-chat="${escapeHtml(order.id)}" data-chat-title="Delivery agent">Open full-page chat ↗</button>
-        </section>
       ` : ""}
       ${canDeliveryChat && state.account.role === "agent" ? `
         <section class="agent-contact">

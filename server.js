@@ -2879,7 +2879,7 @@ function removeExpiredDeliveryChat(order) {
   return true;
 }
 
-app.get("/api/orders/:id/chat", requireRole("student", "agent", "restaurant"), (req, res) => {
+app.get("/api/orders/:id/chat", requireRole("student", "agent"), (req, res) => {
   try {
     const orders = readOrders();
     const requestedOrderId = String(req.params.id || "").trim();
@@ -2898,7 +2898,7 @@ app.get("/api/orders/:id/chat", requireRole("student", "agent", "restaurant"), (
   }
 });
 
-app.post("/api/orders/:id/chat", requireRole("student", "agent", "restaurant"), (req, res) => {
+app.post("/api/orders/:id/chat", requireRole("student", "agent"), (req, res) => {
   const message = String(req.body.message || "").trim();
   if (!message || message.length > 500) return res.status(400).json({ error: "Message must be between 1 and 500 characters." });
   try {

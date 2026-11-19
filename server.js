@@ -2861,7 +2861,7 @@ function canUseDeliveryChat(account, order) {
   ));
 }
 
-const DELIVERY_CHAT_GRACE_MS = 2 * 60 * 1000;
+const DELIVERY_CHAT_GRACE_MS = 30 * 1000;
 
 function deliveryChatIsOpen(order) {
   if (["Ready for pickup", "Out for delivery"].includes(order.status)) return true;
@@ -2890,7 +2890,7 @@ app.get("/api/orders/:id/chat", requireRole("student", "agent", "restaurant"), (
     }
     if (!canUseDeliveryChat(req.account, order)) return res.status(403).json({ error: "Only the ordering student and assigned delivery agent can access this chat." });
     if (removeExpiredDeliveryChat(order)) saveOrders(orders);
-    if (!deliveryChatIsOpen(order)) return res.status(410).json({ active: false, messages: [], error: "This temporary chat closed two minutes after delivery." });
+    if (!deliveryChatIsOpen(order)) return res.status(410).json({ active: false, messages: [], error: "This temporary chat closed 30 seconds after delivery." });
     const deliveredAt = new Date(order.deliveredAt || order.completedAt || 0).getTime();
     res.json({ active: true, expiresAt: order.status === "Completed" ? new Date(deliveredAt + DELIVERY_CHAT_GRACE_MS).toISOString() : null, messages: Array.isArray(order.chatMessages) ? order.chatMessages : [] });
   } catch (error) {
@@ -2912,7 +2912,7 @@ app.post("/api/orders/:id/chat", requireRole("student", "agent", "restaurant"), 
     if (!canUseDeliveryChat(req.account, order)) return res.status(403).json({ error: "Only the ordering student and assigned delivery agent can send messages here." });
     if (removeExpiredDeliveryChat(order)) {
       saveOrders(orders);
-      return res.status(410).json({ error: "This temporary chat closed two minutes after delivery." });
+      return res.status(410).json({ error: "This temporary chat closed 30 seconds after delivery." });
     }
     if (!deliveryChatIsOpen(order)) return res.status(410).json({ error: "This temporary chat has closed." });
     order.chatMessages = Array.isArray(order.chatMessages) ? order.chatMessages : [];

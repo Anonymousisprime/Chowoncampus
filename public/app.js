@@ -637,9 +637,9 @@ function renderTrackedOrder(order, resultSelector = "#trackResult") {
       <p class="tiny muted">Last updated: ${escapeHtml(new Date(order.updatedAt || order.createdAt).toLocaleString())}</p>
       
       <p class="tiny muted">Tracking refreshes automatically every 15 seconds while this page is open.</p>
-      ${state.account?.role === "student" && (["Ready for pickup", "Out for delivery"].includes(order.status) || (order.status === "Completed" && Date.now() - new Date(order.deliveredAt || order.completedAt || 0).getTime() < 120000)) ? '<section class="temporary-chat-preview"><div><h4>Temporary delivery chat</h4><p class="tiny muted">Chat with your assigned delivery agent. The chat closes two minutes after delivery.</p></div><button type="button" class="primary-button" data-open-temp-chat="${escapeHtml(order.id)}" data-chat-title="Delivery agent">Open full-page chat ↗</button></section>' : ""}
+      ${state.account?.role === "student" && (["Ready for pickup", "Out for delivery"].includes(order.status) || (order.status === "Completed" && Date.now() - new Date(order.deliveredAt || order.completedAt || 0).getTime() < 30000)) ? '<section class="temporary-chat-preview"><div><h4>Temporary delivery chat</h4><p class="tiny muted">Chat with your assigned delivery agent. The chat closes 30 seconds after delivery.</p></div><button type="button" class="primary-button" data-open-temp-chat="${escapeHtml(order.id)}" data-chat-title="Delivery agent">Open full-page chat ↗</button></section>' : ""}
     </article>`;
-  if (state.account?.role === "student" && (["Ready for pickup", "Out for delivery"].includes(order.status) || (order.status === "Completed" && Date.now() - new Date(order.deliveredAt || order.completedAt || 0).getTime() < 120000))) loadCustomerChat(order.id);
+  if (state.account?.role === "student" && (["Ready for pickup", "Out for delivery"].includes(order.status) || (order.status === "Completed" && Date.now() - new Date(order.deliveredAt || order.completedAt || 0).getTime() < 30000))) loadCustomerChat(order.id);
 }
 
 let activeFullPageChatOrderId = null;
@@ -664,7 +664,7 @@ async function refreshFullPageChat(orderId = activeFullPageChatOrderId) {
     ).join("") : '<div class="full-chat-empty"><span>👋</span><strong>Start the conversation</strong><p>Send a message to coordinate this delivery.</p></div>';
     messagesBox.scrollTop = messagesBox.scrollHeight;
     const note = $("#fullPageChatNotice");
-    if (note) note.textContent = result.expiresAt ? "Chat closes at " + new Date(result.expiresAt).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}) + "." : "Messages are available during delivery and for two minutes after completion.";
+    if (note) note.textContent = result.expiresAt ? "Chat closes at " + new Date(result.expiresAt).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}) + "." : "Messages are available during delivery and for 30 seconds after completion.";
   } catch (error) {
     const isOrderMissing = /could not be found by the chat service|order not found/i.test(error.message);
     messagesBox.innerHTML = '<div class="full-chat-error"><p>' + escapeHtml(error.message) + '</p>' +

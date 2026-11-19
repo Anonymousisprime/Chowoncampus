@@ -30,10 +30,10 @@ async function drawTrackingRoadRoute(map, start, end, previous) {
     const data = await response.json();
     const coordinates = data.routes?.[0]?.geometry?.coordinates;
     if (!coordinates?.length) throw new Error("No mapped road route found");
-    if (previous) map.removeLayer(previous);
-    return window.L.polyline(coordinates.map(point => [point[1], point[0]]), { color: "#16834f", weight: 5, opacity: .85 }).addTo(map);
+    if (previous?.layer) map.removeLayer(previous.layer);
+    return { layer: window.L.polyline(coordinates.map(point => [point[1], point[0]]), { color: "#16834f", weight: 5, opacity: .85 }).addTo(map), distance: Number(data.routes[0].distance), duration: Number(data.routes[0].duration) };
   } catch (error) {
-    if (!previous) return window.L.polyline([start, end], { color: "#16834f", weight: 4, dashArray: "8 8", opacity: .8 }).addTo(map);
+    if (!previous) return { layer: window.L.polyline([start, end], { color: "#16834f", weight: 4, dashArray: "8 8", opacity: .8 }).addTo(map), distance: null, duration: null };
     return previous;
   }
 }
@@ -67,7 +67,7 @@ async function updateStudentTrackingMap(orderId) {
       view.current.route = await drawTrackingRoadRoute(view.current.map, start, end, view.current.route);
       view.current.lastRouteStart = start;
     }
-    if (status) status.textContent = "LIVE · " + data.agentName + " · updated " + new Date(data.agentLocation.updatedAt).toLocaleTimeString();
+    if (status) { const info = view.current.route?.distance != null ? " · " + (view.current.route.distance >= 1000 ? (view.current.route.distance/1000).toFixed(1) + " km" : Math.round(view.current.route.distance) + " m") + " · about " + Math.max(1, Math.round(view.current.route.duration/60)) + " min" : ""; status.textContent = "LIVE · " + data.agentName + info + " · updated " + new Date(data.agentLocation.updatedAt).toLocaleTimeString(); }
   } catch (error) { if (status) status.textContent = "Tracking temporarily unavailable. " + error.message; }
 }
 function initializeStudentTrackingMaps(orders) {

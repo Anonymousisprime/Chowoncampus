@@ -2925,7 +2925,18 @@ app.post("/api/orders/:id/chat", requireRole("student", "agent", "restaurant"), 
       sentAt: new Date().toISOString()
     });
     saveOrders(orders);
-    res.status(201).json({ message: order.chatMessages[order.chatMessages.length - 1] });
+    const savedMessage = order.chatMessages[order.chatMessages.length - 1];
+    // Alert only the student when their assigned delivery agent sends a chat message.
+    // createNotification also sends the student's registered push notification.
+    if (req.account.role === "agent") {
+      createNotification(
+        { role: "student", username: order.customerPhone },
+        "New message from your delivery agent",
+        (savedMessage.senderName || "Your delivery agent") + ": " + savedMessage.message,
+        order.id
+      );
+    }
+    res.status(201).json({ message: savedMessage });
   } catch (error) {
     res.status(500).json({ error: "Could not send message." });
   }

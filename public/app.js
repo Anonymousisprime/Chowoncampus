@@ -12,6 +12,76 @@ function studentOrderIsVisible(order) {
   return Number.isFinite(completedTime) && Date.now() - completedTime < 30 * 1000;
 }
 
+
+const studentTrackingMaps = new Map();
+let studentTrackingTimer = null;
+function trackingDistanceMeters(a, b) {
+  const rad = value => value * Math.PI / 180;
+  const dLat = rad(b[0] - a[0]), dLon = rad(b[1] - a[1]);
+  const h = Math.sin(dLat/2)**2 + Math.cos(rad(a[0]))*Math.cos(rad(b[0]))*Math.sin(dLon/2)**2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1-h));
+}
+async function drawTrackingRoadRoute(map, start, end, previous) {
+  if (!window.L || !map || !start || !end) return previous;
+  try {
+    const url = "https://router.project-osrm.org/route/v1/driving/" + start[1] + "," + start[0] + ";" + end[1] + "," + end[0] + "?overview=full&geometries=geojson";
+    const response = await fetch(url);
+    if (!response.ok) throw new Error("Route service unavailable");
+    const data = await response.json();
+    const coordinates = data.routes?.[0]?.geometry?.coordinates;
+    if (!coordinates?.length) throw new Error("No mapped road route found");
+    if (previous?.layer) map.removeLayer(previous.layer);
+    return { layer: window.L.polyline(coordinates.map(point => [point[1], point[0]]), { color: "#16834f", weight: 5, opacity: .85 }).addTo(map), distance: Number(data.routes[0].distance), duration: Number(data.routes[0].duration) };
+  } catch (error) {
+    if (!previous) return { layer: window.L.polyline([start, end], { color: "#16834f", weight: 4, dashArray: "8 8", opacity: .8 }).addTo(map), distance: null, duration: null };
+    return previous;
+  }
+}
+function createTrackingMap(element, start, end, labels) {
+  if (!window.L || !element || !start || !end) return null;
+  const map = window.L.map(element, { scrollWheelZoom: false }).setView(start, 16);
+  window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
+  const agentMarker = window.L.marker(start).addTo(map).bindPopup(labels.agent || "Delivery agent");
+  const destinationMarker = window.L.marker(end).addTo(map).bindPopup(labels.destination || "Your delivery location");
+  map.fitBounds(window.L.latLngBounds([start, end]).pad(.22));
+  return { map, agentMarker, destinationMarker, route: null, lastRouteStart: null };
+}
+async function updateStudentTrackingMap(orderId) {
+  const view = studentTrackingMaps.get(orderId);
+  if (!view) return;
+  const status = document.getElementById("student-tracking-status-" + orderId);
+  try {
+    const data = await api("/api/orders/" + encodeURIComponent(orderId) + "/tracking", { cache: "no-store" });
+    if (!data.trackingAvailable || !data.agentLocation) { if (status) status.textContent = data.message || "Waiting for the agent's GPS location…"; return; }
+    const start = [Number(data.agentLocation.latitude), Number(data.agentLocation.longitude)];
+    const end = data.destination ? [Number(data.destination.latitude), Number(data.destination.longitude)] : null;
+    if (!view.current) {
+      if (!end) { if (status) status.textContent = "Your delivery pin is not available."; return; }
+      view.current = createTrackingMap(view.element, start, end, { agent: data.agentName, destination: "Your delivery pin" });
+      if (!view.current) return;
+    } else {
+      view.current.agentMarker.setLatLng(start);
+      if (end) view.current.destinationMarker.setLatLng(end);
+    }
+    if (end && (!view.current.lastRouteStart || trackingDistanceMeters(view.current.lastRouteStart, start) > 60)) {
+      view.current.route = await drawTrackingRoadRoute(view.current.map, start, end, view.current.route);
+      view.current.lastRouteStart = start;
+    }
+    if (status) { const info = view.current.route?.distance != null ? " · " + (view.current.route.distance >= 1000 ? (view.current.route.distance/1000).toFixed(1) + " km" : Math.round(view.current.route.distance) + " m") + " · about " + Math.max(1, Math.round(view.current.route.duration/60)) + " min" : ""; status.textContent = "LIVE · " + data.agentName + info + " · updated " + new Date(data.agentLocation.updatedAt).toLocaleTimeString(); }
+  } catch (error) { if (status) status.textContent = "Tracking temporarily unavailable. " + error.message; }
+}
+function initializeStudentTrackingMaps(orders) {
+  if (studentTrackingTimer) clearInterval(studentTrackingTimer);
+  studentTrackingMaps.clear();
+  for (const order of (orders || []).filter(item => item.status === "Out for delivery" && item.assignedAgentId)) {
+    const element = document.getElementById("student-live-map-" + order.id);
+    if (element) studentTrackingMaps.set(order.id, { element, current: null });
+  }
+  const refresh = () => studentTrackingMaps.forEach((_, id) => updateStudentTrackingMap(id));
+  refresh();
+  if (studentTrackingMaps.size) studentTrackingTimer = setInterval(refresh, 5000);
+}
+
 const state = {
   restaurants: [],
   selectedRestaurantId: null,
@@ -872,6 +942,7 @@ function renderOrderCard(order) {
       ${order.deliveryLocation?.latitude != null && order.deliveryLocation?.longitude != null ? `<p><a class="secondary-button map-link" target="_blank" rel="noopener" href="https://www.google.com/maps?q=${encodeURIComponent(`${order.deliveryLocation.latitude},${order.deliveryLocation.longitude}`)}">📍 Open student pin in Maps</a></p>` : `<p><a class="secondary-button map-link" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.hostel)}">📍 Search delivery location in Maps</a></p>`}
       ${order.restaurantLocation ? `<p>Restaurant pickup: ${escapeHtml(order.restaurantLocation)} <a target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.restaurantLocation)}">Open map</a></p>` : ""}
       <p class="order-items">${order.items.map(item => `${item.qty} × ${escapeHtml(item.name)}`).join(", ")}</p>
+      ${state.account.role === "student" && order.status === "Out for delivery" && order.assignedAgentId ? '<section class="tracking-alert" style="margin:14px 0"><strong>🛵 Live delivery tracking</strong><p id="student-tracking-status-' + escapeHtml(order.id) + '" class="tiny muted">Connecting to your delivery agent…</p><div id="student-live-map-' + escapeHtml(order.id) + '" style="height:300px;width:100%;border-radius:14px;overflow:hidden;background:#edf3ef"></div><p class="tiny muted">Agent position refreshes every few seconds. The route follows mapped roads where available.</p></section>' : ""}
       ${state.account.role === "student" && order.deliveryCode && (order.paymentMethod !== "bank_transfer" || paymentIsVerified) && !["Completed", "Cancelled"].includes(order.status) ? `<section class="tracking-alert" style="background:#eaf5ee;border:1px solid #b9dec5;border-radius:12px;padding:14px;margin:14px 0"><strong>🔐 Your delivery handover code</strong><div style="font-size:28px;font-weight:900;letter-spacing:7px;margin:8px 0;color:#176b45">${escapeHtml(order.deliveryCode)}</div><p class="tiny muted">Keep this code private. Share it only when the agent has your food. The agent needs it to confirm delivery.</p></section>` : ""}
       <p>Total: <strong>${money(order.total)}</strong> · Payment: ${escapeHtml(order.paymentStatus)}</p>
       
@@ -2056,6 +2127,7 @@ async function loadDashboard(automatic = false) {
         ${studentOrders.length
           ? `<div class="order-list">${studentOrders.map(renderOrderCard).join("")}</div>`
           : `<div class="empty-state">You have no active orders. Browse the menu and place your next order!</div>`}</section>`;
+       initializeStudentTrackingMaps(studentOrders);
       const loadStudentBankAccounts = async () => {
         const list = $("#studentRestaurantBankAccountsList");
         if (!list) return;

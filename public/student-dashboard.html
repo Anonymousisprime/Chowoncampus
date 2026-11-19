@@ -16,6 +16,7 @@
   <meta name="description" content="Chowoncampus — order your favourite campus meals with ease.">
   <title>Student Dashboard | Chowoncampus</title>
   <link rel="stylesheet" href="/style.css?v=foodback-ui-1">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <style>
     body.student-dashboard-page{background:#f3f7f4;min-height:100vh}
     .student-dashboard-page .site-header{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.96);border-bottom:1px solid #dfe9e1;backdrop-filter:blur(12px)}
@@ -67,6 +68,7 @@
     @media(max-width:600px){.academy-float{top:8px;right:9px;padding:7px 9px;font-size:11px}}
   </style>
   <style>.coc-premium-badge{display:inline-flex;margin-top:8px;padding:6px 11px;border-radius:99px;background:#f8e7b2;color:#65440a;font-size:12px;font-weight:900} .coc-premium-badge[hidden]{display:none!important}.coc-premium-panel{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;margin:0 0 20px;padding:20px;background:#fffaf0;border:1px solid #ead8a5;border-radius:18px}.coc-premium-panel>div:first-child>span{font-size:10px;font-weight:900;color:#9a6b16}.coc-premium-panel h2{margin:6px 0;color:#3f3218}.coc-premium-panel p{margin:5px 0;color:#71664f}.coc-premium-actions{display:flex;flex-direction:column;gap:8px;min-width:180px}.coc-premium-actions small{color:#6b675e}@media(max-width:600px){.coc-premium-panel{padding:15px}.coc-premium-actions{width:100%}}</style>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
   <script src="/app.js?v=foodback-premium-bonus-2" defer></script><script src="/premium.js?v=premium-revocation-sync-1" defer></script>
 
   <style>

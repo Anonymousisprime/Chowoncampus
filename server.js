@@ -2931,6 +2931,38 @@ app.post("/api/orders/:id/chat", requireRole("student", "agent", "restaurant"), 
   }
 });
 
+// Live tracking is visible only to the student who owns the order and its assigned agent.
+app.get("/api/orders/:id/tracking", requireLogin, (req, res) => {
+  try {
+    const order = readOrders().find(item => item.id === req.params.id || item.orderNumber === req.params.id);
+    if (!order) return res.status(404).json({ error: "Order not found." });
+    const isOwner = req.account.role === "student" && order.customerPhone === req.account.username;
+    const isAssignedAgent = req.account.role === "agent" && String(order.assignedAgentId || "") === String(req.account.agentId || "");
+    if (!isOwner && !isAssignedAgent) return res.status(403).json({ error: "Live tracking is available only to the student who placed this order and its assigned agent." });
+    if (order.status !== "Out for delivery") return res.json({ trackingAvailable: false, status: order.status, message: "Live tracking is available once the agent starts delivery." });
+    const destination = order.deliveryLocation || {};
+    const agent = readAgentRecords().find(item => String(item.id) === String(order.assignedAgentId || ""));
+    const updatedAt = agent?.locationUpdatedAt || null;
+    const age = updatedAt ? Date.now() - new Date(updatedAt).getTime() : Infinity;
+    const fresh = Number.isFinite(age) && age >= 0 && age <= 90000 &&
+      validCoordinatePair(agent?.latitude, agent?.longitude);
+    res.setHeader("Cache-Control", "no-store, private");
+    res.json({
+      trackingAvailable: fresh,
+      status: order.status,
+      agentName: agent?.name || order.assignedAgentName || "Delivery agent",
+      agentLocation: fresh ? { latitude: Number(agent.latitude), longitude: Number(agent.longitude), updatedAt } : null,
+      destination: validCoordinatePair(destination.latitude, destination.longitude)
+        ? { latitude: Number(destination.latitude), longitude: Number(destination.longitude), label: [destination.hostel, destination.block, destination.room, destination.landmark].filter(Boolean).join(", ") }
+        : null,
+      message: fresh ? "Live agent location updated." : "Waiting for the agent's next GPS update."
+    });
+  } catch (error) {
+    console.error("Could not load live delivery tracking:", error.message);
+    res.status(500).json({ error: "Could not load live tracking right now." });
+  }
+});
+
 // Public order tracking by reference. Do not expose private customer details.
 app.get("/api/orders/:id", (req, res) => {
   try {

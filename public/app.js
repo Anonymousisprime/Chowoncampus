@@ -51,6 +51,7 @@ async function updateStudentTrackingMap(orderId) {
   if (!view) return;
   const status = document.getElementById("student-tracking-status-" + orderId);
   try {
+    await loadLeaflet();
     const data = await api("/api/orders/" + encodeURIComponent(orderId) + "/tracking", { cache: "no-store" });
     if (!data.trackingAvailable || !data.agentLocation) { if (status) status.textContent = data.message || "Waiting for the agent's GPS location…"; return; }
     const start = [Number(data.agentLocation.latitude), Number(data.agentLocation.longitude)];
@@ -73,7 +74,7 @@ async function updateStudentTrackingMap(orderId) {
 function initializeStudentTrackingMaps(orders) {
   if (studentTrackingTimer) clearInterval(studentTrackingTimer);
   studentTrackingMaps.clear();
-  for (const order of (orders || []).filter(item => item.status === "Out for delivery" && item.assignedAgentId)) {
+  for (const order of (orders || []).filter(item => item.status === "Out for delivery")) {
     const element = document.getElementById("student-live-map-" + order.id);
     if (element) studentTrackingMaps.set(order.id, { element, current: null });
   }

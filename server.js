@@ -5733,6 +5733,19 @@ app.post("/api/superadmin/ads/:id/action", requireSuperAdmin, (req, res) => {
   res.json({ ad, message: action === "approve" ? "Restaurant advertisement application approved. Confirm payment before activation." : action === "activate" ? "Promotion activated." : action === "pause" ? "Promotion paused." : "Promotion rejected." });
 });
 
+// Private, unlisted student walkthrough. The bearer token is stored only in Render's environment.
+app.get("/private-student-demo/:token", (req, res) => {
+  const expected = Buffer.from(String(process.env.COC_PRIVATE_STUDENT_DEMO_TOKEN || ""));
+  const supplied = Buffer.from(String(req.params.token || ""));
+  if (!expected.length || supplied.length !== expected.length || !crypto.timingSafeEqual(expected, supplied)) {
+    return res.status(404).type("text/plain").send("Not found");
+  }
+  res.setHeader("Cache-Control", "no-store, private");
+  res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  return res.sendFile(path.join(__dirname, "private-student-demo.html"));
+});
+
 // Serve the website for browser routes, while leaving unknown API paths as 404.
 app.use((req, res, next) => {
   if (req.method === "GET" && !req.path.startsWith("/api/")) {

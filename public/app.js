@@ -1592,6 +1592,54 @@ async function refreshAgentDashboardInBackground(force = false) {
   }
 }
 
+let studentOrderRefreshInProgress = false;
+let lastStudentOrdersSnapshot = "";
+
+// Students get quiet order-status updates without a page reload. Only the
+// Current orders panel is replaced, so the cart, open panels and scroll position
+// remain untouched.
+async function refreshStudentOrdersInBackground() {
+  if (state.account?.role !== "student" || document.visibilityState !== "visible" || studentOrderRefreshInProgress) return;
+  const section = document.getElementById("student-current-orders");
+  if (!section) return;
+  if (Date.now() < dashboardInteractionUntil || section.contains(document.activeElement)) return;
+  studentOrderRefreshInProgress = true;
+  const sync = document.getElementById("studentOrdersSyncStatus");
+  try {
+    const result = await api("/api/orders", { cache: "no-store" });
+    if (state.account?.role !== "student" || document.visibilityState !== "visible") return;
+    const orders = (Array.isArray(result.orders) ? result.orders : []).filter(studentOrderIsVisible);
+    const snapshot = JSON.stringify(orders.map(order => [
+      order.id, order.status, order.updatedAt, order.paymentStatus,
+      order.assignedAgentId, order.deliveredAt, order.completedAt, order.total
+    ]));
+    if (snapshot !== lastStudentOrdersSnapshot) {
+      // If the student started interacting while the request was in flight,
+      // leave the current card mounted and apply the update on the next poll.
+      if (section.contains(document.activeElement) || Date.now() < dashboardInteractionUntil) return;
+      const count = section.querySelector(".count-pill");
+      if (count) count.textContent = String(orders.length);
+      const oldContent = section.querySelector(".order-list, .empty-state");
+      if (oldContent) {
+        const replacement = document.createElement("div");
+        replacement.className = orders.length ? "order-list" : "empty-state";
+        replacement.innerHTML = orders.length
+          ? orders.map(renderOrderCard).join("")
+          : "You have no active orders. Browse the menu and place your next order!";
+        oldContent.replaceWith(replacement);
+      }
+      lastStudentOrdersSnapshot = snapshot;
+      initializeStudentTrackingMaps(orders);
+    }
+    if (sync) sync.textContent = "Order updates are on · checked just now";
+  } catch (error) {
+    if (sync) sync.textContent = "Having trouble refreshing · showing your last update";
+    console.warn("Student order refresh failed; keeping the current orders visible:", error.message);
+  } finally {
+    studentOrderRefreshInProgress = false;
+  }
+}
+
 async function loadDashboard(automatic = false) {
   if (!state.account) { location.href = "/student-login.html"; return; }
   if (automatic && Date.now() < dashboardInteractionUntil) return;
@@ -2117,7 +2165,7 @@ async function loadDashboard(automatic = false) {
           <div class="student-dashboard-actions"><a class="primary-button" href="/foodback.html?view=refer" style="display:inline-flex;align-items:center;text-decoration:none">🎁 Refer &amp; Earn</a><a class="secondary-button" href="/foodback.html" style="display:inline-flex;align-items:center;text-decoration:none">View transactions</a></div>
         </section>
         <section class="dashboard-order-section" id="studentTrackOrderSection"><div class="dashboard-section-heading"><div><h2>Track an order</h2><p>Enter your order ID to see its current status, progress and updates.</p></div></div><form id="studentTrackForm" class="form-card"><label for="studentTrackId">Order ID</label><input id="studentTrackId" name="orderId" type="text" maxlength="100" placeholder="Enter your order ID" required><button type="submit" class="primary-button">Track order</button><div id="studentTrackResult" aria-live="polite"></div></form></section>
-        <section class="dashboard-order-section"><div class="dashboard-section-heading"><div><h2>Current orders</h2><p>Only active orders and the brief post-delivery feedback window appear here.</p></div><span class="count-pill">${studentOrders.length}</span></div>
+        <section class="dashboard-order-section" id="student-current-orders" aria-live="polite"><div class="dashboard-section-heading"><div><h2>Current orders</h2><p>Only active orders and the brief post-delivery feedback window appear here.</p><p id="studentOrdersSyncStatus" class="tiny muted" role="status">Order updates are on · checking automatically</p></div><span class="count-pill">${studentOrders.length}</span></div>
         ${studentOrders.length
           ? `<div class="order-list">${studentOrders.map(renderOrderCard).join("")}</div>`
           : `<div class="empty-state">You have no active orders. Browse the menu and place your next order!</div>`}</section>`;
@@ -3233,7 +3281,8 @@ async function initialize() {
   window.setInterval(() => {
     if (state.account?.role === "agent") refreshAgentDashboardInBackground();
     else if (state.account?.role === "restaurant") refreshRestaurantOrdersInBackground();
-  }, 15000);
+    else if (state.account?.role === "student") refreshStudentOrdersInBackground();
+  }, 10000);
   window.addEventListener("focus", () => {
     if (state.account?.role === "agent") refreshAgentDashboardInBackground();
     else if (state.account?.role === "restaurant") refreshRestaurantOrdersInBackground();

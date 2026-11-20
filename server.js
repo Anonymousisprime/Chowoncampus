@@ -1775,11 +1775,13 @@ app.post("/api/business/apply", (req, res) => {
   const location = String(req.body.location || "").trim().slice(0, 180);
   const ownerName = String(req.body.ownerName || "").trim().slice(0, 100);
   const phone = normalizeNigerianPhone(req.body.phone);
+  const email = String(req.body.email || "").trim().toLowerCase();
+  const emailUpdatesConsent = req.body.emailUpdatesConsent === true;
   const username = String(req.body.username || "").trim().toLowerCase();
   const password = String(req.body.password || "");
   const allowedCategories = ["supermarket", "boutique", "bookshop", "electronics", "general"];
-  if (name.length < 2 || !allowedCategories.includes(category) || location.length < 3 || ownerName.length < 2 || !phone || !/^[a-z0-9._-]{4,30}$/.test(username) || password.length < 10 || password.length > 128) {
-    return res.status(400).json({ error: "Complete all fields. Use a valid phone number, username (4–30 characters), and password (10–128 characters)." });
+  if (name.length < 2 || !allowedCategories.includes(category) || location.length < 3 || ownerName.length < 2 || !phone || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !/^[a-z0-9._-]{4,30}$/.test(username) || password.length < 10 || password.length > 128) {
+    return res.status(400).json({ error: "Complete all fields. Enter a valid email address and phone number, username (4–30 characters), and password (10–128 characters)." });
   }
   const businesses = readOtherBusinesses();
   if (businesses.some(item => item.username === username || item.phone === phone)) return res.status(409).json({ error: "That username or phone number is already registered." });
@@ -1787,7 +1789,7 @@ app.post("/api/business/apply", (req, res) => {
   const credentials = hashPassword(password);
   const business = {
     id: "BIZ-" + crypto.randomBytes(5).toString("hex").toUpperCase(),
-    name, category, description, location, ownerName, phone, username,
+    name, category, description, location, ownerName, phone, email, emailUpdatesConsent, emailConsentAt: emailUpdatesConsent ? new Date().toISOString() : null, username,
     passwordSalt: credentials.salt, passwordHash: credentials.hash,
     status: "pending", suspended: false, online: false, products: [],
     settlementConfigured: false, createdAt: new Date().toISOString()
@@ -1873,7 +1875,7 @@ app.get("/api/business/me", requireLogin, (req, res) => {
   const business = readOtherBusinesses().find(item => item.id === req.account.businessId);
   if (!business) return res.status(404).json({ error: "Business account not found." });
   res.set("Cache-Control", "no-store, private");
-  res.json({ business: { ...publicOtherBusiness(business), status: business.status, paused: business.paused === true, paymentAccountConfigured: Boolean(business.paymentAccountEncrypted && business.paymentAccountStatus === "approved") } });
+  res.json({ business: { ...publicOtherBusiness(business), email: business.email || "", status: business.status, paused: business.paused === true, paymentAccountConfigured: Boolean(business.paymentAccountEncrypted && business.paymentAccountStatus === "approved") } });
 });
 
 function merchantForSession(account) {
@@ -2113,10 +2115,12 @@ app.post("/api/admin/other-businesses", requireSuperAdmin, (req, res) => {
   const location = String(req.body.location || "").trim().slice(0, 180);
   const ownerName = String(req.body.ownerName || "").trim().slice(0, 100);
   const phone = normalizeNigerianPhone(req.body.phone);
+  const email = String(req.body.email || "").trim().toLowerCase();
+  const emailUpdatesConsent = req.body.emailUpdatesConsent === true;
   const username = String(req.body.username || "").trim().toLowerCase();
   const password = String(req.body.password || "");
   const allowedCategories = ["supermarket", "boutique", "bookshop", "electronics", "general"];
-  if (name.length < 2 || !allowedCategories.includes(category) || location.length < 3 || ownerName.length < 2 || !phone || !/^[a-z0-9._-]{4,30}$/.test(username) || password.length < 10 || password.length > 128) {
+  if (name.length < 2 || !allowedCategories.includes(category) || location.length < 3 || ownerName.length < 2 || !phone || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !/^[a-z0-9._-]{4,30}$/.test(username) || password.length < 10 || password.length > 128) {
     return res.status(400).json({ error: "Complete all fields. Use a valid phone number, username (4–30 characters), and temporary password (10–128 characters)." });
   }
   const businesses = readOtherBusinesses();
@@ -2126,7 +2130,7 @@ app.post("/api/admin/other-businesses", requireSuperAdmin, (req, res) => {
   const credentials = hashPassword(password);
   const business = {
     id: "BIZ-" + crypto.randomBytes(5).toString("hex").toUpperCase(),
-    name, category, description, location, ownerName, phone, username,
+    name, category, description, location, ownerName, phone, email, emailUpdatesConsent, emailConsentAt: emailUpdatesConsent ? new Date().toISOString() : null, username,
     passwordSalt: credentials.salt, passwordHash: credentials.hash,
     status: "pending", suspended: false, online: false, products: [],
     documents: [], identityVerified: false, businessVerified: false, settlementVerified: false,
@@ -2139,13 +2143,46 @@ app.post("/api/admin/other-businesses", requireSuperAdmin, (req, res) => {
 });
 app.get("/api/admin/other-businesses", requireSuperAdmin, (req, res) => {
   const businesses = readOtherBusinesses().map(item => ({
-    id: item.id, name: item.name, category: item.category, description: item.description, location: item.location,
+    id: item.id, name: item.name, category: item.category, description: item.description, location: item.location, email: item.email || "", emailUpdatesConsent: item.emailUpdatesConsent === true,
     ownerName: item.ownerName, phone: item.phone, username: item.username, status: item.status,
     suspended: item.suspended === true, online: item.online === true, productCount: (item.products || []).length,
     paymentAccountConfigured: Boolean(item.paymentAccountEncrypted && item.paymentAccountStatus === "approved"), documents: (item.documents || []).filter(doc => !doc.supersededAt).map(doc => ({ id: doc.id, type: doc.type, filename: doc.filename, reviewStatus: doc.reviewStatus || "pending", rejectionReason: doc.rejectionReason || "" })), identityVerified: item.identityVerified === true, businessVerified: item.businessVerified === true, settlementVerified: item.settlementVerified === true, createdAt: item.createdAt
   }));
   res.set("Cache-Control", "no-store, private");
   res.json({ businesses });
+});
+app.post("/api/admin/other-businesses/email-updates", requireSuperAdmin, async (req, res) => {
+  const subject = String(req.body.subject || "").trim().slice(0, 160);
+  const message = String(req.body.message || "").trim().slice(0, 8000);
+  const scope = String(req.body.scope || "all_opted_in");
+  if (subject.length < 3 || message.length < 10) return res.status(400).json({ error: "Enter a subject and a message of at least 10 characters." });
+  if (!["all_opted_in", "approved", "pending"].includes(scope)) return res.status(400).json({ error: "Choose a valid recipient group." });
+  const apiKey = String(process.env.RESEND_API_KEY || "").trim();
+  const from = String(process.env.RESEND_FROM_EMAIL || "").trim();
+  if (!apiKey || !from) return res.status(503).json({ error: "Email sending is not configured yet. Add RESEND_API_KEY and RESEND_FROM_EMAIL to the Render service environment." });
+  const eligible = readOtherBusinesses().filter(item => item.email && item.emailUpdatesConsent === true &&
+    (scope === "all_opted_in" || (scope === "approved" ? item.status === "approved" && !item.suspended : item.status === "pending")));
+  const recipients = [...new Map(eligible.map(item => [String(item.email).toLowerCase(), item])).values()];
+  if (!recipients.length) return res.status(409).json({ error: "No businesses in that group have a saved email address and have opted in to updates." });
+  const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+  const html = "<div style=\"font-family:Arial,sans-serif;line-height:1.6;white-space:pre-wrap\">" + escapeHtml(message) + "</div><p style=\"color:#667\">ChowOnCampus Business Updates</p>";
+  let sent = 0, failed = 0;
+  const errors = [];
+  for (let index = 0; index < recipients.length; index += 50) {
+    const batch = recipients.slice(index, index + 50);
+    try {
+      const response = await fetch("https://api.resend.com/emails/batch", {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify(batch.map(item => ({ from, to: [item.email], subject, text: message, html })))
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) { failed += batch.length; errors.push(String(result.message || result.name || "Email provider rejected a batch").slice(0, 180)); }
+      else sent += batch.length;
+    } catch (error) { failed += batch.length; errors.push(String(error.message || "Email provider request failed").slice(0, 180)); }
+  }
+  recordOperationsEvent({ type: "business_email_broadcast", entityType: "business", entityId: "bulk", entityName: "Other Businesses", actorRole: "ultimate_admin", actorId: req.account.username, details: "Subject: " + subject + "; sent: " + sent + "; failed: " + failed });
+  res.json({ ok: failed === 0, sent, failed, total: recipients.length, message: "Email broadcast processed. " + sent + " sent; " + failed + " failed.", errors: errors.slice(0, 3) });
 });
 app.patch("/api/admin/other-businesses/:id", requireSuperAdmin, (req, res) => {
   const action = String(req.body.action || "");

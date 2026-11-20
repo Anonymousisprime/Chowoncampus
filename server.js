@@ -5688,6 +5688,23 @@ app.get("/api/superadmin/ads", requireSuperAdmin, (req, res) => {
   res.setHeader("Cache-Control", "no-store, private");
   res.json({ ads, totals, packages: CAMPUS_AD_PACKAGES, popupPackages: CAMPUS_POPUP_AD_PACKAGES });
 });
+app.delete("/api/superadmin/ads/:id", requireSuperAdmin, (req, res) => {
+  const ads = readCampusAds();
+  const index = ads.findIndex(item => item.id === req.params.id);
+  if (index < 0) return res.status(404).json({ error: "Promotion not found." });
+  const [ad] = ads.splice(index, 1);
+  saveCampusAds(ads);
+  recordOperationsEvent({
+    type: "campus_ad_deleted",
+    entityType: "promotion",
+    entityId: ad.id,
+    entityName: ad.title,
+    actorRole: "ultimate_admin",
+    actorId: req.account.username,
+    details: "Deleted promotion for " + ad.advertiser + "; status: " + ad.status + "; payment received: " + (ad.paymentReceived ? "yes" : "no") + "; recorded price: " + (Number(ad.price) || 0)
+  });
+  res.json({ ok: true, message: "Promotion deleted.", deletedId: ad.id });
+});
 app.post("/api/superadmin/ads", requireSuperAdmin, (req, res) => {
   const title = String(req.body.title || "").trim();
   const advertiser = String(req.body.advertiser || "").trim();

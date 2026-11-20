@@ -1004,15 +1004,56 @@ function renderOrderCard(order) {
 
 let restaurantOrderRefreshInProgress = false;
 let lastRestaurantOrdersSnapshot = "";
+let lastRestaurantOperationsSnapshot = "";
+function syncRestaurantAvailabilityPanel(operations) {
+  if (!operations || state.account?.role !== "restaurant") return;
+  state.restaurantOperations = operations;
+  const accepting = operations.online === true && operations.ordersPaused !== true;
+  const heading = document.querySelector(".restaurant-operations-heading");
+  if (heading) {
+    const title = heading.querySelector("h2");
+    const description = heading.querySelector("p");
+    const pill = heading.querySelector(".restaurant-availability-pill");
+    if (title) title.textContent = accepting ? "You are accepting orders" : operations.ordersPaused ? "Incoming orders are paused" : "Your restaurant is offline";
+    if (description) description.textContent = accepting ? "Students can currently place orders from your restaurant." : operations.ordersPaused ? "Students cannot place new orders until you resume." : "Your restaurant is not accepting new orders until you go online.";
+    if (pill) {
+      pill.textContent = accepting ? "ONLINE" : operations.ordersPaused ? "PAUSED" : "OFFLINE";
+      pill.classList.toggle("is-open", accepting);
+      pill.classList.toggle("is-closed", !accepting);
+    }
+  }
+  const actions = document.querySelector(".restaurant-operations-actions");
+  if (actions) {
+    const reasons = [["high-demand","High order volume"],["temporary-closure","Temporary closure"],["stock-check","Checking food stock"],["staff-shortage","Staff shortage"],["other","Other reason"]];
+    const pauseReason = reasons.find(([value]) => value === operations.pauseReason)?.[1] || "Other reason";
+    actions.innerHTML = '<button type="button" id="toggleRestaurantOnline" class="' + (operations.online ? "danger-button" : "primary-button") + '">' + (operations.online ? "Go offline" : "Go online") + '</button>' +
+      (operations.online && !operations.ordersPaused
+        ? '<label class="restaurant-pause-reason">Pause reason<select id="restaurantPauseReason">' + reasons.map(([value,label]) => '<option value="' + value + '">' + label + '</option>').join("") + '</select></label><button type="button" class="secondary-button" id="toggleRestaurantPause">⏸ Pause incoming orders</button>'
+        : operations.online && operations.ordersPaused
+          ? '<p class="muted">Pause reason: ' + escapeHtml(pauseReason) + '</p><button type="button" class="primary-button" id="toggleRestaurantPause">▶ Resume incoming orders</button>'
+          : '<button type="button" class="secondary-button" disabled title="Go online before pausing orders">⏸ Pause incoming orders</button>');
+  }
+}
 async function refreshRestaurantOrdersInBackground(force = false) {
   if (state.account?.role !== "restaurant" || restaurantOrderRefreshInProgress) return;
   if (!force && (document.visibilityState !== "visible" || Date.now() < dashboardInteractionUntil || ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName))) return;
   if (!document.getElementById("restaurant-section-incoming")) return;
   restaurantOrderRefreshInProgress = true;
   try {
-    const [orderData, agentData] = await Promise.all([api("/api/orders", { cache: "no-store" }), api("/api/agents/available", { cache: "no-store" }).catch(() => ({ agents: state.availableAgents || [] }))]);
+    const [orderData, agentData, operationsData] = await Promise.all([
+      api("/api/orders", { cache: "no-store" }),
+      api("/api/agents/available", { cache: "no-store" }).catch(() => ({ agents: state.availableAgents || [] })),
+      api("/api/restaurant/operations", { cache: "no-store" }).catch(() => null)
+    ]);
     if (state.account?.role !== "restaurant") return;
     if (!force && (Date.now() < dashboardInteractionUntil || ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName))) return;
+    if (operationsData?.operations) {
+      const operationsSnapshot = JSON.stringify(operationsData.operations);
+      if (operationsSnapshot !== lastRestaurantOperationsSnapshot) {
+        lastRestaurantOperationsSnapshot = operationsSnapshot;
+        syncRestaurantAvailabilityPanel(operationsData.operations);
+      }
+    }
     const orders = Array.isArray(orderData.orders) ? orderData.orders : []; state.availableAgents = Array.isArray(agentData.agents) ? agentData.agents : [];
     const snapshot = JSON.stringify(orders.map(order => [order.id, order.status, order.assignedAgentId, order.updatedAt, order.paymentStatus, order.deliveredAt, order.completedAt, order.total]));
     if (!force && snapshot === lastRestaurantOrdersSnapshot) return; lastRestaurantOrdersSnapshot = snapshot;
@@ -1157,7 +1198,8 @@ document.addEventListener("click", async event => {
     if (!result.operations || result.operations.ordersPaused !== ordersPaused) {
       throw new Error("The server did not confirm the incoming-order status change.");
     }
-    state.restaurantOperations = result.operations;
+    lastRestaurantOperationsSnapshot = JSON.stringify(result.operations);
+    syncRestaurantAvailabilityPanel(result.operations);
     await refreshPublicMenu();
     await loadDashboard();
     const status = document.getElementById("restaurantAvailabilityMessage");
@@ -1201,7 +1243,11 @@ document.addEventListener("click", async event => {
       signal: controller.signal,
       cache: "no-store"
     });
-    state.restaurantOperations = result.operations;
+    if (!result.operations || result.operations.online !== online) {
+      throw new Error("The server did not confirm the restaurant's online status change.");
+    }
+    lastRestaurantOperationsSnapshot = JSON.stringify(result.operations);
+    syncRestaurantAvailabilityPanel(result.operations);
     showToast(result.message || (online ? "Your restaurant is now online." : "Your restaurant is now offline."));
     await refreshPublicMenu();
     await loadDashboard();

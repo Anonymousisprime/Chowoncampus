@@ -3698,6 +3698,40 @@ app.get("/api/superadmin/global-operations", requireSuperAdmin, (req, res) => {
   res.json({ ...state, activeDeliveries, acceptedRestaurantOrders });
 });
 
+app.post("/api/superadmin/global-operations/warn", requireSuperAdmin, (req, res) => {
+  const current = readGlobalOperations();
+  if (current.offline) return res.status(409).json({ error: "Global offline mode is already active. Restore the platform before sending a shutdown warning." });
+  const now = new Date().toISOString();
+  const title = "Global shutdown warning — 3 minutes";
+  const message = "ChowOnCampus will go offline in approximately 3 minutes. Please stop accepting new work, update customers where necessary, and safely wrap up current operations. This is a warning only; the Ultimate Admin will activate global offline mode separately.";
+  let notified = { restaurants: 0, agents: 0, businesses: 0 };
+  for (const restaurant of restaurants) {
+    if (!restaurant?.id) continue;
+    createNotification({ role: "restaurant", restaurantId: restaurant.id }, title, message);
+    notified.restaurants++;
+  }
+  for (const agent of readAgentRecords()) {
+    if (!agent?.id) continue;
+    createNotification({ role: "agent", agentId: agent.id }, title, message);
+    notified.agents++;
+  }
+  for (const business of readOtherBusinesses()) {
+    if (!business?.id) continue;
+    createNotification({ role: "business", businessId: business.id }, title, message);
+    notified.businesses++;
+  }
+  recordOperationsEvent({
+    type: "platform_global_shutdown_warning",
+    entityType: "platform",
+    entityId: "global",
+    entityName: "ChowOnCampus",
+    actorRole: "ultimate-admin",
+    actorId: req.account.username,
+    details: "Sent a 3-minute global shutdown warning to " + notified.restaurants + " restaurants, " + notified.agents + " delivery agents and " + notified.businesses + " other businesses."
+  });
+  res.json({ ok: true, notified, message: "3-minute shutdown warning sent to all restaurants, delivery agents and other businesses. The platform has not been shut down." });
+});
+
 app.patch("/api/superadmin/global-operations", requireSuperAdmin, (req, res) => {
   if (typeof req.body.offline !== "boolean") return res.status(400).json({ error: "Choose Go Offline or Go Online." });
   const current = readGlobalOperations();

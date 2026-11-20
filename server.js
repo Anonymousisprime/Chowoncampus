@@ -1103,10 +1103,13 @@ function setSessionCookie(res, token) {
 app.post("/api/student/register", (req, res) => {
   const name = String(req.body.name || "").trim();
   const phone = normalizeNigerianPhone(req.body.phone);
+  const email = String(req.body.email || "").trim().toLowerCase();
+  const emailUpdatesConsent = req.body.emailUpdatesConsent === true;
   const password = String(req.body.password || "");
   const referralCodeInput = String(req.body.referralCode || "").trim().toUpperCase();
   if (name.length < 2 || name.length > 100) return res.status(400).json({ error: "Enter your name (2–100 characters)." });
   if (!phone) return res.status(400).json({ error: "Enter a valid phone number, e.g. 08012345678." });
+  if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || email.length > 254) return res.status(400).json({ error: "Enter a valid email address." });
   if (password.length < 10 || password.length > 128) return res.status(400).json({ error: "Use a password between 10 and 128 characters." });
   const consents = req.body.consents || {};
   if (consents.terms !== true || consents.privacy !== true || consents.delivery !== true) {
@@ -1124,7 +1127,7 @@ app.post("/api/student/register", (req, res) => {
     }
     const passwordData = hashPassword(password);
     const consentedAt = new Date().toISOString();
-    const student = { id: crypto.randomUUID(), name, phone, passwordSalt: passwordData.salt, passwordHash: passwordData.hash, role: "student", verifiedPhone: false, referralCode: createReferralCode(students), referredByPhone: referrer ? referrer.phone : null, referralQualifyingOrderIds: [], referralRewardOrderIds: [], foodbackBalance: 0, foodbackLedger: [], policyConsent: { termsAcceptedAt: consentedAt, privacyAcceptedAt: consentedAt, deliveryPolicyAcceptedAt: consentedAt }, createdAt: consentedAt, lastActiveAt: consentedAt };
+    const student = { id: crypto.randomUUID(), name, phone, email, emailUpdatesConsent, emailConsentAt: emailUpdatesConsent ? consentedAt : null, passwordSalt: passwordData.salt, passwordHash: passwordData.hash, role: "student", verifiedPhone: false, referralCode: createReferralCode(students), referredByPhone: referrer ? referrer.phone : null, referralQualifyingOrderIds: [], referralRewardOrderIds: [], foodbackBalance: 0, foodbackLedger: [], policyConsent: { termsAcceptedAt: consentedAt, privacyAcceptedAt: consentedAt, deliveryPolicyAcceptedAt: consentedAt }, createdAt: consentedAt, lastActiveAt: consentedAt };
     students.push(student);
     saveStudents(students);
     student.lastActiveAt = new Date().toISOString();
@@ -1137,6 +1140,46 @@ app.post("/api/student/register", (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message || "Could not create your account." });
   }
+});
+
+// Ultimate Admin student email broadcast. Only students who explicitly opted in are eligible.
+app.get("/api/admin/students/email-updates", requireSuperAdmin, (req, res) => {
+  const students = readStudents();
+  const eligible = students.filter(student => !student.banned && student.email && student.emailUpdatesConsent === true);
+  const uniqueEmails = new Set(eligible.map(student => String(student.email).trim().toLowerCase()).filter(Boolean));
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ optedInStudents: uniqueEmails.size, totalStudents: students.filter(student => !student.banned).length });
+});
+
+app.post("/api/admin/students/email-updates", requireSuperAdmin, async (req, res) => {
+  const subject = String(req.body.subject || "").trim().slice(0, 160);
+  const message = String(req.body.message || "").trim().slice(0, 8000);
+  if (subject.length < 3 || message.length < 10) return res.status(400).json({ error: "Enter a subject and a message of at least 10 characters." });
+  const apiKey = String(process.env.RESEND_API_KEY || "").trim();
+  const from = String(process.env.RESEND_FROM_EMAIL || "").trim();
+  if (!apiKey || !from) return res.status(503).json({ error: "Email sending is not configured yet. Add RESEND_API_KEY and RESEND_FROM_EMAIL to the Render service environment." });
+  const eligible = readStudents().filter(student => !student.banned && student.email && student.emailUpdatesConsent === true);
+  const recipients = [...new Map(eligible.map(student => [String(student.email).trim().toLowerCase(), student])).values()];
+  if (!recipients.length) return res.status(409).json({ error: "No students have a saved email address and have opted in to updates." });
+  const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+  const html = "<div style='font-family:Arial,sans-serif;line-height:1.6;white-space:pre-wrap'>" + escapeHtml(message) + "</div><p style='color:#667'>ChowOnCampus Student Updates · To stop receiving updates, contact chowoncampus@gmail.com</p>";
+  let sent = 0, failed = 0;
+  const errors = [];
+  for (let index = 0; index < recipients.length; index += 50) {
+    const batch = recipients.slice(index, index + 50);
+    try {
+      const response = await fetch("https://api.resend.com/emails/batch", {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify(batch.map(student => ({ from, to: [String(student.email).trim().toLowerCase()], subject, text: message, html })))
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) { failed += batch.length; errors.push(String(result.message || result.name || "Email provider rejected a batch").slice(0, 180)); }
+      else sent += batch.length;
+    } catch (error) { failed += batch.length; errors.push(String(error.message || "Email provider request failed").slice(0, 180)); }
+  }
+  recordOperationsEvent({ type: "student_email_broadcast", entityType: "student", entityId: "bulk", entityName: "Opted-in Students", actorRole: "ultimate_admin", actorId: req.account.username, details: "Subject: " + subject + "; sent: " + sent + "; failed: " + failed });
+  res.json({ ok: failed === 0, sent, failed, total: recipients.length, message: "Student email broadcast processed. " + sent + " sent; " + failed + " failed.", errors: errors.slice(0, 3) });
 });
 
 // Student-facing community metrics. Return aggregate counts only; never expose student identities.

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#176b45"><title>Student Email Updates | ChowOnCampus</title>
+<style>
+:root{font-family:Inter,system-ui,sans-serif;color:#163426;background:#f3f7f4}*{box-sizing:border-box}body{margin:0}.top{background:#fff;padding:16px 5%;border-bottom:1px solid #dfe9e1}.brand{color:#176b45;font-weight:900;text-decoration:none}.wrap{max-width:900px;margin:28px auto;padding:0 16px}.card{background:#fff;border:1px solid #dfe9e1;border-radius:14px;padding:20px;margin:16px 0}.muted{color:#687a6e;line-height:1.5}.metric{font-size:30px;font-weight:850;margin:8px 0}.btn{border:0;border-radius:9px;padding:12px 16px;background:#176b45;color:white;font-weight:750;cursor:pointer}.btn:disabled{opacity:.55;cursor:wait}input,textarea{width:100%;padding:12px;border:1px solid #cfddd2;border-radius:9px;font:inherit;margin:7px 0 14px}textarea{min-height:190px;resize:vertical}label{font-weight:700}.status{min-height:24px;line-height:1.5}.note{background:#f0f6f1;border-radius:10px;padding:12px}
+</style></head>
+<body>
+<header class="top"><a class="brand" href="/admin-dashboard.html">ChowOnCampus · Ultimate Admin</a></header>
+<main class="wrap">
+<h1>Student Email Updates</h1>
+<p class="muted">Send one announcement to every student who provided an email address and explicitly opted in. The system sends individual emails in batches; recipients never see one another's addresses.</p>
+<section class="card">
+<h2>Eligible audience</h2><div class="metric" id="eligibleCount">—</div><p class="muted" id="audienceNote">Loading opted-in student count…</p><button class="btn" type="button" id="refreshCount">Refresh count</button>
+</section>
+<section class="card">
+<h2>Compose announcement</h2>
+<form id="broadcastForm">
+<label for="subject">Email subject</label><input id="subject" name="subject" required minlength="3" maxlength="160" placeholder="e.g. Important ChowOnCampus update">
+<label for="message">Message</label><textarea id="message" name="message" required minlength="10" maxlength="8000" placeholder="Write your announcement here…"></textarea>
+<p class="note muted">Only non-banned students who explicitly opted in will receive this email. Students who did not opt in are excluded. Review your message carefully before sending.</p>
+<label style="display:flex;gap:10px;align-items:flex-start;margin:16px 0;font-weight:600"><input type="checkbox" name="confirm" required style="width:18px;height:18px;margin:2px 0;flex:0 0 18px"> I have reviewed this message and confirm it is intended for the opted-in students.</label>
+<button class="btn" type="submit">Send to all opted-in students</button>
+</form>
+<p class="status" id="broadcastStatus" role="status" aria-live="polite"></p>
+</section>
+</main>
+<script>
+const $=selector=>document.querySelector(selector);
+async function loadCount(){
+ const out=$("#eligibleCount"),note=$("#audienceNote");
+ out.textContent="…";note.textContent="Checking eligible student accounts…";
+ try{
+  const response=await fetch("/api/admin/students/email-updates",{credentials:"same-origin",cache:"no-store"});
+  const data=await response.json();if(!response.ok)throw Error(data.error||"Could not load the student count.");
+  out.textContent=Number(data.optedInStudents||0).toLocaleString();
+  note.textContent=Number(data.totalStudents||0).toLocaleString()+" active, non-banned student accounts in total. Only opted-in students with email addresses are eligible.";
+ }catch(error){out.textContent="Unavailable";note.textContent=error.message||"Could not load the student count."}
+}
+$("#refreshCount").addEventListener("click",loadCount);
+$("#broadcastForm").addEventListener("submit",async event=>{
+ event.preventDefault();const form=event.currentTarget,button=form.querySelector('button[type="submit"]'),status=$("#broadcastStatus");
+ if(!form.reportValidity())return;
+ const count=$("#eligibleCount").textContent;
+ if(!confirm("Send this email to all "+count+" opted-in students? Each student receives an individual email."))return;
+ const data={subject:$("#subject").value.trim(),message:$("#message").value.trim()};
+ button.disabled=true;status.textContent="Sending student email updates…";
+ try{
+  const response=await fetch("/api/admin/students/email-updates",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});
+  const result=await response.json();if(!response.ok)throw Error(result.error||"Could not send student email updates.");
+  status.textContent=result.message+(result.errors?.length?" Details: "+result.errors.join("; "):"");
+  if(result.sent>0)$("#message").value="";
+  await loadCount();
+ }catch(error){status.textContent=error.message||"Email sending failed."}
+ finally{button.disabled=false}
+});
+loadCount();
+</script>
+</body></html>

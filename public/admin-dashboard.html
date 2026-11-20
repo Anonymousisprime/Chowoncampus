@@ -120,6 +120,7 @@ input,select,textarea,button{max-width:100%}
       <div class="metric"><small>Deliveries already underway</small><strong id="globalActiveDeliveries">—</strong></div>
     </div>
     <div class="tools">
+      <button class="btn" id="globalShutdownWarning" type="button" style="background:#a16207;color:#fff">⚠ Send 3-minute shutdown warning</button>
       <button class="btn" id="globalGoOffline" type="button" style="background:#b42318;color:#fff">🔴 Go Offline</button>
       <button class="btn" id="globalGoOnline" type="button" style="background:#167647;color:#fff">🟢 Go Online</button>
     </div>
@@ -423,6 +424,24 @@ async function setGlobalOperations(offline){
     buttons.forEach(button=>button.disabled=false);
   }
 }
+$("#globalShutdownWarning").addEventListener("click",async()=>{
+  if(!isSuperAdmin)return;
+  if(!confirm("Send a warning to every restaurant, delivery agent and other business that ChowOnCampus will go offline in 3 minutes? This sends notifications only; it will NOT shut down the platform automatically."))return;
+  const button=$("#globalShutdownWarning");
+  button.disabled=true;
+  const status=$("#globalOperationsStatus");
+  status.className="status";
+  status.textContent="Sending shutdown warning…";
+  try{
+    const response=await fetch("/api/superadmin/global-operations/warn",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({})});
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw Error(data.error||"Could not send shutdown warning.");
+    status.textContent=data.message+" Notified: "+data.notified.restaurants+" restaurants, "+data.notified.agents+" agents, "+data.notified.businesses+" other businesses.";
+  }catch(error){
+    status.className="status error";
+    status.textContent=error.message||"Could not send shutdown warning.";
+  }finally{button.disabled=false;}
+});
 $("#globalGoOffline").addEventListener("click",()=>setGlobalOperations(true));
 $("#globalGoOnline").addEventListener("click",()=>setGlobalOperations(false));
 async function load(){ $("#globalStatus").textContent="Loading…";try{const meResponse=await fetch("/api/me",{credentials:"same-origin"});const meData=await meResponse.json();isSuperAdmin=Boolean(meData.account&&meData.account.isSuperAdmin);$("#globalOperationsPanel").style.display=isSuperAdmin?"block":"none";if(isSuperAdmin)await loadGlobalOperations();$("#operationsRecordsLink").style.display=isSuperAdmin?"inline-flex":"none";$("#dailyReportLink").style.display=isSuperAdmin?"inline-flex":"none";$("#vendorVerificationLink").style.display=isSuperAdmin?"inline-flex":"none";$("#otherBusinessesLink").style.display=isSuperAdmin?"inline-flex":"none";$("#advertisingPromotionsLink").style.display=isSuperAdmin?"inline-flex":"none";$("#adminAccountsPanel").style.display=isSuperAdmin?"block":"none";$("#vendorVerificationPanel").style.display="none";$("#ultimateAdminHubLink").style.display=isSuperAdmin?"inline-flex":"none";const [or,sr,rr,ar]=await Promise.all([fetch("/api/orders",{credentials:"same-origin",cache:"no-store"}),fetch("/api/admin/students",{credentials:"same-origin",cache:"no-store"}),fetch("/api/admin/restaurants",{credentials:"same-origin",cache:"no-store"}),fetch("/api/agents",{credentials:"same-origin",cache:"no-store"})]);if([or,sr,rr,ar].some(r=>r.status===401)){location.href="/admin-login.html";return}if([or,sr,rr,ar].some(r=>r.status===403)){throw Error("Admin access is required to view platform-wide data.")}const [od,sd,rd,ad]=await Promise.all([or.json(),sr.json(),rr.json(),ar.json()]);if(!or.ok)throw Error(od.error||"Could not load orders.");if(!sr.ok)throw Error(sd.error||"Could not load students.");if(!rr.ok)throw Error(rd.error||"Could not load restaurants.");if(!ar.ok)throw Error(ad.error||"Could not load agents.");orders=od.orders||[];students=sd.students||[];restaurants=rd.restaurants||[];agents=ad.agents||[];if(isSuperAdmin){const adminResponse=await fetch("/api/superadmin/admins",{credentials:"same-origin"});const adminData=await adminResponse.json();if(!adminResponse.ok)throw Error(adminData.error||"Could not load admin accounts.");admins=adminData.admins||[];renderAdmins();}$("#totalOrders").textContent=orders.length;$("#pendingOrders").textContent=orders.filter(o=>o.status==="Awaiting payment").length;$("#activeOrders").textContent=orders.filter(o=>["Confirmed","Preparing","Ready for pickup","Out for delivery"].includes(o.status)).length;$("#totalStudents").textContent=students.length;renderOrders();renderStudents();renderRestaurants();renderAgents();await loadRatings();await loadLocations();await loadEarnings();if(isSuperAdmin)await loadVendorVerifications();$("#updated").textContent="Updated "+new Date().toLocaleTimeString();$("#globalStatus").textContent="Data loaded successfully."}catch(e){$("#globalStatus").textContent=e.message||"Unable to load dashboard data.";$("#globalStatus").className="status error"}}

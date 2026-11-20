@@ -1162,7 +1162,7 @@ app.post("/api/admin/students/email-updates", requireSuperAdmin, async (req, res
   const recipients = [...new Map(eligible.map(student => [String(student.email).trim().toLowerCase(), student])).values()];
   if (!recipients.length) return res.status(409).json({ error: "No students have a saved email address and have opted in to updates." });
   const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
-  const html = "<div style=\\"font-family:Arial,sans-serif;line-height:1.6;white-space:pre-wrap\\">" + escapeHtml(message) + "</div><p style=\\"color:#667\\">ChowOnCampus Student Updates · To stop receiving updates, contact chowoncampus@gmail.com</p>";
+  const html = "<div style='font-family:Arial,sans-serif;line-height:1.6;white-space:pre-wrap'>" + escapeHtml(message) + "</div><p style='color:#667'>ChowOnCampus Student Updates · To stop receiving updates, contact chowoncampus@gmail.com</p>";
   let sent = 0, failed = 0;
   const errors = [];
   for (let index = 0; index < recipients.length; index += 50) {

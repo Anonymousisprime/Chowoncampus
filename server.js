@@ -1863,9 +1863,7 @@ app.patch("/api/admin/other-businesses/:id/documents/:docId", requireSuperAdmin,
   res.json({ ok: true, message: "Document review saved.", verification: { identity: business.identityVerified, business: business.businessVerified, settlement: business.settlementVerified } });
 });
 app.get("/api/business/orders", requireRole("business"), (req, res) => {
-  const orders = readOrders().filter(order => order.merchantType === "business" && order.businessId === req.account.businessId &&
-    (isVerifiedOrderPayment(order) ||
-     (order.paymentMethod === "bank_transfer" && Boolean(order.paymentReceiptEncrypted))))
+  const orders = readOrders().filter(order => order.merchantType === "business" && order.businessId === req.account.businessId)
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).map(order => publicOrder(order, true));
   res.set("Cache-Control", "no-store, private");
   res.json({ orders });

@@ -4867,12 +4867,26 @@ function assignReadyOrders() {
     // to claim that an agent is the nearest one.
     const locationFreshMs = 2 * 60 * 1000;
     const nowMs = Date.now();
-    const pinnedRestaurant = restaurants.find(item => item.id === order.restaurantId);
-    const targetLatitude = order.restaurantLatitude ?? pinnedRestaurant?.latitude;
-    const targetLongitude = order.restaurantLongitude ?? pinnedRestaurant?.longitude;
-    const hasTargetCoords = targetLatitude !== null && targetLatitude !== undefined &&
-      targetLongitude !== null && targetLongitude !== undefined &&
-      Number.isFinite(Number(targetLatitude)) && Number.isFinite(Number(targetLongitude));
+    const pinnedMerchant = order.merchantType === "business"
+      ? readOtherBusinesses().find(item => String(item.id) === String(order.businessId))
+      : restaurants.find(item => String(item.id) === String(order.restaurantId));
+    const targetLatitude = order.restaurantLatitude ?? pinnedMerchant?.latitude;
+    const targetLongitude = order.restaurantLongitude ?? pinnedMerchant?.longitude;
+    const hasTargetCoords = validCoordinatePair(targetLatitude, targetLongitude);
+    // A nearest-agent decision is only meaningful when the pickup has a verified
+    // GPS pin. Do not silently fall back to round-robin assignment.
+    if (!hasTargetCoords) {
+      if (!order.pickupLocationMissingNotifiedAt) {
+        const message = `Order ${order.id} is ready, but it cannot be dispatched until this business saves its pickup GPS location. Add the pickup pin, then the nearest available agent can be selected.`;
+        if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, "Pickup location required", message, order.id);
+        else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Pickup location required", message, order.id);
+        createNotification({ role: "admin" }, "Pickup location required", message, order.id);
+        order.pickupLocationMissingNotifiedAt = new Date().toISOString();
+        order.updatedAt = order.pickupLocationMissingNotifiedAt;
+        changed = true;
+      }
+      continue;
+    }
     const eligible = records.filter(agent => {
       if (!agent.online || busyAgentIds.has(agent.id) || agent.activeOrderId || tried.has(agent.id)) return false;
       const hasAgentCoords = agent.latitude !== null && agent.latitude !== undefined &&
@@ -4881,10 +4895,8 @@ function assignReadyOrders() {
       const locationIsFresh = agent.locationUpdatedAt &&
         nowMs - new Date(agent.locationUpdatedAt).getTime() <= locationFreshMs &&
         nowMs - new Date(agent.locationUpdatedAt).getTime() >= 0;
-      // When the restaurant has a pin, only agents with a fresh GPS fix can be
-      // ranked and contacted. Without a pin, retain the existing fair-rotation fallback.
-      if (hasTargetCoords) return hasAgentCoords && locationIsFresh;
-      return true;
+      // Only agents with a valid, recent GPS fix can be ranked by pickup distance.
+      return hasAgentCoords && locationIsFresh;
     });
     if (!eligible.length) {
       if (hasTargetCoords) {
@@ -4894,15 +4906,12 @@ function assignReadyOrders() {
       continue;
     }
 
-    // Pickup is at the restaurant. Never use the student's delivery pin as a
-    // substitute for restaurant coordinates; without a pickup pin use fair rotation.
-    eligible.sort((a, b) => {
-      if (hasTargetCoords) {
-        return distanceKm(targetLatitude, targetLongitude, a.latitude, a.longitude) -
-          distanceKm(targetLatitude, targetLongitude, b.latitude, b.longitude);
-      }
-      return new Date(a.lastAssignedAt || 0) - new Date(b.lastAssignedAt || 0);
-    });
+    // Pickup is at the merchant's saved GPS pin. Rank by straight-line distance
+    // from each agent's latest GPS fix; never substitute the student's delivery pin.
+    eligible.sort((a, b) =>
+      distanceKm(targetLatitude, targetLongitude, a.latitude, a.longitude) -
+      distanceKm(targetLatitude, targetLongitude, b.latitude, b.longitude)
+    );
 
     const agent = eligible[0];
     const now = new Date();

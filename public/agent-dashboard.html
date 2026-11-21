@@ -262,7 +262,7 @@ async function loadAgentRatings(){
 $("#refreshAgentRatings").addEventListener("click",loadAgentRatings);
 
 function agentOrderEditorIsActive(){const active=document.activeElement;return Boolean(active&&active.closest("#agentChatForm, #deliveryCodeForm, [data-pickup-verification-order]"));}
-let agentGpsWatchId=null,agentGpsLastSentAt=0,agentGpsLastSentPosition=null,agentGpsUpdateBusy=false;
+let agentGpsWatchId=null,agentGpsHeartbeatTimer=null,agentGpsLastSentAt=0,agentGpsLastSentPosition=null,agentGpsUpdateBusy=false;
 async function sendAgentGpsPosition(position){
  if(!online||agentGpsUpdateBusy)return;
  const latitude=Number(position.coords.latitude),longitude=Number(position.coords.longitude);
@@ -283,7 +283,8 @@ async function sendAgentGpsPosition(position){
 }
 function stopAgentLocationTracking(){
  if(agentGpsWatchId!==null&&navigator.geolocation)navigator.geolocation.clearWatch(agentGpsWatchId);
- agentGpsWatchId=null;agentGpsLastSentAt=0;agentGpsLastSentPosition=null;
+ if(agentGpsHeartbeatTimer!==null)clearInterval(agentGpsHeartbeatTimer);
+ agentGpsWatchId=null;agentGpsHeartbeatTimer=null;agentGpsLastSentAt=0;agentGpsLastSentPosition=null;
  const gps=$("#agentGpsStatus");if(gps)gps.textContent="GPS tracking paused while you are offline.";
 }
 function startAgentLocationTracking(){
@@ -296,6 +297,14 @@ function startAgentLocationTracking(){
   const status=$("#agentGpsStatus");if(status)status.textContent=message;
   const navigation=$("#agentNavigationStatus");if(navigation)navigation.textContent=message;
  },{enableHighAccuracy:true,maximumAge:5000,timeout:20000});
+ // Ask the browser for a fresh GPS fix every 30 seconds as a heartbeat too.
+ // This keeps stationary agents' timestamps fresh without reusing cached coordinates.
+ agentGpsHeartbeatTimer=setInterval(()=>{
+  if(!online||!navigator.geolocation)return;
+  navigator.geolocation.getCurrentPosition(sendAgentGpsPosition,error=>{
+   const status=$("#agentGpsStatus");if(status&&error.code===1)status.textContent="Location permission is blocked. Enable it to receive nearest-agent dispatch.";
+  },{enableHighAccuracy:true,maximumAge:0,timeout:20000});
+ },30000);
 }
 async function load(){try{const me=await api("/api/me");account=me.account;if(!account||account.role!=="agent"){location.href="/agent-login.html";return}$("#agentName").textContent="Welcome, "+account.name+"! · "+account.username;const a=await api("/api/agents/me");online=Boolean(a.online);$("#successfulDeliveries").textContent=String(Number(a.successfulDeliveries)||0);renderAvailability();if(online)startAgentLocationTracking();else stopAgentLocationTracking();await loadAgentNotifications();if(!agentPushStatusChecked){agentPushStatusChecked=true;refreshAgentPushStatus();}const o=await api("/api/orders");orders=o.orders||[];if(!agentOrderFormBusy&&!agentOrderEditorIsActive())renderOrders();else{const active=orders.find(order=>order.status==="Out for delivery");if(active&&$("#agentChatMessages"))loadAgentChat(active.id);}await loadAgentEarnings();await loadAgentRatings();}catch(e){if(String(e.message).includes("log in")){stopAgentLocationTracking();location.href="/agent-login.html";return}setMessage(e.message||"Could not load your dashboard.",true)}}
 $("#toggleOnline").addEventListener("click",async()=>{const button=$("#toggleOnline");button.disabled=true;try{const d=await api("/api/agent/availability",{method:"PATCH",body:JSON.stringify({online:!online})});online=d.online;renderAvailability();setMessage(online?"You're online. Keep this dashboard open and allow GPS so dispatch can choose the nearest available agent.":"You're offline and won't receive new assignments.");if(online)startAgentLocationTracking();else stopAgentLocationTracking();await load()}catch(e){setMessage(e.message,true)}finally{button.disabled=false}});

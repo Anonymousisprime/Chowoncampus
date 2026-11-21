@@ -232,7 +232,7 @@ async function start() {
   await initializePersistentStorage();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || (process.env.RENDER_SERVICE_ID ? 10000 : 3000);
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 // Fixed delivery fee for every order.
 const FIXED_DELIVERY_FEE = 300;
@@ -5846,7 +5846,7 @@ app.use("/api", (req, res) => {
   res.status(404).json({ error: "API endpoint not found." });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`Chowoncampus running at http://localhost:${PORT}`);
   for (const restaurant of restaurants) restaurantOnlineSnapshot.set(restaurant.id, restaurantAcceptsOrders(restaurant));
   runSmartNotificationSweep();

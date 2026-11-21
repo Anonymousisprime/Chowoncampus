@@ -88,7 +88,7 @@ input,select,textarea{min-width:0}
   <a class="academy-float" href="/academy.html" aria-label="Open ChowOnCampus Academy">🎓 Academy</a><header class="top"><a class="brand" href="/">Chowoncampus · Delivery</a><div class="row"><span id="agentName" class="muted">Loading agent…</span><button class="btn light" id="openChangePassword" type="button">Change password</button><button class="btn light" id="logout">Log out</button></div></header>
 <main class="wrap"><h1>Delivery dashboard</h1><p class="muted">Go online when you're ready to receive deliveries. Orders marked ready for pickup are assigned automatically.</p>
 <section class="panel"><div class="row"><div><strong>Your availability</strong><p id="availabilityHelp" class="muted">Loading availability…</p></div><div class="row"><span id="availabilityPill" class="pill off">Offline</span><button class="btn primary" id="toggleOnline">Go online</button></div></div><p id="pageMessage" class="status" role="status"></p></section>
-<section class="panel" id="agentNotificationsPanel"><div class="row"><div><h2>Notifications <span id="agentUnreadCount" class="pill off">0 unread</span></h2><p class="muted">Pickup requests, delivery updates, and payment records appear here.</p></div><div class="notification-actions"><button class="btn light" id="refreshAgentNotifications" type="button">Refresh notifications</button><button class="btn light" id="clearAgentNotifications" type="button">Clear notifications</button></div></div><p id="agentNotificationsStatus" class="status" role="status">Loading notifications…</p><div id="agentNotificationsList"><div class="empty">Loading notifications…</div></div></section>
+<section class="panel" id="agentNotificationsPanel"><div class="row"><div><h2>Notifications <span id="agentUnreadCount" class="pill off">0 unread</span></h2><p class="muted">Pickup requests, delivery updates, and payment records appear here.</p><div class="details"><p id="agentPushSetupStatus" class="status" role="status">Checking background alert setup…</p><div class="form-actions"><button class="btn light" id="agentEnableBackgroundAlerts" type="button">Enable background alerts</button><button class="btn light" id="agentTestBackgroundAlert" type="button">Send test alert</button></div></div></div><div class="notification-actions"><button class="btn light" id="refreshAgentNotifications" type="button">Refresh notifications</button><button class="btn light" id="clearAgentNotifications" type="button">Clear notifications</button></div></div><p id="agentNotificationsStatus" class="status" role="status">Loading notifications…</p><div id="agentNotificationsList"><div class="empty">Loading notifications…</div></div></section>
 <section class="panel"><div class="row"><div><h2>My performance</h2><p class="muted">Your completed deliveries across all time.</p></div><div class="stat" style="min-width:190px"><span>Successful deliveries</span><span id="successfulDeliveries" class="stat-number">0</span></div></div></section>
 <section class="panel" id="agentRatingsPanel"><div class="row"><div><h2>Student ratings &amp; feedback</h2><p class="muted">See how students rated your delivery service.</p></div><button class="btn light" id="refreshAgentRatings" type="button">Refresh ratings</button></div><div id="agentRatingSummary" class="details">Loading ratings…</div><div id="agentRecentReviews"></div></section>
 <section class="panel" id="agentEarningsPanel"><div class="row"><div><h2>Monthly earnings</h2><p class="muted">Your completed deliveries, recorded payments, and outstanding balance.</p></div><div class="tools"><input class="search" id="agentEarningsMonth" type="month" aria-label="Earnings month"><button class="btn light" id="refreshAgentEarnings" type="button">View month</button></div></div><p id="agentEarningsStatus" class="status" role="status">Loading monthly earnings…</p><div class="cards" id="agentEarningsTotals"><div class="metric"><small>Earned</small><strong>—</strong></div><div class="metric"><small>Paid</small><strong>—</strong></div><div class="metric"><small>Outstanding</small><strong>—</strong></div></div><h3>Monthly payment records</h3><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:650px"><thead><tr><th style="text-align:left;padding:10px">Paid date</th><th style="text-align:left;padding:10px">Amount</th><th style="text-align:left;padding:10px">Transfer reference</th><th style="text-align:left;padding:10px">Note</th></tr></thead><tbody id="agentPaymentsBody"><tr><td colspan="4" class="empty">Loading payment records…</td></tr></tbody></table></div></section>
@@ -111,6 +111,81 @@ $("#orders").innerHTML='<article class="order"><div class="row"><div><span class
 let activeAgentChatOrderId=null,agentChatPollTimer=null;function openAgentFullChat(orderId){activeAgentChatOrderId=orderId;$("#agentFullChatOrder").textContent="Order "+orderId;$("#agentTemporaryChatPage").hidden=false;loadAgentChat(orderId);if(agentChatPollTimer)clearInterval(agentChatPollTimer);agentChatPollTimer=setInterval(()=>{if(activeAgentChatOrderId===orderId)loadAgentChat(orderId)},4000);$("#agentChatForm").elements.message.focus({preventScroll:true});}function closeAgentFullChat(){const page=$("#agentTemporaryChatPage");if(page)page.hidden=true;activeAgentChatOrderId=null;if(agentChatPollTimer)clearInterval(agentChatPollTimer);agentChatPollTimer=null;}document.addEventListener("click",e=>{const open=e.target.closest("[data-open-agent-chat]");if(open){openAgentFullChat(open.dataset.openAgentChat);return;}if(e.target.closest("#closeAgentFullChat"))closeAgentFullChat();});async function loadAgentChat(orderId){const box=$("#agentChatMessages");if(!box)return;try{const result=await api("/api/orders/"+encodeURIComponent(orderId)+"/chat");const current=$("#agentChatMessages");if(!current)return;current.innerHTML=result.messages.length?result.messages.map(m=>'<div style="padding:9px;margin:6px 0;border-radius:10px;background:'+(m.senderRole==="agent"?"#e5f3e9":"#fff")+';border:1px solid #e1eae3"><strong>'+esc(m.senderName)+'</strong><p style="white-space:pre-wrap;overflow-wrap:anywhere">'+esc(m.message)+'</p><small>'+esc(new Date(m.sentAt).toLocaleTimeString())+'</small></div>').join(""):"<p class=muted>No messages yet. Send the customer an update.</p>";current.scrollTop=current.scrollHeight}catch(e){if($("#agentChatMessages"))$("#agentChatMessages").textContent=e.message}}
 document.addEventListener("submit",async e=>{const pickupForm=e.target.closest("[data-pickup-verification-order]");if(pickupForm){e.preventDefault();const input=pickupForm.elements.pickupVerificationCode;const button=pickupForm.querySelector('button[type="submit"]');const message=pickupForm.querySelector("[data-pickup-verification-message]");button.disabled=true;message.textContent="Verifying restaurant pickup code…";try{await api("/api/orders/"+encodeURIComponent(pickupForm.dataset.pickupVerificationOrder)+"/status",{method:"PATCH",body:JSON.stringify({status:"Out for delivery",pickupVerificationCode:input.value})});message.textContent="Pickup verified. Delivery started.";setMessage("Restaurant pickup verified. You can now deliver the order.");await load()}catch(err){message.textContent=err.message||"Could not verify pickup code.";setMessage(message.textContent,true)}finally{button.disabled=false}return}const handoverForm=e.target.closest("#deliveryCodeForm");if(handoverForm){e.preventDefault();const input=handoverForm.elements.deliveryCode;const button=handoverForm.querySelector('button[type="submit"]');const message=handoverForm.querySelector("[data-delivery-code-message]");button.disabled=true;agentOrderFormBusy=true;message.textContent="Verifying handover code…";try{await api("/api/orders/"+encodeURIComponent(handoverForm.dataset.deliveryCodeOrder)+"/status",{method:"PATCH",body:JSON.stringify({status:"Completed",deliveryCode:input.value.trim().toUpperCase()})});message.textContent="Code verified. Delivery completed.";setMessage("Handover code verified. Delivery completed.");await load()}catch(err){message.textContent=err.message||"Could not verify code.";setMessage(message.textContent,true)}finally{agentOrderFormBusy=false;button.disabled=false}return}const form=e.target.closest("#agentChatForm");if(!form)return;e.preventDefault();const input=form.elements.message;const message=input.value.trim();const orderId=activeAgentChatOrderId;if(!message||!orderId)return;const button=form.querySelector("button[type=submit]");button.disabled=true;agentOrderFormBusy=true;try{await api("/api/orders/"+encodeURIComponent(orderId)+"/chat",{method:"POST",body:JSON.stringify({message})});input.value="";await loadAgentChat(orderId)}catch(err){$("#agentChatStatus").textContent=err.message}finally{agentOrderFormBusy=false;button.disabled=false}});
 async function api(url,options={}){const r=await fetch(url,{credentials:"same-origin",headers:{"Content-Type":"application/json",...(options.headers||{})},...options});const d=await r.json();if(!r.ok)throw Error(d.error||"Request failed.");return d}
+
+let agentPushStatusChecked=false;
+function agentUrlBase64ToUint8Array(base64String){
+  const padding="=".repeat((4-base64String.length%4)%4);
+  const raw=atob((base64String+padding).replace(/-/g,"+").replace(/_/g,"/"));
+  return Uint8Array.from(raw,char=>char.charCodeAt(0));
+}
+function setAgentPushStatus(message,isError=false){
+  const status=$("#agentPushSetupStatus");
+  if(!status)return;
+  status.textContent=message;
+  status.className="status"+(isError?" error":"");
+}
+async function enableAgentBackgroundPush(){
+  if(!("serviceWorker" in navigator)||!("PushManager" in window)||!("Notification" in window)){
+    throw Error("This browser does not support background push. On iPhone, use Safari and add ChowOnCampus to your Home Screen first.");
+  }
+  if(Notification.permission==="default"){
+    const permission=await Notification.requestPermission();
+    if(permission!=="granted")throw Error("Notification permission was not granted. Allow notifications in your browser settings and try again.");
+  }
+  if(Notification.permission!=="granted")throw Error("Notifications are blocked for this site. Allow them in your browser settings, then try again.");
+  const registration=await navigator.serviceWorker.register("/sw.js",{updateViaCache:"none"});
+  await registration.update().catch(()=>{});
+  await navigator.serviceWorker.ready;
+  const key=await api("/api/push/public-key");
+  if(!key.configured||!key.publicKey)throw Error("Background push is not configured on the server. Contact ChowOnCampus support.");
+  let subscription=await registration.pushManager.getSubscription();
+  if(subscription){
+    const existingKey=subscription.options?.applicationServerKey;
+    if(existingKey){
+      const bytes=new Uint8Array(existingKey);
+      const existingBase64=btoa(String.fromCharCode(...bytes)).replace(/=/g,"").replace(/\+/g,"-").replace(/\//g,"_");
+      if(existingBase64!==key.publicKey.replace(/=/g,"")){
+        await subscription.unsubscribe();
+        subscription=null;
+      }
+    }
+  }
+  if(!subscription){
+    subscription=await registration.pushManager.subscribe({
+      userVisibleOnly:true,
+      applicationServerKey:agentUrlBase64ToUint8Array(key.publicKey)
+    });
+  }
+  await api("/api/push/subscribe",{method:"POST",body:JSON.stringify({subscription:subscription.toJSON()})});
+  const status=await api("/api/push/status");
+  setAgentPushStatus("Background alerts are enabled on this device. Registered device(s): "+status.subscribedDevices+".");
+  return status;
+}
+async function refreshAgentPushStatus(){
+  try{
+    const status=await api("/api/push/status");
+    if(!status.configured)setAgentPushStatus("The server's background notification keys are missing.",true);
+    else if("Notification" in window&&Notification.permission==="denied")setAgentPushStatus("Notifications are blocked in this browser. Allow them in site settings, then enable alerts again.",true);
+    else if(status.subscribedDevices>0)setAgentPushStatus("Background alerts are registered for "+status.subscribedDevices+" device(s). Send a test alert to confirm delivery.");
+    else setAgentPushStatus("No device is registered yet. Tap Enable background alerts on this device.");
+  }catch(error){setAgentPushStatus(error.message||"Could not check background alert setup.",true);}
+}
+$("#agentEnableBackgroundAlerts").addEventListener("click",async()=>{
+  const button=$("#agentEnableBackgroundAlerts");button.disabled=true;
+  try{await enableAgentBackgroundPush();}
+  catch(error){setAgentPushStatus(error.message||"Could not enable background alerts.",true);}
+  finally{button.disabled=false;}
+});
+$("#agentTestBackgroundAlert").addEventListener("click",async()=>{
+  const button=$("#agentTestBackgroundAlert");button.disabled=true;
+  try{
+    await enableAgentBackgroundPush();
+    const result=await api("/api/push/test",{method:"POST",body:"{}"});
+    setAgentPushStatus((result.message||"Test alert sent.")+" Check your device notification area.");
+  }catch(error){setAgentPushStatus(error.message||"The test alert failed.",true);}
+  finally{button.disabled=false;}
+});
+
 
 function currentAgentMonth(){return new Date().toISOString().slice(0,7)}
 async function loadAgentEarnings(){
@@ -187,7 +262,7 @@ async function loadAgentRatings(){
 $("#refreshAgentRatings").addEventListener("click",loadAgentRatings);
 
 function agentOrderEditorIsActive(){const active=document.activeElement;return Boolean(active&&active.closest("#agentChatForm, #deliveryCodeForm, [data-pickup-verification-order]"));}
-async function load(){try{const me=await api("/api/me");account=me.account;if(!account||account.role!=="agent"){location.href="/agent-login.html";return}$("#agentName").textContent="Welcome, "+account.name+"! · "+account.username;const a=await api("/api/agents/me");online=Boolean(a.online);$("#successfulDeliveries").textContent=String(Number(a.successfulDeliveries)||0);renderAvailability();await loadAgentNotifications();const o=await api("/api/orders");orders=o.orders||[];if(!agentOrderFormBusy&&!agentOrderEditorIsActive())renderOrders();else{const active=orders.find(order=>order.status==="Out for delivery");if(active&&$("#agentChatMessages"))loadAgentChat(active.id);}await loadAgentEarnings();await loadAgentRatings();}catch(e){if(String(e.message).includes("log in")){location.href="/agent-login.html";return}setMessage(e.message||"Could not load your dashboard.",true)}}
+async function load(){try{const me=await api("/api/me");account=me.account;if(!account||account.role!=="agent"){location.href="/agent-login.html";return}$("#agentName").textContent="Welcome, "+account.name+"! · "+account.username;const a=await api("/api/agents/me");online=Boolean(a.online);$("#successfulDeliveries").textContent=String(Number(a.successfulDeliveries)||0);renderAvailability();await loadAgentNotifications();if(!agentPushStatusChecked){agentPushStatusChecked=true;refreshAgentPushStatus();}const o=await api("/api/orders");orders=o.orders||[];if(!agentOrderFormBusy&&!agentOrderEditorIsActive())renderOrders();else{const active=orders.find(order=>order.status==="Out for delivery");if(active&&$("#agentChatMessages"))loadAgentChat(active.id);}await loadAgentEarnings();await loadAgentRatings();}catch(e){if(String(e.message).includes("log in")){location.href="/agent-login.html";return}setMessage(e.message||"Could not load your dashboard.",true)}}
 async function updateAgentLocation(){if(!online||!navigator.geolocation)return;navigator.geolocation.getCurrentPosition(async position=>{lastAgentGpsPosition={latitude:position.coords.latitude,longitude:position.coords.longitude};try{await api("/api/agent/location",{method:"PATCH",body:JSON.stringify(lastAgentGpsPosition)});refreshAgentNavigation(position.coords.latitude,position.coords.longitude);}catch(e){console.warn("Could not update agent location:",e.message)}},error=>{const status=$("#agentNavigationStatus");if(status)status.textContent=error.code===1?"Allow location permission to use live navigation.":"Waiting for GPS signal…"}, {enableHighAccuracy:true,maximumAge:10000,timeout:15000})}
 $("#toggleOnline").addEventListener("click",async()=>{const button=$("#toggleOnline");button.disabled=true;try{const d=await api("/api/agent/availability",{method:"PATCH",body:JSON.stringify({online:!online})});online=d.online;renderAvailability();setMessage(online?"You're online. Allow location access so pickup requests can go to the nearest available agent.":"You're offline and won't receive new assignments.");if(online)updateAgentLocation();await load()}catch(e){setMessage(e.message,true)}finally{button.disabled=false}});
 $("#openChangePassword").addEventListener("click",()=>{const panel=$("#changePasswordPanel");panel.hidden=false;panel.scrollIntoView({behavior:"smooth",block:"start"});$("#currentPassword").focus()});

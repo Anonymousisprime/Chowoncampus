@@ -727,7 +727,7 @@ function renderTrackedOrder(order, resultSelector = "#trackResult") {
       ${cancelled ? '<p class="tracking-alert">This order has been cancelled. Contact the restaurant if you need help.</p>' : ""}
       <h4>Order updates</h4><ol class="tracking-timeline">${timeline}</ol>
       ${state.account?.role === "student" && order.deliveryCode && (order.paymentMethod !== "bank_transfer" || String(order.paymentStatus || "").startsWith("Paid —")) && !["Completed", "Cancelled"].includes(order.status) ? `<section class="tracking-alert" style="background:#eaf5ee;border:1px solid #b9dec5;border-radius:12px;padding:14px;margin:14px 0"><strong>🔐 Your delivery handover code</strong><div style="font-size:28px;font-weight:900;letter-spacing:7px;margin:8px 0;color:#176b45">${escapeHtml(order.deliveryCode)}</div><p class="tiny muted">Keep this code private. Share it only when the agent has your food. The agent needs it to confirm delivery.</p></section>` : ""}
-      <p>Food and packaging: <strong>${money(order.subtotal)}</strong></p><p>Delivery fee: <strong>${money(order.deliveryFee)}</strong></p><p>Payment fee (1%): <strong>${money(order.paymentFee || 0)}</strong></p><p>Total paid/payable: <strong>${money(order.total)}</strong></p>
+      <p>Food and packaging: <strong>${money(order.subtotal)}</strong></p><p>Delivery fee: <strong>${money(order.deliveryFee)}</strong></p>${Number(order.roomDeliveryFee) > 0 ? `<p>Room delivery surcharge: <strong>${money(order.roomDeliveryFee)}</strong></p>` : ""}<p>Payment fee (1%): <strong>${money(order.paymentFee || 0)}</strong></p><p>Total paid/payable: <strong>${money(order.total)}</strong></p>
       <p>Payment: <strong>${escapeHtml(order.paymentStatus || "Check with the restaurant")}</strong></p>
       ${state.account?.role === "student" && isBankTransferOrder(order) ? `
         ${studentMerchantAccount ? `<section class="tracking-alert" style="margin:14px 0;padding:14px;border:1px solid #b9dec5;border-radius:12px;background:#f2faf4"><h4>Transfer to this approved merchant account</h4><p>Bank: <strong>${escapeHtml(studentMerchantAccount.bankName || "")}</strong></p><p>Account name: <strong>${escapeHtml(studentMerchantAccount.accountName || "")}</strong></p><p style="font-size:1.2rem">Account number: <strong>${escapeHtml(studentMerchantAccount.accountNumber || "")}</strong></p><button type="button" class="secondary-button" data-copy-account="${escapeHtml(studentMerchantAccount.accountNumber || "")}" onclick="navigator.clipboard.writeText(this.dataset.copyAccount).then(()=>showToast(this.dataset.copyMessage))" data-copy-message="Account number copied">Copy account number</button><p class="tiny muted">Transfer exactly ${money(order.total)}. The merchant must confirm the bank credit before preparing your order.</p></section>` : `<section class="tracking-alert" style="margin:14px 0;padding:14px"><strong>Campus Bites bank details are not being returned to this screen.</strong><p class="tiny muted">Do not transfer until the account number is displayed. The receipt form is available below, but only submit it after a transfer to the verified merchant account.</p></section>`}
@@ -2659,6 +2659,7 @@ async function initialize() {
       if (deliveryDisclosure.open) setTimeout(() => deliveryMap?.invalidateSize(), 180);
     });
   }
+  updateDeliveryModeFields();
   initDeliveryMap();
 
   try {

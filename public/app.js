@@ -434,6 +434,8 @@ function updateDeliveryModeFields() {
   const deliveryType = $("#deliveryType")?.value || "gate";
   const roomInput = $("#deliveryRoom");
   const preference = $("#agentGenderPreference");
+  const preferenceGroup = $("#roomAgentGenderPreference");
+  if (preferenceGroup) preferenceGroup.hidden = deliveryType !== "room";
   if (roomInput) {
     roomInput.required = deliveryType === "room";
     roomInput.disabled = deliveryType !== "room";

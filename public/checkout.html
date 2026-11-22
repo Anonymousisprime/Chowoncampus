@@ -122,13 +122,15 @@
             <option value="gate">Gate / collection point</option>
             <option value="room">Direct room delivery (+₦100)</option>
           </select>
-          <label for="agentGenderPreference">Preferred Leg Agent (room delivery only)</label>
-          <select id="agentGenderPreference" name="agentGenderPreference">
-            <option value="any">No preference</option>
-            <option value="female">Female agent</option>
-            <option value="male">Male agent</option>
-          </select>
-          <p class="small-note">Room deliveries are handled only by Leg Agents. Choose a preferred agent gender if you wish; this is used only for room deliveries.</p>
+          <div id="roomAgentGenderPreference" hidden>
+            <label for="agentGenderPreference">Preferred Leg Agent gender</label>
+            <select id="agentGenderPreference" name="agentGenderPreference" disabled>
+              <option value="any">No preference</option>
+              <option value="female">Female agent</option>
+              <option value="male">Male agent</option>
+            </select>
+            <p class="small-note">Only Leg Agents can deliver to rooms. Choose whether you prefer a female or male Leg Agent, or select no preference.</p>
+          </div>
           <label for="hostel">Hostel / residence / collection point <span class="muted">(required)</span></label>
           <input id="hostel" name="hostel" type="text" placeholder="e.g. Hall 2 or Hall 2 gate" maxlength="150" required>
           <div class="delivery-location-grid">

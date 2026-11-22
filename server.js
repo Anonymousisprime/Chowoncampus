@@ -484,6 +484,8 @@ agents = agentRecords.map(record => ({
   id: record.id,
   name: record.name,
   username: record.username,
+  agentType: record.agentType || "leg",
+  gender: record.gender || "",
   online: Boolean(record.online),
   activeOrderId: record.activeOrderId || null,
   createdAt: record.createdAt || null

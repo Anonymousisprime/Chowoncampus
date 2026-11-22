@@ -484,6 +484,8 @@ agents = agentRecords.map(record => ({
   id: record.id,
   name: record.name,
   username: record.username,
+  agentType: record.agentType || "leg",
+  gender: record.gender || "",
   online: Boolean(record.online),
   activeOrderId: record.activeOrderId || null,
   createdAt: record.createdAt || null
@@ -2347,6 +2349,9 @@ app.post("/api/logout", (req, res) => {
 // Create an order. All prices are calculated on the server.
 app.post("/api/orders", requireRole("student"), (req, res) => {
   const { hostel, block, room, landmark, latitude, longitude, restaurantId, businessId, items, requestId } = req.body;
+  const deliveryType = req.body.deliveryType === "room" ? "room" : "gate";
+  const agentGenderPreference = ["male", "female"].includes(String(req.body.agentGenderPreference || "").toLowerCase())
+    ? String(req.body.agentGenderPreference).toLowerCase() : "any";
   const requestedMerchantId = String(businessId || restaurantId || "").trim();
   const paymentMethod = String(req.body.paymentMethod || "bank_transfer").trim().toLowerCase();
   if (!["foodback", "bank_transfer"].includes(paymentMethod)) return res.status(400).json({ error: "Choose direct bank transfer or FoodBack as your payment method." });
@@ -2412,8 +2417,19 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     });
   }
 
+  if (deliveryType === "room" && (typeof room !== "string" || room.trim().length < 1)) {
+    return res.status(400).json({ error: "Enter your room number for direct room delivery." });
+  }
   const hasCoordinates = latitude !== undefined && longitude !== undefined && Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude)) && Math.abs(Number(latitude)) <= 90 && Math.abs(Number(longitude)) <= 180;
-  const deliveryLocation = { hostel: hostel.trim(), block: typeof block === "string" ? block.trim().slice(0, 100) : "", room: typeof room === "string" ? room.trim().slice(0, 40) : "", landmark: typeof landmark === "string" ? landmark.trim().slice(0, 150) : "", latitude: hasCoordinates ? Number(latitude) : null, longitude: hasCoordinates ? Number(longitude) : null };
+  const deliveryLocation = {
+    type: deliveryType,
+    hostel: hostel.trim(),
+    block: typeof block === "string" ? block.trim().slice(0, 100) : "",
+    room: deliveryType === "room" && typeof room === "string" ? room.trim().slice(0, 40) : "",
+    landmark: typeof landmark === "string" ? landmark.trim().slice(0, 150) : "",
+    latitude: hasCoordinates ? Number(latitude) : null,
+    longitude: hasCoordinates ? Number(longitude) : null
+  };
   const restaurant = businessId ? null : restaurants.find(r => r.id === requestedMerchantId);
   const business = businessId ? readOtherBusinesses().find(item => item.id === requestedMerchantId) : null;
   const merchant = restaurant || (business && business.status === "approved" && !business.suspended ? business : null);
@@ -2473,7 +2489,8 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     hasCoordinates ? Number(longitude) : null
   );
   const deliveryFee = deliveryQuote.deliveryFee;
-  const baseTotal = subtotal + deliveryFee;
+  const roomDeliveryFee = deliveryType === "room" ? 100 : 0;
+  const baseTotal = subtotal + deliveryFee + roomDeliveryFee;
   // The 1% student service fee applies to the items subtotal only, not delivery or packaging.
   const paymentFee = Math.round(foodSubtotal * STUDENT_PAYMENT_FEE_RATE);
   const orderTotal = baseTotal + paymentFee;
@@ -2491,6 +2508,9 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     customerPhone: customerPhone.trim(),
     hostel: [deliveryLocation.hostel, deliveryLocation.block && `Block ${deliveryLocation.block}`, deliveryLocation.room && `Room ${deliveryLocation.room}`, deliveryLocation.landmark && `Near ${deliveryLocation.landmark}`].filter(Boolean).join(", "),
     deliveryLocation,
+    deliveryType,
+    agentGenderPreference: deliveryType === "room" ? agentGenderPreference : "any",
+    roomDeliveryFee,
     deliveryDistanceKm: deliveryQuote.distanceKm,
     estimatedRoadDistanceKm: deliveryQuote.estimatedRoadDistanceKm,
     deliveryPricingDistanceBased: deliveryQuote.distanceBased,
@@ -4732,6 +4752,7 @@ app.get("/api/agents", requireRole("admin"), (req, res) => {
   res.json({ agents: agents.map(agent => ({
     id: agent.id, name: agent.name, username: agent.username,
     online: Boolean(agent.online), suspended: Boolean(agent.suspended),
+    agentType: agent.agentType || "leg", gender: agent.gender || "",
     suspensionReason: agent.suspensionReason || "", activeOrderId: agent.activeOrderId || null,
     createdAt: agent.createdAt || null
   })) });
@@ -4753,6 +4774,10 @@ app.post("/api/admin/agents", requireRole("admin"), (req, res) => {
   const name = String(req.body.name || "").trim();
   const username = String(req.body.username || "").trim().toLowerCase();
   const password = String(req.body.password || "");
+  const agentType = String(req.body.agentType || "").toLowerCase();
+  const gender = String(req.body.gender || "").toLowerCase();
+  if (!["leg", "shuttle"].includes(agentType)) return res.status(400).json({ error: "Choose Leg Agent or Shuttle Agent." });
+  if (!["male", "female"].includes(gender)) return res.status(400).json({ error: "Select the agent's gender." });
   if (name.length < 2 || name.length > 100) return res.status(400).json({ error: "Agent name must be 2–100 characters." });
   if (!/^[a-z0-9._-]{3,30}$/.test(username)) return res.status(400).json({ error: "Username must be 3–30 characters: letters, numbers, dots, underscores or hyphens." });
   if (password.length < 10 || password.length > 128) return res.status(400).json({ error: "Password must be 10–128 characters." });
@@ -4762,17 +4787,47 @@ app.post("/api/admin/agents", requireRole("admin"), (req, res) => {
     const passwordData = hashPassword(password);
     const agent = {
       id: "AG-" + crypto.randomBytes(4).toString("hex").toUpperCase(),
-      name, username, online: false, activeOrderId: null,
+      name, username, agentType, gender, online: false, activeOrderId: null,
       createdAt: new Date().toISOString(),
       passwordSalt: passwordData.salt, passwordHash: passwordData.hash
     };
     records.push(agent);
     saveAgentRecords(records);
-    agents.push({ id: agent.id, name, username, online: false, activeOrderId: null, createdAt: agent.createdAt });
+    agents.push({ id: agent.id, name, username, agentType, gender, online: false, activeOrderId: null, createdAt: agent.createdAt });
     accounts.push({ username, role: "agent", agentId: agent.id, name, passwordSalt: passwordData.salt, passwordHash: passwordData.hash });
-    res.status(201).json({ agent: { id: agent.id, name, username, online: false, activeOrderId: null, createdAt: agent.createdAt }, message: "Delivery-agent account created. Share the login details securely." });
+    res.status(201).json({ agent: { id: agent.id, name, username, agentType, gender, online: false, activeOrderId: null, createdAt: agent.createdAt }, message: "Delivery-agent account created. Share the login details securely." });
   } catch (error) {
     res.status(500).json({ error: error.message || "Could not create delivery-agent account." });
+  }
+});
+
+// Admin can update an existing agent's operational category and gender.
+app.patch("/api/admin/agents/:id/profile", requireRole("admin"), (req, res) => {
+  const agentType = String(req.body.agentType || "").toLowerCase();
+  const gender = String(req.body.gender || "").toLowerCase();
+  if (!["leg", "shuttle"].includes(agentType)) return res.status(400).json({ error: "Choose Leg Agent or Shuttle Agent." });
+  if (!["male", "female"].includes(gender)) return res.status(400).json({ error: "Select the agent's gender." });
+  try {
+    const records = readAgentRecords();
+    const agent = records.find(item => item.id === req.params.id);
+    if (!agent) return res.status(404).json({ error: "Delivery agent not found." });
+    const activeOrder = readOrders().find(order =>
+      order.assignedAgentId === agent.id && !["Completed", "Cancelled"].includes(order.status)
+    );
+    if (activeOrder) return res.status(409).json({ error: "Complete or reassign the agent's active order before changing their category or gender." });
+    agent.agentType = agentType;
+    agent.gender = gender;
+    saveAgentRecords(records);
+    agents = records.map(record => ({
+      id: record.id, name: record.name, username: record.username,
+      agentType: record.agentType || "leg", gender: record.gender || "",
+      online: Boolean(record.online), activeOrderId: record.activeOrderId || null,
+      createdAt: record.createdAt || null
+    }));
+    assignReadyOrders();
+    res.json({ ok: true, agent: { id: agent.id, name: agent.name, agentType, gender }, message: "Agent profile updated." });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Could not update agent profile." });
   }
 });
 
@@ -4889,6 +4944,11 @@ function assignReadyOrders() {
     }
     const eligible = records.filter(agent => {
       if (!agent.online || busyAgentIds.has(agent.id) || agent.activeOrderId || tried.has(agent.id)) return false;
+      // Room orders are restricted to Leg Agents. A student's optional gender
+      // preference is matched against the admin-recorded agent profile.
+      if (order.deliveryType === "room" && String(agent.agentType || "leg").toLowerCase() !== "leg") return false;
+      if (order.deliveryType === "room" && ["male", "female"].includes(order.agentGenderPreference) &&
+          String(agent.gender || "").toLowerCase() !== order.agentGenderPreference) return false;
       const hasAgentCoords = agent.latitude !== null && agent.latitude !== undefined &&
         agent.longitude !== null && agent.longitude !== undefined &&
         Number.isFinite(Number(agent.latitude)) && Number.isFinite(Number(agent.longitude));
@@ -4899,6 +4959,15 @@ function assignReadyOrders() {
       return hasAgentCoords && locationIsFresh;
     });
     if (!eligible.length) {
+      if (order.deliveryType === "room" && !order.agentMatchUnavailableNotifiedAt) {
+        const preferenceText = ["male", "female"].includes(order.agentGenderPreference)
+          ? order.agentGenderPreference + " " : "";
+        const notice = "Your room-delivery order is waiting for an available " + preferenceText + "Leg Agent. It will be assigned automatically when an eligible agent is online with a fresh GPS location.";
+        createNotification({ role: "student", username: order.customerPhone }, "Waiting for a room-delivery agent", notice, order.id);
+        createNotification({ role: "admin" }, "Room delivery awaiting eligible agent", "Order " + order.id + " has no available matching Leg Agent yet.", order.id);
+        order.agentMatchUnavailableNotifiedAt = new Date().toISOString();
+        changed = true;
+      }
       if (hasTargetCoords) {
         if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, "Waiting for nearby agent GPS", `Order ${order.id} is ready, but no available agent has a fresh GPS location yet. Keep the pickup pin saved and ask online agents to enable location.`, order.id);
         else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Waiting for nearby agent GPS", `Order ${order.id} is ready, but no available agent has a fresh GPS location yet. Keep the pickup pin saved and ask online agents to enable location.`, order.id);
@@ -5071,7 +5140,7 @@ app.patch("/api/admin/agents/:id/availability", requireRole("admin"), (req, res)
       agent.locationUpdatedAt = null;
     }
     saveAgentRecords(records);
-    agents = records.map(record => ({ id: record.id, name: record.name, username: record.username, online: Boolean(record.online), activeOrderId: record.activeOrderId || null, createdAt: record.createdAt || null }));
+    agents = records.map(record => ({ id: record.id, name: record.name, username: record.username, agentType: record.agentType || "leg", gender: record.gender || "", online: Boolean(record.online), activeOrderId: record.activeOrderId || null, createdAt: record.createdAt || null }));
     if (agent.online) assignReadyOrders();
     res.json({ id: agent.id, online: agent.online, activeOrderId: agent.activeOrderId || null });
   } catch (error) {
@@ -5178,7 +5247,7 @@ app.patch("/api/agent/availability", requireRole("agent"), (req, res) => {
       agent.locationUpdatedAt = null;
     }
     saveAgentRecords(records);
-    agents = records.map(record => ({ id: record.id, name: record.name, username: record.username, online: Boolean(record.online), activeOrderId: record.activeOrderId || null, createdAt: record.createdAt || null }));
+    agents = records.map(record => ({ id: record.id, name: record.name, username: record.username, agentType: record.agentType || "leg", gender: record.gender || "", online: Boolean(record.online), activeOrderId: record.activeOrderId || null, createdAt: record.createdAt || null }));
     if (agent.online) assignReadyOrders();
     res.json({ online: agent.online, activeOrderId: agent.activeOrderId || null });
   } catch (error) {
@@ -5445,7 +5514,7 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
       if (assigned) {
         assigned.activeOrderId = null;
         saveAgentRecords(records);
-        agents = records.map(record => ({ id: record.id, name: record.name, username: record.username, online: Boolean(record.online), activeOrderId: record.activeOrderId || null, createdAt: record.createdAt || null }));
+        agents = records.map(record => ({ id: record.id, name: record.name, username: record.username, agentType: record.agentType || "leg", gender: record.gender || "", online: Boolean(record.online), activeOrderId: record.activeOrderId || null, createdAt: record.createdAt || null }));
       }
       assignReadyOrders();
     }

@@ -430,6 +430,21 @@ let deliveryQuoteRequestId = 0;
 let deliveryAreaConfig = null;
 let deliveryAreaCircle = null;
 
+function updateDeliveryModeFields() {
+  const deliveryType = $("#deliveryType")?.value || "gate";
+  const roomInput = $("#deliveryRoom");
+  const preference = $("#agentGenderPreference");
+  if (roomInput) {
+    roomInput.required = deliveryType === "room";
+    roomInput.disabled = deliveryType !== "room";
+    if (deliveryType !== "room") roomInput.value = "";
+  }
+  if (preference) {
+    preference.disabled = deliveryType !== "room";
+    if (deliveryType !== "room") preference.value = "any";
+  }
+}
+
 function updateDeliveryQuoteDisplay(quote) {
   const feeElement = $("#deliveryFee");
   const totalElement = $("#grandTotal");
@@ -437,18 +452,23 @@ function updateDeliveryQuoteDisplay(quote) {
   if (!state.cart.length) {
     if (feeElement) feeElement.textContent = money(0);
     if ($("#paymentFee")) $("#paymentFee").textContent = money(0);
+    if ($("#roomDeliveryFee")) $("#roomDeliveryFee").textContent = money(0);
     if (totalElement) totalElement.textContent = money(0);
     if (estimateElement) estimateElement.textContent = "Add food and set a delivery pin to estimate your delivery fee.";
     return;
   }
   const fee = 300;
+  const roomSurcharge = $("#deliveryType")?.value === "room" ? 100 : 0;
   const subtotal = cartSubtotal();
   const paymentFee = Math.round(cartItemsSubtotal() * 0.01);
   if (feeElement) feeElement.textContent = money(fee);
+  if ($("#roomDeliveryFee")) $("#roomDeliveryFee").textContent = money(roomSurcharge);
   if ($("#paymentFee")) $("#paymentFee").textContent = money(paymentFee);
-  if (totalElement) totalElement.textContent = money(subtotal + fee + paymentFee);
+  if (totalElement) totalElement.textContent = money(subtotal + fee + roomSurcharge + paymentFee);
   if (estimateElement) {
-    estimateElement.textContent = "Fixed delivery fee: ₦300 for every order.";
+    estimateElement.textContent = roomSurcharge
+      ? "Fixed delivery fee: ₦300 + ₦100 room delivery surcharge."
+      : "Fixed delivery fee: ₦300 for every order.";
   }
 }
 
@@ -594,6 +614,13 @@ async function placeOrder(event) {
   if (pinLat === "" || pinLon === "") return showMessage("#checkoutMessage", "Before payment, choose your exact delivery point using GPS or the map. We deliver only inside the approved campus delivery area.");
   const pinCheck = deliveryPinAllowed(Number(pinLat), Number(pinLon));
   if (!pinCheck.ok) return showMessage("#checkoutMessage", pinCheck.message);
+  const deliveryType = $("#deliveryType")?.value === "room" ? "room" : "gate";
+  if (deliveryType === "room" && !$("#deliveryRoom")?.value.trim()) {
+    return showMessage("#checkoutMessage", "Enter your room number for direct room delivery.");
+  }
+  const agentGenderPreference = deliveryType === "room"
+    ? ($("#agentGenderPreference")?.value || "any")
+    : "any";
   const paymentMethod = $("#paymentMethod")?.value || "bank_transfer";
   if (!state.pendingOrderRequestId) {
     state.pendingOrderRequestId = window.crypto?.randomUUID
@@ -611,6 +638,8 @@ async function placeOrder(event) {
         block: $("#deliveryBlock").value,
         room: $("#deliveryRoom").value,
         landmark: $("#deliveryLandmark").value,
+        deliveryType,
+        agentGenderPreference,
         latitude: $("#deliveryLatitude").value === "" ? undefined : Number($("#deliveryLatitude").value),
         longitude: $("#deliveryLongitude").value === "" ? undefined : Number($("#deliveryLongitude").value),
         restaurantId: state.cart[0].restaurantId,
@@ -699,7 +728,7 @@ function renderTrackedOrder(order, resultSelector = "#trackResult") {
       ${cancelled ? '<p class="tracking-alert">This order has been cancelled. Contact the restaurant if you need help.</p>' : ""}
       <h4>Order updates</h4><ol class="tracking-timeline">${timeline}</ol>
       ${state.account?.role === "student" && order.deliveryCode && (order.paymentMethod !== "bank_transfer" || String(order.paymentStatus || "").startsWith("Paid —")) && !["Completed", "Cancelled"].includes(order.status) ? `<section class="tracking-alert" style="background:#eaf5ee;border:1px solid #b9dec5;border-radius:12px;padding:14px;margin:14px 0"><strong>🔐 Your delivery handover code</strong><div style="font-size:28px;font-weight:900;letter-spacing:7px;margin:8px 0;color:#176b45">${escapeHtml(order.deliveryCode)}</div><p class="tiny muted">Keep this code private. Share it only when the agent has your food. The agent needs it to confirm delivery.</p></section>` : ""}
-      <p>Food and packaging: <strong>${money(order.subtotal)}</strong></p><p>Delivery fee: <strong>${money(order.deliveryFee)}</strong></p><p>Payment fee (1%): <strong>${money(order.paymentFee || 0)}</strong></p><p>Total paid/payable: <strong>${money(order.total)}</strong></p>
+      <p>Food and packaging: <strong>${money(order.subtotal)}</strong></p><p>Delivery fee: <strong>${money(order.deliveryFee)}</strong></p>${Number(order.roomDeliveryFee) > 0 ? `<p>Room delivery surcharge: <strong>${money(order.roomDeliveryFee)}</strong></p>` : ""}<p>Payment fee (1%): <strong>${money(order.paymentFee || 0)}</strong></p><p>Total paid/payable: <strong>${money(order.total)}</strong></p>
       <p>Payment: <strong>${escapeHtml(order.paymentStatus || "Check with the restaurant")}</strong></p>
       ${state.account?.role === "student" && isBankTransferOrder(order) ? `
         ${studentMerchantAccount ? `<section class="tracking-alert" style="margin:14px 0;padding:14px;border:1px solid #b9dec5;border-radius:12px;background:#f2faf4"><h4>Transfer to this approved merchant account</h4><p>Bank: <strong>${escapeHtml(studentMerchantAccount.bankName || "")}</strong></p><p>Account name: <strong>${escapeHtml(studentMerchantAccount.accountName || "")}</strong></p><p style="font-size:1.2rem">Account number: <strong>${escapeHtml(studentMerchantAccount.accountNumber || "")}</strong></p><button type="button" class="secondary-button" data-copy-account="${escapeHtml(studentMerchantAccount.accountNumber || "")}" onclick="navigator.clipboard.writeText(this.dataset.copyAccount).then(()=>showToast(this.dataset.copyMessage))" data-copy-message="Account number copied">Copy account number</button><p class="tiny muted">Transfer exactly ${money(order.total)}. The merchant must confirm the bank credit before preparing your order.</p></section>` : `<section class="tracking-alert" style="margin:14px 0;padding:14px"><strong>Campus Bites bank details are not being returned to this screen.</strong><p class="tiny muted">Do not transfer until the account number is displayed. The receipt form is available below, but only submit it after a transfer to the verified merchant account.</p></section>`}
@@ -1993,11 +2022,47 @@ async function loadDashboard(automatic = false) {
           <div class="dashboard-section-heading"><div><h2>Add delivery agent</h2><p>Create a delivery login for a new agent.</p></div></div>
           <form id="adminAddAgentForm" class="order-card">
             <label>Agent full name<input name="name" required minlength="2" maxlength="100" placeholder="Full name"></label>
+            <label>Agent category
+              <select name="agentType" required>
+                <option value="leg">Leg Agent — can deliver to rooms</option>
+                <option value="shuttle">Shuttle Agent — collection points and normal deliveries</option>
+              </select>
+            </label>
+            <label>Agent gender
+              <select name="gender" required>
+                <option value="">Select agent gender</option>
+                <option value="female">Female</option>
+                <option value="male">Male</option>
+              </select>
+            </label>
             <label>Login username<input name="username" required minlength="3" maxlength="30" pattern="[a-zA-Z0-9._-]+" placeholder="agentname"></label>
             <label>Temporary password<input name="password" type="password" required minlength="10" maxlength="128" autocomplete="new-password" placeholder="At least 10 characters"></label>
             <button class="primary-button" type="submit">＋ Add delivery agent</button>
             <p id="adminAddAgentMessage" class="muted" role="status"></p>
           </form>
+        </section>
+        <section class="dashboard-order-section" id="adminAgentCategories">
+          <div class="dashboard-section-heading"><div><h2>Manage agent categories</h2><p>Update existing agents' Leg/Shuttle category and gender. Active assignments must be completed first.</p></div></div>
+          ${state.agents.length ? `<div class="order-list">${state.agents.map(agent => `
+            <form class="order-card" data-agent-profile-update="${escapeHtml(agent.id)}" style="display:grid;gap:10px">
+              <strong>${escapeHtml(agent.name)} · ${escapeHtml(agent.username || agent.id)}</strong>
+              <label>Agent category
+                <select name="agentType" required>
+                  <option value="leg" ${String(agent.agentType || "leg") === "leg" ? "selected" : ""}>Leg Agent</option>
+                  <option value="shuttle" ${String(agent.agentType || "leg") === "shuttle" ? "selected" : ""}>Shuttle Agent</option>
+                </select>
+              </label>
+              <label>Agent gender
+                <select name="gender" required>
+                  <option value="">Select gender</option>
+                  <option value="female" ${agent.gender === "female" ? "selected" : ""}>Female</option>
+                  <option value="male" ${agent.gender === "male" ? "selected" : ""}>Male</option>
+                </select>
+              </label>
+              <button class="secondary-button" type="submit">Save agent profile</button>
+              <p class="muted" role="status" data-agent-profile-message></p>
+            </form>
+          `).join("")}</div>` : '<div class="empty-state">No delivery agents have been created yet.</div>'}
         </section>
         <section class="dashboard-order-section" id="adminStudentAccounts">
           <div class="dashboard-section-heading"><div><h2>Student accounts</h2><p>${studentResult.students.length} registered student account(s). Passwords are never displayed.</p></div><button class="secondary-button" id="refreshAdminStudents" type="button">↻ Refresh students</button></div>
@@ -2618,6 +2683,7 @@ async function initialize() {
       if (deliveryDisclosure.open) setTimeout(() => deliveryMap?.invalidateSize(), 180);
     });
   }
+  updateDeliveryModeFields();
   initDeliveryMap();
 
   try {
@@ -3234,6 +3300,29 @@ async function initialize() {
         message.textContent = error.message;
         message.classList.remove("success");
       } finally { button.disabled = false; }
+      return;
+    }
+    const agentProfileForm = event.target.closest("[data-agent-profile-update]");
+    if (agentProfileForm) {
+      event.preventDefault();
+      const button = agentProfileForm.querySelector('button[type="submit"]');
+      const message = agentProfileForm.querySelector("[data-agent-profile-message]");
+      const values = Object.fromEntries(new FormData(agentProfileForm).entries());
+      button.disabled = true;
+      message.textContent = "Saving agent profile…";
+      try {
+        const result = await api("/api/admin/agents/" + encodeURIComponent(agentProfileForm.dataset.agentProfileUpdate) + "/profile", {
+          method: "PATCH", body: JSON.stringify(values)
+        });
+        message.textContent = result.message;
+        message.classList.add("success");
+        await loadDashboard();
+        showToast("Agent profile updated.");
+      } catch (error) {
+        message.textContent = error.message;
+        message.classList.remove("success");
+        button.disabled = false;
+      }
       return;
     }
     const addAgentForm = event.target.closest("#adminAddAgentForm");

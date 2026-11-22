@@ -99,6 +99,7 @@
         <div class="cart-summary">
           <div><span>Subtotal</span><strong id="subtotal">₦0</strong></div>
           <div><span>Delivery fee</span><strong id="deliveryFee">₦300</strong></div>
+          <div><span>Room delivery surcharge</span><strong id="roomDeliveryFee">₦0</strong></div>
           <div><span>Payment fee (1%)</span><strong id="paymentFee">₦0</strong></div>
           <p id="deliveryEstimate" class="small-note" aria-live="polite">Add food and set a delivery pin to estimate your delivery fee.</p>
           <div class="grand-total"><span>Total</span><strong id="grandTotal">₦300</strong></div>
@@ -114,10 +115,22 @@
             <option value="bank_transfer">Direct bank transfer to restaurant</option>
             <option value="foodback">Pay with FoodBack credits</option>
           </select>
-          <p class="small-note">For bank transfers, upload your receipt and press Verify Payment after transferring. The restaurant must confirm actual bank credit before preparing your order. The 1% student service fee is calculated on your items subtotal; delivery is a fixed ₦300.</p>
+          <p class="small-note">For bank transfers, upload your receipt and press Verify Payment after transferring. The restaurant must confirm actual bank credit before preparing your order. The 1% student service fee is calculated on your items subtotal. Delivery is ₦300, with an additional ₦100 for direct room delivery.</p>
           <p class="small-note">FoodBack can cover the full order total only. FoodBack orders go to the ultimate admin for review; the restaurant is notified after approval. <a href="/foodback.html">Check your FoodBack balance</a>.</p>
-          <label for="hostel">Hostel / residence <span class="muted">(required)</span></label>
-          <input id="hostel" name="hostel" type="text" placeholder="e.g. Hall 2, campus" maxlength="150" required>
+          <label for="deliveryType">Delivery location</label>
+          <select id="deliveryType" name="deliveryType" required onchange="updateDeliveryModeFields(); updateDeliveryQuoteDisplay();">
+            <option value="gate">Gate / collection point</option>
+            <option value="room">Direct room delivery (+₦100)</option>
+          </select>
+          <label for="agentGenderPreference">Preferred Leg Agent (room delivery only)</label>
+          <select id="agentGenderPreference" name="agentGenderPreference">
+            <option value="any">No preference</option>
+            <option value="female">Female agent</option>
+            <option value="male">Male agent</option>
+          </select>
+          <p class="small-note">Room deliveries are handled only by Leg Agents. Choose a preferred agent gender if you wish; this is used only for room deliveries.</p>
+          <label for="hostel">Hostel / residence / collection point <span class="muted">(required)</span></label>
+          <input id="hostel" name="hostel" type="text" placeholder="e.g. Hall 2 or Hall 2 gate" maxlength="150" required>
           <div class="delivery-location-grid">
             <label for="deliveryBlock">Block / building<input id="deliveryBlock" name="block" type="text" maxlength="100" placeholder="e.g. Block C"></label>
             <label for="deliveryRoom">Room number<input id="deliveryRoom" name="room" type="text" maxlength="40" placeholder="e.g. Room 12"></label>

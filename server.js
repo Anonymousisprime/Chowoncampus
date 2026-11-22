@@ -2350,8 +2350,11 @@ app.post("/api/logout", (req, res) => {
 app.post("/api/orders", requireRole("student"), (req, res) => {
   const { hostel, block, room, landmark, latitude, longitude, restaurantId, businessId, items, requestId } = req.body;
   const deliveryType = req.body.deliveryType === "room" ? "room" : "gate";
-  const agentGenderPreference = ["male", "female"].includes(String(req.body.agentGenderPreference || "").toLowerCase())
-    ? String(req.body.agentGenderPreference).toLowerCase() : "any";
+  const studentGender = ["male", "female"].includes(String(req.body.studentGender || "").toLowerCase())
+    ? String(req.body.studentGender).toLowerCase() : "";
+  if (deliveryType === "room" && !studentGender) {
+    return res.status(400).json({ error: "Select your gender to arrange a same-gender Leg Agent for room delivery." });
+  }
   const requestedMerchantId = String(businessId || restaurantId || "").trim();
   const paymentMethod = String(req.body.paymentMethod || "bank_transfer").trim().toLowerCase();
   if (!["foodback", "bank_transfer"].includes(paymentMethod)) return res.status(400).json({ error: "Choose direct bank transfer or FoodBack as your payment method." });
@@ -2509,7 +2512,7 @@ app.post("/api/orders", requireRole("student"), (req, res) => {
     hostel: [deliveryLocation.hostel, deliveryLocation.block && `Block ${deliveryLocation.block}`, deliveryLocation.room && `Room ${deliveryLocation.room}`, deliveryLocation.landmark && `Near ${deliveryLocation.landmark}`].filter(Boolean).join(", "),
     deliveryLocation,
     deliveryType,
-    agentGenderPreference: deliveryType === "room" ? agentGenderPreference : "any",
+    studentGender: deliveryType === "room" ? studentGender : null,
     roomDeliveryFee,
     deliveryDistanceKm: deliveryQuote.distanceKm,
     estimatedRoadDistanceKm: deliveryQuote.estimatedRoadDistanceKm,
@@ -4944,11 +4947,13 @@ function assignReadyOrders() {
     }
     const eligible = records.filter(agent => {
       if (!agent.online || busyAgentIds.has(agent.id) || agent.activeOrderId || tried.has(agent.id)) return false;
-      // Room orders are restricted to Leg Agents. A student's optional gender
-      // preference is matched against the admin-recorded agent profile.
+      // Room orders are restricted to Leg Agents whose recorded gender
+      // matches the student's own gender selected at checkout.
       if (order.deliveryType === "room" && String(agent.agentType || "leg").toLowerCase() !== "leg") return false;
-      if (order.deliveryType === "room" && ["male", "female"].includes(order.agentGenderPreference) &&
-          String(agent.gender || "").toLowerCase() !== order.agentGenderPreference) return false;
+      const requiredRoomAgentGender = order.studentGender || order.agentGenderPreference || "";
+      if (order.deliveryType === "room" &&
+          (!["male", "female"].includes(requiredRoomAgentGender) ||
+           String(agent.gender || "").toLowerCase() !== requiredRoomAgentGender)) return false;
       const hasAgentCoords = agent.latitude !== null && agent.latitude !== undefined &&
         agent.longitude !== null && agent.longitude !== undefined &&
         Number.isFinite(Number(agent.latitude)) && Number.isFinite(Number(agent.longitude));
@@ -4960,9 +4965,9 @@ function assignReadyOrders() {
     });
     if (!eligible.length) {
       if (order.deliveryType === "room" && !order.agentMatchUnavailableNotifiedAt) {
-        const preferenceText = ["male", "female"].includes(order.agentGenderPreference)
-          ? order.agentGenderPreference + " " : "";
-        const notice = "Your room-delivery order is waiting for an available " + preferenceText + "Leg Agent. It will be assigned automatically when an eligible agent is online with a fresh GPS location.";
+        const requiredGender = order.studentGender || order.agentGenderPreference || "";
+        const genderText = ["male", "female"].includes(requiredGender) ? " " + requiredGender : "";
+        const notice = "Your room-delivery order is waiting for an available same-gender" + genderText + " Leg Agent. It will be assigned automatically when an eligible agent is online with a fresh GPS location.";
         createNotification({ role: "student", username: order.customerPhone }, "Waiting for a room-delivery agent", notice, order.id);
         createNotification({ role: "admin" }, "Room delivery awaiting eligible agent", "Order " + order.id + " has no available matching Leg Agent yet.", order.id);
         order.agentMatchUnavailableNotifiedAt = new Date().toISOString();

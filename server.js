@@ -5108,7 +5108,7 @@ app.patch("/api/admin/agents/:id/availability", requireRole("admin"), (req, res)
       agent.locationUpdatedAt = null;
     }
     saveAgentRecords(records);
-    agents = records.map(record => ({ id: record.id, name: record.name, username: record.username, online: Boolean(record.online), activeOrderId: record.activeOrderId || null, createdAt: record.createdAt || null }));
+    agents = records.map(record => ({ id: record.id, name: record.name, username: record.username, agentType: record.agentType || "leg", gender: record.gender || "", online: Boolean(record.online), activeOrderId: record.activeOrderId || null, createdAt: record.createdAt || null }));
     if (agent.online) assignReadyOrders();
     res.json({ id: agent.id, online: agent.online, activeOrderId: agent.activeOrderId || null });
   } catch (error) {
@@ -5215,7 +5215,7 @@ app.patch("/api/agent/availability", requireRole("agent"), (req, res) => {
       agent.locationUpdatedAt = null;
     }
     saveAgentRecords(records);
-    agents = records.map(record => ({ id: record.id, name: record.name, username: record.username, online: Boolean(record.online), activeOrderId: record.activeOrderId || null, createdAt: record.createdAt || null }));
+    agents = records.map(record => ({ id: record.id, name: record.name, username: record.username, agentType: record.agentType || "leg", gender: record.gender || "", online: Boolean(record.online), activeOrderId: record.activeOrderId || null, createdAt: record.createdAt || null }));
     if (agent.online) assignReadyOrders();
     res.json({ online: agent.online, activeOrderId: agent.activeOrderId || null });
   } catch (error) {
@@ -5482,7 +5482,7 @@ app.patch("/api/orders/:id/status", requireLogin, (req, res) => {
       if (assigned) {
         assigned.activeOrderId = null;
         saveAgentRecords(records);
-        agents = records.map(record => ({ id: record.id, name: record.name, username: record.username, online: Boolean(record.online), activeOrderId: record.activeOrderId || null, createdAt: record.createdAt || null }));
+        agents = records.map(record => ({ id: record.id, name: record.name, username: record.username, agentType: record.agentType || "leg", gender: record.gender || "", online: Boolean(record.online), activeOrderId: record.activeOrderId || null, createdAt: record.createdAt || null }));
       }
       assignReadyOrders();
     }

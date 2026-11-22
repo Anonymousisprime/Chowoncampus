@@ -2126,7 +2126,8 @@ async function loadDashboard(automatic = false) {
         const reportTable = (headers, rows) => '<div style="overflow-x:auto"><table style="width:100%;min-width:640px;border-collapse:collapse;text-align:left"><thead><tr>' + headers.map(h => '<th style="padding:8px">' + escapeHtml(h) + '</th>').join("") + '</tr></thead><tbody>' + (rows.length ? rows.map(row => '<tr>' + row.map(cell => '<td style="padding:8px;border-top:1px solid var(--border-color,#ddd)">' + escapeHtml(cell ?? "—") + '</td>').join("") + '</tr>').join("") : '<tr><td colspan="' + headers.length + '" style="padding:8px">No records for this date.</td></tr>') + '</tbody></table></div>';
         const renderDailyReport = data => {
           const cards = [
-            ["Orders", data.orders.total], ["Successful", data.orders.successful], ["Cancelled", data.orders.cancelled],
+            ["Orders", data.orders.total], ["Gate deliveries", data.deliverySummary?.gate ?? 0], ["Room deliveries", data.deliverySummary?.room ?? 0],
+            ["Delivery type not recorded", data.deliverySummary?.notRecorded ?? 0], ["Successful", data.orders.successful], ["Cancelled", data.orders.cancelled],
             ["Failed", data.orders.failed], ["Pending", data.orders.pending], ["Food sales", money(data.orders.successfulFoodSales)],
             ["Bank transfers", money(data.payments.bankTransferValue)], ["FoodBack orders", data.payments.foodbackCount],
             ["New students", data.students.newRegistrations], ["Active customers", data.students.activeCustomers],
@@ -2143,7 +2144,9 @@ async function loadDashboard(automatic = false) {
           const remarksHtml = reportTable(["Source","Student","Restaurant","Order","Remark","Time"], data.studentRemarks.map(x => [x.source,x.student,x.restaurant || "—",x.orderId || "—",x.remark,x.at ? new Date(x.at).toLocaleString() : "—"]));
           const orderRatingsHtml = reportTable(["Order","Student","Restaurant","Restaurant rating","Agent rating","Food ratings","Rated at"], (data.orderRatings || []).map(x => [x.orderId,x.student,x.restaurant,x.restaurantRating ?? "—",x.agentRating ?? "—",(x.foodRatings || []).map(f => f.item + ": " + f.rating + "/5").join("; "),x.ratedAt ? new Date(x.ratedAt).toLocaleString() : "—"]));
           const rankingsHtml = reportTable(["Rank","Restaurant","Orders","Average rating","Ratings"], data.restaurantRanking.map(x => [x.rank,x.restaurant,x.orders,x.averageRating ?? "No ratings",x.ratingCount]));
+          const deliveryOrdersHtml = reportTable(["Order reference","Delivery type","Student","Restaurant / business","Status","Assigned agent","Order time","Order total"], (data.deliveryOrders || []).map(x => [x.orderId,x.deliveryType,x.student,x.merchant,x.status,x.agent,x.createdAt ? new Date(x.createdAt).toLocaleString() : "—",money(x.amount)]));
           reportOutput.innerHTML = '<section class="order-card"><h3>Daily overview · ' + escapeHtml(data.date) + '</h3><div class="restaurant-metrics">' + cards.map(x => '<article><span>' + escapeHtml(x[0]) + '</span><strong>' + escapeHtml(x[1]) + '</strong></article>').join("") + '</div><p class="muted">Timezone: Nigeria (Africa/Lagos). Generated: ' + escapeHtml(new Date(data.generatedAt).toLocaleString()) + '</p></section>' +
+            '<section class="order-card"><h3>Order delivery breakdown</h3><p>Gate deliveries: <strong>' + (data.deliverySummary?.gate ?? 0) + '</strong> · Room deliveries: <strong>' + (data.deliverySummary?.room ?? 0) + '</strong> · Not recorded: <strong>' + (data.deliverySummary?.notRecorded ?? 0) + '</strong></p><p class="muted">Every order is labelled with its delivery type below.</p>' + deliveryOrdersHtml + '</section>' +
             '<section class="order-card"><h3>Restaurant performance & bank credits</h3>' + restaurantsHtml + '<h4>Confirmed bank settlement entries</h4>' + settlementsHtml + '<p class="muted">Bank credits are based only on settlement entries confirmed by the Ultimate Admin. They are not fetched or independently verified against bank statements.</p></section>' +
             '<section class="order-card"><h3>Bank Transfer Records · Receipts</h3><p class="muted">Receipts are securely stored with the order and can be viewed or downloaded by the Ultimate Admin.</p>' + bankTransferReceiptsHtml + '</section>' +
             '<section class="order-card"><h3>Restaurant rankings</h3>' + rankingsHtml + '</section>' +
@@ -2178,6 +2181,7 @@ async function loadDashboard(automatic = false) {
           const d = latestDailyReport;
           for (const [key,value] of Object.entries(d.orders)) rows.push(["Orders",key,value]);
           for (const [key,value] of Object.entries(d.payments)) rows.push(["Payments",key,value]);
+          for (const item of (d.deliveryOrders || [])) rows.push(["Order delivery",item.orderId,JSON.stringify(item)]);
           for (const item of d.restaurants) rows.push(["Restaurant",item.name,JSON.stringify(item)]);
           for (const item of d.agents) rows.push(["Agent",item.name,JSON.stringify(item)]);
           for (const item of (d.orderRatings || [])) rows.push(["Order rating",item.orderId,JSON.stringify(item)]);

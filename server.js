@@ -3951,6 +3951,28 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
     const isPaid = order => isVerifiedOrderPayment(order);
     const feesForOrder = order => reportMoney(order.deliveryFee) + reportMoney(order.paymentFee);
     const dayOrders = orders.filter(order => inReportDay(order.createdAt, range));
+    const reportDeliveryType = order => {
+      const value = String(order.deliveryType || order.deliveryLocation?.type || "").toLowerCase();
+      return value === "room" ? "Room" : value === "gate" ? "Gate" : "Not recorded";
+    };
+    const deliveryOrders = dayOrders.map(order => {
+      const assignedAgent = agentRecords.find(agent => String(agent.id) === String(order.assignedAgentId || ""));
+      return {
+        orderId: order.orderNumber || order.id,
+        student: order.customerName || "Student",
+        merchant: order.businessName || order.restaurantName || "Merchant",
+        deliveryType: reportDeliveryType(order),
+        status: order.status || "Unknown",
+        agent: assignedAgent?.name || "Not assigned",
+        amount: reportMoney(order.total),
+        createdAt: order.createdAt || null
+      };
+    }).sort((a,b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    const deliverySummary = {
+      gate: deliveryOrders.filter(order => order.deliveryType === "Gate").length,
+      room: deliveryOrders.filter(order => order.deliveryType === "Room").length,
+      notRecorded: deliveryOrders.filter(order => order.deliveryType === "Not recorded").length
+    };
     const statusEventAt = (order, status) => {
       const history = Array.isArray(order.statusHistory) ? order.statusHistory : [];
       const event = [...history].reverse().find(item => item.status === status);
@@ -4060,6 +4082,8 @@ app.get("/api/superadmin/daily-report", requireSuperAdmin, (req, res) => {
         bankTransferRejectedNoCredit: dayOrders.filter(order => order.paymentMethod === "bank_transfer" && /rejected.*no bank credit/i.test(String(order.paymentStatus || ""))).length,
         successfulFoodSales: sum(completedOrders, order => order.subtotal)
       },
+      deliverySummary,
+      deliveryOrders,
       payments: {
         foodbackCount: foodbackOrders.length, foodbackValue: sum(foodbackOrders, order => order.total),
         bankTransferCount: paidOrders.filter(order => order.paymentStatus === "Paid — bank transfer verified").length,

@@ -430,6 +430,21 @@ let deliveryQuoteRequestId = 0;
 let deliveryAreaConfig = null;
 let deliveryAreaCircle = null;
 
+function updateDeliveryModeFields() {
+  const deliveryType = $("#deliveryType")?.value || "gate";
+  const roomInput = $("#deliveryRoom");
+  const preference = $("#agentGenderPreference");
+  if (roomInput) {
+    roomInput.required = deliveryType === "room";
+    roomInput.disabled = deliveryType !== "room";
+    if (deliveryType !== "room") roomInput.value = "";
+  }
+  if (preference) {
+    preference.disabled = deliveryType !== "room";
+    if (deliveryType !== "room") preference.value = "any";
+  }
+}
+
 function updateDeliveryQuoteDisplay(quote) {
   const feeElement = $("#deliveryFee");
   const totalElement = $("#grandTotal");
@@ -442,13 +457,17 @@ function updateDeliveryQuoteDisplay(quote) {
     return;
   }
   const fee = 300;
+  const roomSurcharge = $("#deliveryType")?.value === "room" ? 100 : 0;
   const subtotal = cartSubtotal();
   const paymentFee = Math.round(cartItemsSubtotal() * 0.01);
   if (feeElement) feeElement.textContent = money(fee);
+  if ($("#roomDeliveryFee")) $("#roomDeliveryFee").textContent = money(roomSurcharge);
   if ($("#paymentFee")) $("#paymentFee").textContent = money(paymentFee);
-  if (totalElement) totalElement.textContent = money(subtotal + fee + paymentFee);
+  if (totalElement) totalElement.textContent = money(subtotal + fee + roomSurcharge + paymentFee);
   if (estimateElement) {
-    estimateElement.textContent = "Fixed delivery fee: ₦300 for every order.";
+    estimateElement.textContent = roomSurcharge
+      ? "Fixed delivery fee: ₦300 + ₦100 room delivery surcharge."
+      : "Fixed delivery fee: ₦300 for every order.";
   }
 }
 
@@ -594,6 +613,13 @@ async function placeOrder(event) {
   if (pinLat === "" || pinLon === "") return showMessage("#checkoutMessage", "Before payment, choose your exact delivery point using GPS or the map. We deliver only inside the approved campus delivery area.");
   const pinCheck = deliveryPinAllowed(Number(pinLat), Number(pinLon));
   if (!pinCheck.ok) return showMessage("#checkoutMessage", pinCheck.message);
+  const deliveryType = $("#deliveryType")?.value === "room" ? "room" : "gate";
+  if (deliveryType === "room" && !$("#deliveryRoom")?.value.trim()) {
+    return showMessage("#checkoutMessage", "Enter your room number for direct room delivery.");
+  }
+  const agentGenderPreference = deliveryType === "room"
+    ? ($("#agentGenderPreference")?.value || "any")
+    : "any";
   const paymentMethod = $("#paymentMethod")?.value || "bank_transfer";
   if (!state.pendingOrderRequestId) {
     state.pendingOrderRequestId = window.crypto?.randomUUID
@@ -611,6 +637,8 @@ async function placeOrder(event) {
         block: $("#deliveryBlock").value,
         room: $("#deliveryRoom").value,
         landmark: $("#deliveryLandmark").value,
+        deliveryType,
+        agentGenderPreference,
         latitude: $("#deliveryLatitude").value === "" ? undefined : Number($("#deliveryLatitude").value),
         longitude: $("#deliveryLongitude").value === "" ? undefined : Number($("#deliveryLongitude").value),
         restaurantId: state.cart[0].restaurantId,
@@ -1993,6 +2021,19 @@ async function loadDashboard(automatic = false) {
           <div class="dashboard-section-heading"><div><h2>Add delivery agent</h2><p>Create a delivery login for a new agent.</p></div></div>
           <form id="adminAddAgentForm" class="order-card">
             <label>Agent full name<input name="name" required minlength="2" maxlength="100" placeholder="Full name"></label>
+            <label>Agent category
+              <select name="agentType" required>
+                <option value="leg">Leg Agent — can deliver to rooms</option>
+                <option value="shuttle">Shuttle Agent — collection points and normal deliveries</option>
+              </select>
+            </label>
+            <label>Agent gender
+              <select name="gender" required>
+                <option value="">Select agent gender</option>
+                <option value="female">Female</option>
+                <option value="male">Male</option>
+              </select>
+            </label>
             <label>Login username<input name="username" required minlength="3" maxlength="30" pattern="[a-zA-Z0-9._-]+" placeholder="agentname"></label>
             <label>Temporary password<input name="password" type="password" required minlength="10" maxlength="128" autocomplete="new-password" placeholder="At least 10 characters"></label>
             <button class="primary-button" type="submit">＋ Add delivery agent</button>

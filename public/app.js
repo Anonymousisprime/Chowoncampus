@@ -2040,6 +2040,29 @@ async function loadDashboard(automatic = false) {
             <p id="adminAddAgentMessage" class="muted" role="status"></p>
           </form>
         </section>
+        <section class="dashboard-order-section" id="adminAgentCategories">
+          <div class="dashboard-section-heading"><div><h2>Manage agent categories</h2><p>Update existing agents' Leg/Shuttle category and gender. Active assignments must be completed first.</p></div></div>
+          ${state.agents.length ? `<div class="order-list">${state.agents.map(agent => `
+            <form class="order-card" data-agent-profile-update="${escapeHtml(agent.id)}" style="display:grid;gap:10px">
+              <strong>${escapeHtml(agent.name)} · ${escapeHtml(agent.username || agent.id)}</strong>
+              <label>Agent category
+                <select name="agentType" required>
+                  <option value="leg" ${String(agent.agentType || "leg") === "leg" ? "selected" : ""}>Leg Agent</option>
+                  <option value="shuttle" ${String(agent.agentType || "leg") === "shuttle" ? "selected" : ""}>Shuttle Agent</option>
+                </select>
+              </label>
+              <label>Agent gender
+                <select name="gender" required>
+                  <option value="">Select gender</option>
+                  <option value="female" ${agent.gender === "female" ? "selected" : ""}>Female</option>
+                  <option value="male" ${agent.gender === "male" ? "selected" : ""}>Male</option>
+                </select>
+              </label>
+              <button class="secondary-button" type="submit">Save agent profile</button>
+              <p class="muted" role="status" data-agent-profile-message></p>
+            </form>
+          `).join("")}</div>` : '<div class="empty-state">No delivery agents have been created yet.</div>'}
+        </section>
         <section class="dashboard-order-section" id="adminStudentAccounts">
           <div class="dashboard-section-heading"><div><h2>Student accounts</h2><p>${studentResult.students.length} registered student account(s). Passwords are never displayed.</p></div><button class="secondary-button" id="refreshAdminStudents" type="button">↻ Refresh students</button></div>
           ${studentResult.students.length ? `
@@ -3276,6 +3299,29 @@ async function initialize() {
         message.textContent = error.message;
         message.classList.remove("success");
       } finally { button.disabled = false; }
+      return;
+    }
+    const agentProfileForm = event.target.closest("[data-agent-profile-update]");
+    if (agentProfileForm) {
+      event.preventDefault();
+      const button = agentProfileForm.querySelector('button[type="submit"]');
+      const message = agentProfileForm.querySelector("[data-agent-profile-message]");
+      const values = Object.fromEntries(new FormData(agentProfileForm).entries());
+      button.disabled = true;
+      message.textContent = "Saving agent profile…";
+      try {
+        const result = await api("/api/admin/agents/" + encodeURIComponent(agentProfileForm.dataset.agentProfileUpdate) + "/profile", {
+          method: "PATCH", body: JSON.stringify(values)
+        });
+        message.textContent = result.message;
+        message.classList.add("success");
+        await loadDashboard();
+        showToast("Agent profile updated.");
+      } catch (error) {
+        message.textContent = error.message;
+        message.classList.remove("success");
+        button.disabled = false;
+      }
       return;
     }
     const addAgentForm = event.target.closest("#adminAddAgentForm");

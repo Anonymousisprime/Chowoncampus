@@ -452,6 +452,7 @@ function updateDeliveryQuoteDisplay(quote) {
   if (!state.cart.length) {
     if (feeElement) feeElement.textContent = money(0);
     if ($("#paymentFee")) $("#paymentFee").textContent = money(0);
+    if ($("#roomDeliveryFee")) $("#roomDeliveryFee").textContent = money(0);
     if (totalElement) totalElement.textContent = money(0);
     if (estimateElement) estimateElement.textContent = "Add food and set a delivery pin to estimate your delivery fee.";
     return;

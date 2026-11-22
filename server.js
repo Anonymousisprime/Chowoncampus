@@ -4799,6 +4799,36 @@ app.post("/api/admin/agents", requireRole("admin"), (req, res) => {
   }
 });
 
+// Admin can update an existing agent's operational category and gender.
+app.patch("/api/admin/agents/:id/profile", requireRole("admin"), (req, res) => {
+  const agentType = String(req.body.agentType || "").toLowerCase();
+  const gender = String(req.body.gender || "").toLowerCase();
+  if (!["leg", "shuttle"].includes(agentType)) return res.status(400).json({ error: "Choose Leg Agent or Shuttle Agent." });
+  if (!["male", "female"].includes(gender)) return res.status(400).json({ error: "Select the agent's gender." });
+  try {
+    const records = readAgentRecords();
+    const agent = records.find(item => item.id === req.params.id);
+    if (!agent) return res.status(404).json({ error: "Delivery agent not found." });
+    const activeOrder = readOrders().find(order =>
+      order.assignedAgentId === agent.id && !["Completed", "Cancelled"].includes(order.status)
+    );
+    if (activeOrder) return res.status(409).json({ error: "Complete or reassign the agent's active order before changing their category or gender." });
+    agent.agentType = agentType;
+    agent.gender = gender;
+    saveAgentRecords(records);
+    agents = records.map(record => ({
+      id: record.id, name: record.name, username: record.username,
+      agentType: record.agentType || "leg", gender: record.gender || "",
+      online: Boolean(record.online), activeOrderId: record.activeOrderId || null,
+      createdAt: record.createdAt || null
+    }));
+    assignReadyOrders();
+    res.json({ ok: true, agent: { id: agent.id, name: agent.name, agentType, gender }, message: "Agent profile updated." });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Could not update agent profile." });
+  }
+});
+
 // Admin can delete a delivery-agent account. Refuse deletion while an active order is assigned.
 app.delete("/api/admin/agents/:id", requireRole("admin"), (req, res) => {
   try {

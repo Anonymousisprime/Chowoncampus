@@ -4944,9 +4944,10 @@ function assignReadyOrders() {
   let changed = false;
 
   for (const order of waiting) {
-    const tried = new Set(Array.isArray(order.offeredAgentIds) ? order.offeredAgentIds : []);
-    // A GPS fix is considered current for two minutes. Never use an old location
-    // to claim that an agent is the nearest one.
+    let tried = new Set(Array.isArray(order.offeredAgentIds) ? order.offeredAgentIds : []);
+    // GPS improves nearest-agent ranking, but must never prevent a delivery from
+    // being assigned. Browser background throttling and missing merchant pins
+    // previously caused both Gate and Room orders to remain stuck indefinitely.
     const locationFreshMs = 2 * 60 * 1000;
     const nowMs = Date.now();
     const pinnedMerchant = order.merchantType === "business"
@@ -4955,63 +4956,71 @@ function assignReadyOrders() {
     const targetLatitude = order.restaurantLatitude ?? pinnedMerchant?.latitude;
     const targetLongitude = order.restaurantLongitude ?? pinnedMerchant?.longitude;
     const hasTargetCoords = validCoordinatePair(targetLatitude, targetLongitude);
-    // A nearest-agent decision is only meaningful when the pickup has a verified
-    // GPS pin. Do not silently fall back to round-robin assignment.
-    if (!hasTargetCoords) {
-      if (!order.pickupLocationMissingNotifiedAt) {
-        const message = `Order ${order.id} is ready, but it cannot be dispatched until this business saves its pickup GPS location. Add the pickup pin, then the nearest available agent can be selected.`;
-        if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, "Pickup location required", message, order.id);
-        else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Pickup location required", message, order.id);
-        createNotification({ role: "admin" }, "Pickup location required", message, order.id);
-        order.pickupLocationMissingNotifiedAt = new Date().toISOString();
-        order.updatedAt = order.pickupLocationMissingNotifiedAt;
-        changed = true;
-      }
-      continue;
-    }
+
     const eligible = records.filter(agent => {
-      if (!agent.online || busyAgentIds.has(agent.id) || agent.activeOrderId || tried.has(agent.id)) return false;
+      if (!agent.online || busyAgentIds.has(agent.id) || agent.activeOrderId) return false;
       // Room orders are restricted to Leg Agents whose recorded gender
       // matches the student's own gender selected at checkout.
       if (order.deliveryType === "room" && String(agent.agentType || "leg").toLowerCase() !== "leg") return false;
-      const requiredRoomAgentGender = order.studentGender || order.agentGenderPreference || "";
+      const requiredRoomAgentGender = String(order.studentGender || order.agentGenderPreference || "").toLowerCase();
       if (order.deliveryType === "room" &&
           (!["male", "female"].includes(requiredRoomAgentGender) ||
            String(agent.gender || "").toLowerCase() !== requiredRoomAgentGender)) return false;
-      const hasAgentCoords = agent.latitude !== null && agent.latitude !== undefined &&
-        agent.longitude !== null && agent.longitude !== undefined &&
-        Number.isFinite(Number(agent.latitude)) && Number.isFinite(Number(agent.longitude));
-      const locationIsFresh = agent.locationUpdatedAt &&
-        nowMs - new Date(agent.locationUpdatedAt).getTime() <= locationFreshMs &&
-        nowMs - new Date(agent.locationUpdatedAt).getTime() >= 0;
-      // Only agents with a valid, recent GPS fix can be ranked by pickup distance.
-      return hasAgentCoords && locationIsFresh;
+      return true;
     });
+
     if (!eligible.length) {
       if (order.deliveryType === "room" && !order.agentMatchUnavailableNotifiedAt) {
-        const requiredGender = order.studentGender || order.agentGenderPreference || "";
+        const requiredGender = String(order.studentGender || order.agentGenderPreference || "").toLowerCase();
         const genderText = ["male", "female"].includes(requiredGender) ? " " + requiredGender : "";
-        const notice = "Your room-delivery order is waiting for an available same-gender" + genderText + " Leg Agent. It will be assigned automatically when an eligible agent is online with a fresh GPS location.";
+        const notice = "Your room-delivery order is waiting for an available same-gender" + genderText + " Leg Agent. It will be assigned automatically when an eligible agent is online.";
         createNotification({ role: "student", username: order.customerPhone }, "Waiting for a room-delivery agent", notice, order.id);
         createNotification({ role: "admin" }, "Room delivery awaiting eligible agent", "Order " + order.id + " has no available matching Leg Agent yet.", order.id);
         order.agentMatchUnavailableNotifiedAt = new Date().toISOString();
         changed = true;
-      }
-      if (hasTargetCoords) {
-        if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, "Waiting for nearby agent GPS", `Order ${order.id} is ready, but no available agent has a fresh GPS location yet. Keep the pickup pin saved and ask online agents to enable location.`, order.id);
-        else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Waiting for nearby agent GPS", `Order ${order.id} is ready, but no available agent has a fresh GPS location yet. Keep the pickup pin saved and ask online agents to enable location.`, order.id);
+      } else if (order.deliveryType !== "room" && !order.noAvailableAgentNotifiedAt) {
+        const notice = "Order " + order.id + " is ready but no delivery agent is currently available. It will be assigned automatically when an agent comes online.";
+        if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, "Waiting for a delivery agent", notice, order.id);
+        else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Waiting for a delivery agent", notice, order.id);
+        createNotification({ role: "admin" }, "Order awaiting delivery agent", notice, order.id);
+        order.noAvailableAgentNotifiedAt = new Date().toISOString();
+        changed = true;
       }
       continue;
     }
 
-    // Pickup is at the merchant's saved GPS pin. Rank by straight-line distance
-    // from each agent's latest GPS fix; never substitute the student's delivery pin.
-    eligible.sort((a, b) =>
-      distanceKm(targetLatitude, targetLongitude, a.latitude, a.longitude) -
-      distanceKm(targetLatitude, targetLongitude, b.latitude, b.longitude)
-    );
+    // Prefer agents not yet offered this order. If every eligible agent has
+    // already had an expired offer, start a fresh round instead of deadlocking.
+    let assignmentPool = eligible.filter(agent => !tried.has(agent.id));
+    if (!assignmentPool.length) {
+      tried = new Set();
+      assignmentPool = eligible;
+    }
 
-    const agent = eligible[0];
+    const hasFreshGps = agent => {
+      const hasCoords = agent.latitude !== null && agent.latitude !== undefined &&
+        agent.longitude !== null && agent.longitude !== undefined &&
+        Number.isFinite(Number(agent.latitude)) && Number.isFinite(Number(agent.longitude));
+      const age = agent.locationUpdatedAt ? nowMs - new Date(agent.locationUpdatedAt).getTime() : Infinity;
+      return hasCoords && age >= 0 && age <= locationFreshMs;
+    };
+
+    // Use nearest-agent dispatch when both the merchant pin and a fresh agent
+    // GPS fix exist. Otherwise use fair rotation; GPS is never a hard blocker.
+    assignmentPool.sort((a, b) => {
+      const aFresh = hasFreshGps(a);
+      const bFresh = hasFreshGps(b);
+      if (hasTargetCoords && aFresh && bFresh) {
+        const distanceDifference = distanceKm(targetLatitude, targetLongitude, a.latitude, a.longitude) -
+          distanceKm(targetLatitude, targetLongitude, b.latitude, b.longitude);
+        if (Math.abs(distanceDifference) > 0.000001) return distanceDifference;
+      }
+      if (aFresh !== bFresh) return aFresh ? -1 : 1;
+      return new Date(a.lastAssignedAt || 0).getTime() - new Date(b.lastAssignedAt || 0).getTime();
+    });
+
+    const agent = assignmentPool[0];
+    const agentHasFreshGps = hasFreshGps(agent);
     const now = new Date();
     order.assignedAgentId = agent.id;
     order.assignmentOfferedAt = now.toISOString();
@@ -5027,7 +5036,7 @@ function assignReadyOrders() {
     agent.activeOrderId = order.id;
     agent.lastAssignedAt = now.toISOString();
     busyAgentIds.add(agent.id);
-    recordOperationsEvent({ type: "delivery_assignment_offered", entityType: "order", entityId: order.id, entityName: order.restaurantName || "Order", orderId: order.id, actorRole: "system", actorId: "auto-dispatch", details: "Pickup offer sent to " + agent.name + (hasTargetCoords ? " as the nearest eligible agent." : " using fair-rotation fallback.") });
+    recordOperationsEvent({ type: "delivery_assignment_offered", entityType: "order", entityId: order.id, entityName: order.restaurantName || "Order", orderId: order.id, actorRole: "system", actorId: "auto-dispatch", details: "Pickup offer sent to " + agent.name + (hasTargetCoords && agentHasFreshGps ? " as the nearest eligible agent." : " using fair-rotation fallback because pickup or live GPS data was unavailable.") });
 
     const deliveryDestination = String(order.hostel || order.deliveryLocation?.hostel || "Address not provided");
     const destinationLatitude = Number(order.deliveryLocation?.latitude);

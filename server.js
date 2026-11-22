@@ -4927,6 +4927,15 @@ function assignReadyOrders() {
       return hasAgentCoords && locationIsFresh;
     });
     if (!eligible.length) {
+      if (order.deliveryType === "room" && !order.agentMatchUnavailableNotifiedAt) {
+        const preferenceText = ["male", "female"].includes(order.agentGenderPreference)
+          ? order.agentGenderPreference + " " : "";
+        const notice = "Your room-delivery order is waiting for an available " + preferenceText + "Leg Agent. It will be assigned automatically when an eligible agent is online with a fresh GPS location.";
+        createNotification({ role: "student", username: order.customerPhone }, "Waiting for a room-delivery agent", notice, order.id);
+        createNotification({ role: "admin" }, "Room delivery awaiting eligible agent", "Order " + order.id + " has no available matching Leg Agent yet.", order.id);
+        order.agentMatchUnavailableNotifiedAt = new Date().toISOString();
+        changed = true;
+      }
       if (hasTargetCoords) {
         if (order.merchantType === "business") createNotification({ role: "business", businessId: order.businessId }, "Waiting for nearby agent GPS", `Order ${order.id} is ready, but no available agent has a fresh GPS location yet. Keep the pickup pin saved and ask online agents to enable location.`, order.id);
         else createNotification({ role: "restaurant", restaurantId: order.restaurantId }, "Waiting for nearby agent GPS", `Order ${order.id} is ready, but no available agent has a fresh GPS location yet. Keep the pickup pin saved and ask online agents to enable location.`, order.id);

@@ -433,17 +433,18 @@ let deliveryAreaCircle = null;
 function updateDeliveryModeFields() {
   const deliveryType = $("#deliveryType")?.value || "gate";
   const roomInput = $("#deliveryRoom");
-  const preference = $("#agentGenderPreference");
-  const preferenceGroup = $("#roomAgentGenderPreference");
-  if (preferenceGroup) preferenceGroup.hidden = deliveryType !== "room";
+  const studentGender = $("#studentGender");
+  const genderGroup = $("#roomStudentGender");
+  if (genderGroup) genderGroup.hidden = deliveryType !== "room";
   if (roomInput) {
     roomInput.required = deliveryType === "room";
     roomInput.disabled = deliveryType !== "room";
     if (deliveryType !== "room") roomInput.value = "";
   }
-  if (preference) {
-    preference.disabled = deliveryType !== "room";
-    if (deliveryType !== "room") preference.value = "any";
+  if (studentGender) {
+    studentGender.required = deliveryType === "room";
+    studentGender.disabled = deliveryType !== "room";
+    if (deliveryType !== "room") studentGender.value = "";
   }
 }
 
@@ -620,9 +621,12 @@ async function placeOrder(event) {
   if (deliveryType === "room" && !$("#deliveryRoom")?.value.trim()) {
     return showMessage("#checkoutMessage", "Enter your room number for direct room delivery.");
   }
-  const agentGenderPreference = deliveryType === "room"
-    ? ($("#agentGenderPreference")?.value || "any")
-    : "any";
+  const studentGender = deliveryType === "room"
+    ? ($("#studentGender")?.value || "")
+    : ""; 
+  if (deliveryType === "room" && !["male", "female"].includes(studentGender)) {
+    return showMessage("#checkoutMessage", "Select your gender to arrange a same-gender Leg Agent for room delivery.");
+  }
   const paymentMethod = $("#paymentMethod")?.value || "bank_transfer";
   if (!state.pendingOrderRequestId) {
     state.pendingOrderRequestId = window.crypto?.randomUUID
@@ -641,7 +645,7 @@ async function placeOrder(event) {
         room: $("#deliveryRoom").value,
         landmark: $("#deliveryLandmark").value,
         deliveryType,
-        agentGenderPreference,
+        studentGender,
         latitude: $("#deliveryLatitude").value === "" ? undefined : Number($("#deliveryLatitude").value),
         longitude: $("#deliveryLongitude").value === "" ? undefined : Number($("#deliveryLongitude").value),
         restaurantId: state.cart[0].restaurantId,

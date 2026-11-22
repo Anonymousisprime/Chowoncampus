@@ -122,14 +122,14 @@
             <option value="gate">Gate / collection point</option>
             <option value="room">Direct room delivery (+₦100)</option>
           </select>
-          <div id="roomAgentGenderPreference" hidden>
-            <label for="agentGenderPreference">Preferred Leg Agent gender</label>
-            <select id="agentGenderPreference" name="agentGenderPreference" disabled>
-              <option value="any">No preference</option>
-              <option value="female">Female agent</option>
-              <option value="male">Male agent</option>
+          <div id="roomStudentGender" hidden>
+            <label for="studentGender">Your gender <span class="muted">(required for room delivery)</span></label>
+            <select id="studentGender" name="studentGender" disabled>
+              <option value="">Select your gender</option>
+              <option value="female">Female</option>
+              <option value="male">Male</option>
             </select>
-            <p class="small-note">Only Leg Agents can deliver to rooms. Choose whether you prefer a female or male Leg Agent, or select no preference.</p>
+            <p class="small-note">For direct room delivery, ChowOnCampus matches you with an available Leg Agent of the same gender. Your selection is used for this room-delivery order.</p>
           </div>
           <label for="hostel">Hostel / residence / collection point <span class="muted">(required)</span></label>
           <input id="hostel" name="hostel" type="text" placeholder="e.g. Hall 2 or Hall 2 gate" maxlength="150" required>

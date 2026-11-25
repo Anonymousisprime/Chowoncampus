@@ -11,4 +11,4 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: DATABASE_PATH
-        value: /var/data/chowoncampus.db
+        value: /tmp/chowoncampus.db

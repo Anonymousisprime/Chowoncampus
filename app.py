@@ -213,6 +213,7 @@ def accept(oid):
             c.rollback(); flash("This offer is no longer available or you are not eligible."); return redirect("/agent")
         c.execute("UPDATE orders SET agent_id=?,status='assigned' WHERE id=? AND agent_id IS NULL",(u["id"],oid))
         c.execute("UPDATE offers SET status='accepted' WHERE order_id=? AND agent_id=?",(oid,u["id"]))
+        c.execute("UPDATE agents SET available=0 WHERE user_id=?",(u["id"],))
         c.commit()
     flash(f"You accepted order #{oid}."); return redirect("/agent")
 

@@ -147,14 +147,39 @@ def business():
         b=c.execute("SELECT * FROM businesses WHERE owner_id=?",(u["id"],)).fetchone()
         if not b or b["status"]!="approved": return page("<div class='card'><h2>Application pending</h2><p>Admin approval is required before you can manage your business.</p></div>")
         if request.method=="POST":
-            if "toggle" in request.form: c.execute("UPDATE businesses SET online=? WHERE id=?",(0 if b["online"] else 1,b["id"]))
+            if "toggle" in request.form:
+                c.execute("UPDATE businesses SET online=? WHERE id=?",(0 if b["online"] else 1,b["id"]))
+            elif "ready_order" in request.form:
+                oid=request.form.get("ready_order",type=int)
+                order=c.execute("SELECT * FROM orders WHERE id=? AND business_id=? AND agent_id IS NULL AND status='placed'",(oid,b["id"])).fetchone()
+                if order:
+                    c.execute("UPDATE orders SET status='ready' WHERE id=?",(oid,))
+                    if order["delivery_type"]=="room":
+                        candidate=c.execute("SELECT user_id FROM agents WHERE available=1 AND gender=? ORDER BY user_id LIMIT 1",(order["agent_gender_pref"],)).fetchone()
+                    else:
+                        candidate=c.execute("SELECT user_id FROM agents WHERE available=1 ORDER BY user_id LIMIT 1").fetchone()
+                    if candidate:
+                        c.execute("INSERT OR IGNORE INTO offers(order_id,agent_id) VALUES(?,?)",(oid,candidate["user_id"]))
+                        c.execute("UPDATE orders SET status='offering' WHERE id=?",(oid,))
+                        flash("Order marked ready and an eligible agent has been notified.")
+                    else:
+                        c.execute("UPDATE orders SET status='queued' WHERE id=?",(oid,))
+                        flash("Order is queued: no eligible agent is available.")
+                else: flash("That order cannot be dispatched.")
             else:
                 name=request.form.get("name","").strip(); price=request.form.get("price",type=int)
                 if name and price and 0<price<100000000: c.execute("INSERT INTO products(business_id,name,price) VALUES(?,?,?)",(b["id"],name,price))
             return redirect("/business")
         items=c.execute("SELECT * FROM products WHERE business_id=?",(b["id"],)).fetchall()
+        orders=c.execute("SELECT * FROM orders WHERE business_id=? ORDER BY id DESC",(b["id"],)).fetchall()
     body=f"<div class='card'><h2>{b['name']}</h2><p>Status: <span class='tag'>{'Online' if b['online'] else 'Offline'}</span></p><form method='post'><button name='toggle' value='1'>Go {'offline' if b['online'] else 'online'}</button></form></div><div class='card'><h2>Add product</h2><form method='post'><label>Item name</label><input name='name' required><label>Price (₦)</label><input name='price' type='number' min='1' required><button>Add item</button></form></div><div class='card'><h2>Your products</h2>"
     for p in items: body+=f"<p>{p['name']} · ₦{p['price']:,} · {'Available' if p['available'] else 'Unavailable'}</p>"
+    body+="</div><div class='card'><h2>Incoming orders</h2>"
+    if not orders: body+="<p class='muted'>No orders yet.</p>"
+    for o in orders:
+        body+=f"<p>Order #{o['id']} · {o['delivery_type']} · ₦{o['subtotal']+o['delivery_fee']:,} · {o['status']}"
+        if o["status"]=="placed": body+=f"<form class='inline' method='post'><button name='ready_order' value='{o['id']}'>Mark ready & dispatch</button></form>"
+        body+="</p>"
     body+="</div>"
     return page(body)
 
@@ -219,16 +244,19 @@ def approve_business(bid):
     with db() as c: c.execute("UPDATE businesses SET status='approved' WHERE id=?",(bid,))
     return redirect("/admin")
 
-@app.get("/setup-admin")
+@app.route("/setup-admin",methods=["GET","POST"])
 def setup_admin():
     token=os.environ.get("ADMIN_BOOTSTRAP_TOKEN")
     if not token: return page("<div class='card'><h2>Admin setup disabled</h2><p>Set ADMIN_BOOTSTRAP_TOKEN in the hosting environment first.</p></div>")
-    if request.args.get("token")!=token: return page("<div class='card'><h2>Admin setup</h2><p>Open this route with your configured bootstrap token.</p></div>"),403
-    if request.args.get("confirm")=="yes":
+    if request.method=="POST":
+        if not secrets.compare_digest(request.form.get("token",""),token): return page("<div class='card'><h2>Invalid setup token</h2></div>"),403
         with db() as c:
             if c.execute("SELECT 1 FROM users WHERE role='admin'").fetchone(): return page("<div class='card'>An admin already exists.</div>")
-            c.execute("INSERT INTO users(name,email,phone,password,role,status) VALUES(?,?,?,?,?,?)",("ChowOnCampus Admin",os.environ["ADMIN_EMAIL"],"admin",generate_password_hash(os.environ["ADMIN_PASSWORD"]),"admin","approved"))
-        return page("<div class='card'><h2>Admin created</h2><p>Sign in with the credentials configured in hosting environment.</p></div>")
-    return page("<div class='card'><h2>Confirm first admin setup</h2><a class='btn' href='/setup-admin?token="+token+"&confirm=yes'>Create first admin</a></div>")
+            email=os.environ.get("ADMIN_EMAIL","").strip().lower()
+            password=os.environ.get("ADMIN_PASSWORD","")
+            if not email or len(password)<12: return page("<div class='card'>Set ADMIN_EMAIL and an ADMIN_PASSWORD of at least 12 characters in the hosting environment.</div>"),400
+            c.execute("INSERT INTO users(name,email,phone,password,role,status) VALUES(?,?,?,?,?,?)",("ChowOnCampus Admin",email,"admin",generate_password_hash(password),"admin","approved"))
+        return page("<div class='card'><h2>Admin created</h2><p>Sign in using the credentials configured privately in the hosting environment. Remove ADMIN_BOOTSTRAP_TOKEN after setup.</p></div>")
+    return page("<div class='card'><h2>First admin setup</h2><p>Enter the one-time token configured in your hosting environment.</p><form method='post'><label>Bootstrap token</label><input name='token' type='password' required><button>Create first admin</button></form></div>")
 
 if __name__=="__main__": app.run(host="0.0.0.0",port=int(os.environ.get("PORT",5000)))

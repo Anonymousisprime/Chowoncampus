@@ -2,45 +2,45 @@
 
 Independent, mobile-first ordering and operations platform for ChowOnCampus.
 
-This application is being developed separately from the existing ChowOnCampus website. It will use GitHub for source control and a separately configured application host and PostgreSQL database.
+## Current MVP
 
-## Planned interfaces
+- Student registration and sign-in with salted PBKDF2 password hashes
+- PostgreSQL (or local SQLite) persistence
+- Business and available-product catalogue
+- Single-business cart and order submission
+- Gate / room delivery details and room-only agent gender preference
+- Order totals using current delivery charges
 
-- Student: browse participating businesses and products, build a cart, submit delivery details, and track an order.
-- Agent: receive and accept assignments, record purchase amounts, upload receipts, update delivery progress, and view delivery earnings.
-- Admin: manage catalogue, businesses, students, agents, orders, exceptions, financial reconciliation, and daily reports.
-
-## Operating rules captured so far
+## Operating rules
 
 - Gate delivery: ₦300.
 - Room delivery: ₦400 total (₦300 delivery + ₦100 room surcharge).
 - Product prices are set by each participating business.
 - Only participating campus businesses are listed.
 - Room delivery uses the student's selected male/female agent preference; gate delivery does not require gender matching.
-- Payment gateway is not required for the first version. The app records payment and reconciliation evidence; it does not move money.
+- No payment gateway is connected. The app records an order and calculates the expected amount; it does not receive, hold, or transfer money.
 - Any changed product price or unavailable item must be confirmed by the student before purchase.
 
-## Financial control
+## Run locally
 
-Every order must have its own ledger. The system must distinguish:
-- Amount collected from the student
-- Actual purchase cost (supported by receipt)
-- Delivery fee and room surcharge
-- Agent delivery compensation
-- Amount due to / remitted to ChowOnCampus
-- Refunds, adjustments, and unresolved differences
+From this directory:
 
-A transfer is not considered verified solely because an agent marks it as paid. Admin reconciliation must record evidence and status.
+1. Create a Python virtual environment.
+2. Install dependencies: `pip install -r requirements.txt`.
+3. Initialize the database: `python -m express.init_db`.
+4. Start the app: `reflex run`.
 
-## Local development
+Set `DATABASE_URL` to a PostgreSQL connection string in deployment. If omitted, local development uses SQLite.
 
-1. Create and activate a Python virtual environment.
-2. Install dependencies from requirements.txt.
-3. Initialize the Reflex project if the local Reflex CLI requires it.
-4. Run reflex run.
+The seed catalogue contains deliberately unavailable sample items. Add verified businesses and products through future admin tooling before accepting real orders.
 
-The initial scaffold is intentionally small. Authentication, database models, migrations, file storage, dispatch logic, and reporting will be added in separate tested steps.
+## Production checklist
 
-## Configuration
-
-Use environment variables for database connection strings, session secrets, and storage credentials. Never commit credentials, bank account details, student personal data, or receipt images to GitHub.
+This is a development MVP, not ready for real student data or live operations. Before launch:
+- Add admin-managed agent/business accounts, role-based dashboards and server-side authorization.
+- Add session hardening, login throttling, password reset and audit logs.
+- Add database migrations, automated backups and managed file storage for receipts.
+- Add per-order financial reconciliation with explicit review states.
+- Add dispatch acceptance/timeout logic and test room-delivery gender matching.
+- Configure HTTPS, secret storage, monitoring and privacy/retention controls.
+- Do not store bank account numbers in public GitHub files or expose one agent's account details to other users.
